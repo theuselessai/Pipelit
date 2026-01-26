@@ -1,43 +1,46 @@
-#!/usr/bin/env python3
-"""
-Telegram bot that relays messages to a local AIChat server with session management.
-"""
+"""Telegram command and message handlers."""
+import asyncio
 import logging
 
 import httpx
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+from telegram.ext import ContextTypes
 
-from config import config
-import sessions
-
-# Logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+from app.config import settings
+from app.services.aichat import (
+    AsyncAIChatService,
+    get_compress_threshold,
+    get_context_window,
+    strip_thinking_tags,
 )
+from app.services.sessions import SessionService
+from app.services.tokens import count_tokens
+from app.tasks.chat import process_chat_message
+from app.tasks.queues import default_queue
+
 logger = logging.getLogger(__name__)
 
-# HTTP client for AIChat
-http_client = httpx.AsyncClient(timeout=120.0)
+# Session service for sync operations (via asyncio.to_thread)
+_session_service: SessionService | None = None
 
-# Database connection
-db_conn = None
+
+def get_session_service() -> SessionService:
+    """Get or create session service."""
+    global _session_service
+    if _session_service is None:
+        _session_service = SessionService()
+    return _session_service
 
 
 def is_allowed(user_id: int) -> bool:
     """Check if user is whitelisted."""
-    if not config.ALLOWED_USER_IDS:
+    allowed = settings.allowed_user_ids_list
+    if not allowed:
         return True  # No whitelist = allow all (for testing)
-    return user_id in config.ALLOWED_USER_IDS
+    return user_id in allowed
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     if not is_allowed(update.effective_user.id):
         await update.message.reply_text("Access denied.")
@@ -53,7 +56,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def clear_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /clear command - clear conversation history."""
     user_id = update.effective_user.id
 
@@ -61,11 +64,12 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Access denied.")
         return
 
-    sessions.clear_conversation(db_conn, user_id)
+    session_service = get_session_service()
+    await asyncio.to_thread(session_service.clear_conversation, user_id)
     await update.message.reply_text("Conversation cleared.")
 
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /stats command - show session statistics."""
     user_id = update.effective_user.id
 
@@ -73,7 +77,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Access denied.")
         return
 
-    stats_data = sessions.get_stats(db_conn, user_id)
+    session_service = get_session_service()
+    stats_data = await asyncio.to_thread(session_service.get_stats, user_id)
 
     if stats_data["message_count"] == 0:
         await update.message.reply_text("No conversation history yet.")
@@ -89,7 +94,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-async def context_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def context_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /context command - show context window usage."""
     user_id = update.effective_user.id
 
@@ -97,9 +102,11 @@ async def context_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Access denied.")
         return
 
-    stats_data = sessions.get_stats(db_conn, user_id)
-    context_window = sessions.get_context_window(config.AICHAT_MODEL)
-    threshold = sessions.get_compress_threshold(config.AICHAT_MODEL)
+    session_service = get_session_service()
+    stats_data = await asyncio.to_thread(session_service.get_stats, user_id)
+
+    context_window = get_context_window(settings.AICHAT_MODEL)
+    threshold = get_compress_threshold(settings.AICHAT_MODEL)
     token_count = stats_data["token_count"]
 
     usage_pct = (token_count / context_window * 100) if context_window > 0 else 0
@@ -107,16 +114,16 @@ async def context_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = (
         f"Context Window Usage:\n"
-        f"- Model: {config.AICHAT_MODEL}\n"
+        f"- Model: {settings.AICHAT_MODEL}\n"
         f"- Context window: {context_window:,} tokens\n"
-        f"- Compress threshold: {threshold:,} tokens ({config.COMPRESS_RATIO:.0%})\n"
+        f"- Compress threshold: {threshold:,} tokens ({settings.COMPRESS_RATIO:.0%})\n"
         f"- Current usage: {token_count:,} tokens ({usage_pct:.1f}%)\n"
         f"- Until compression: {threshold_pct:.1f}%"
     )
     await update.message.reply_text(text)
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
     user_id = update.effective_user.id
 
@@ -126,17 +133,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_message = update.message.text
+    chat_id = update.effective_chat.id
+    message_id = update.message.message_id
+
     logger.info(f"[{user_id}] {user_message[:50]}...")
 
     # Show typing indicator
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action="typing"
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    session_service = get_session_service()
+
+    # Check if we should use background processing
+    should_background = await asyncio.to_thread(
+        session_service.should_use_background, user_id, user_message
     )
 
+    if should_background:
+        # Enqueue to RQ for background processing
+        job = default_queue.enqueue(
+            process_chat_message,
+            chat_id=chat_id,
+            user_id=user_id,
+            message=user_message,
+            message_id=message_id,
+            job_timeout=settings.JOB_TIMEOUT,
+        )
+        logger.info(f"Enqueued job {job.id} for user {user_id}")
+        # Don't send "processing" message - just let the worker respond
+        return
+
+    # Process synchronously via thread pool for small contexts
     try:
-        # Process message with session management
-        response = await sessions.process_message(
-            db_conn, http_client, user_id, user_message
+        response = await asyncio.to_thread(
+            session_service.process_message, user_id, user_message
         )
 
         # Send response (split if too long)
@@ -158,48 +187,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error: {e}")
         await update.message.reply_text(f"Error: {str(e)}")
-
-
-async def on_startup(application: Application):
-    """Initialize on startup."""
-    global db_conn
-
-    # Initialize database
-    db_conn = sessions.init_db()
-
-    # Fetch model context windows
-    await sessions.fetch_model_context_windows(http_client)
-
-    logger.info("Bot started with session management enabled")
-
-
-async def on_shutdown(application: Application):
-    """Cleanup on shutdown."""
-    await http_client.aclose()
-    if db_conn:
-        db_conn.close()
-
-
-def main():
-    """Start the bot."""
-    logger.info("Starting Telegram-AIChat bot...")
-
-    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
-
-    # Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("clear", clear))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("context", context_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Lifecycle hooks
-    app.post_init = on_startup
-    app.post_shutdown = on_shutdown
-
-    # Run
-    app.run_polling(allowed_updates=["message"], drop_pending_updates=True)
-
-
-if __name__ == "__main__":
-    main()

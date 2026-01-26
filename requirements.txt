@@ -1,4 +1,13 @@
+# Core
 python-telegram-bot>=21.0
 httpx>=0.25.0
 python-dotenv>=1.0.0
 tiktoken>=0.7.0
+
+# FastAPI + RQ
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+rq>=1.16.0
+redis>=5.0.0
+rq-dashboard>=0.7.0
+pydantic-settings>=2.1.0

@@ -1,16 +1,39 @@
 # AIChat Telegram Bot
 
-A lightweight Python relay that bridges Telegram messaging with a local [AIChat](https://github.com/sigoden/aichat) server, providing access to Venice.ai GLM-4.7 through Telegram.
+A Python bot that bridges Telegram messaging with a local [AIChat](https://github.com/sigoden/aichat) server, providing access to Venice.ai GLM-4.7 through Telegram. Features session management, automatic context compression, and background task processing with Redis Queue.
 
 ## Architecture
 
 ```
-Telegram User → Telegram Cloud → This Bot (Python) → AIChat Server (localhost:8000) → Venice.ai
+┌─────────────────────────────────────────────────────────────┐
+│                     Local Machine                           │
+│                                                             │
+│  ┌──────────────┐     ┌──────────────┐     ┌─────────────┐ │
+│  │  Telegram    │     │   FastAPI    │     │ RQ Worker   │ │
+│  │  Poller      │────▶│   Server     │────▶│  (tasks)    │ │
+│  │  (async)     │     │  (optional)  │     │             │ │
+│  └──────────────┘     └──────────────┘     └─────────────┘ │
+│         │                    │                    │        │
+│         └────────────────────┼────────────────────┘        │
+│                              ▼                             │
+│           ┌─────────────────────────────────┐              │
+│           │         Redis + SQLite          │              │
+│           └─────────────────────────────────┘              │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+## Features
+
+- **Session Management** - Persistent conversations stored in SQLite
+- **Context Compression** - Automatic summarization when context gets too long
+- **Background Processing** - Long-running tasks handled via Redis Queue
+- **Monitoring** - Built-in rq-dashboard for job monitoring
+- **Access Control** - Whitelist users by Telegram ID
 
 ## Prerequisites
 
 - Python 3.10+
+- Redis server
 - [AIChat](https://github.com/sigoden/aichat) installed and configured with Venice.ai
 - Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 
@@ -29,7 +52,18 @@ Telegram User → Telegram Cloud → This Bot (Python) → AIChat Server (localh
    pip install -r requirements.txt
    ```
 
-3. **Configure environment**
+3. **Install Redis**
+   ```bash
+   # macOS
+   brew install redis
+   brew services start redis
+
+   # Linux (Debian/Ubuntu)
+   sudo apt install redis-server
+   sudo systemctl start redis
+   ```
+
+4. **Configure environment**
    ```bash
    cp .env.example .env
    # Edit .env with your TELEGRAM_BOT_TOKEN and ALLOWED_USER_IDS
@@ -37,16 +71,41 @@ Telegram User → Telegram Cloud → This Bot (Python) → AIChat Server (localh
 
 ## Running
 
-**Terminal 1 - Start AIChat Server:**
+**Terminal 1 - Start Redis (if not running as service):**
+```bash
+redis-server
+```
+
+**Terminal 2 - Start AIChat Server:**
 ```bash
 aichat --serve
 ```
 
-**Terminal 2 - Start Telegram Bot:**
+**Terminal 3 - Start RQ Worker:**
 ```bash
 source .venv/bin/activate
-python main.py
+rq worker high default low
 ```
+
+**Terminal 4 - Start Telegram Bot:**
+```bash
+source .venv/bin/activate
+python -m app.main
+```
+
+**Optional - RQ Dashboard (monitoring):**
+```bash
+rq-dashboard  # Opens at http://localhost:9181
+```
+
+## Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and help |
+| `/clear` | Clear conversation history |
+| `/stats` | Show session statistics |
+| `/context` | Show context window usage |
 
 ## Configuration
 
@@ -55,16 +114,37 @@ python main.py
 | `TELEGRAM_BOT_TOKEN` | Bot token from BotFather | Required |
 | `ALLOWED_USER_IDS` | Comma-separated user IDs (empty = allow all) | Empty |
 | `AICHAT_BASE_URL` | AIChat server URL | `http://127.0.0.1:8000` |
-| `AICHAT_MODEL` | Model to use | `venice:glm-4.7` |
+| `AICHAT_MODEL` | Model to use | `venice:zai-org-glm-4.7` |
+| `REDIS_HOST` | Redis server host | `localhost` |
+| `REDIS_PORT` | Redis server port | `6379` |
+| `BACKGROUND_THRESHOLD_TOKENS` | Token count to trigger background processing | `5000` |
+| `API_ENABLED` | Enable optional FastAPI server | `false` |
 
 ## Project Structure
 
 ```
-├── main.py          # Telegram bot handlers
-├── config.py        # Environment configuration
-├── requirements.txt # Python dependencies
-├── .env.example     # Environment template
-└── docs/main.md     # Detailed architecture docs
+app/
+├── main.py              # Entry point
+├── config.py            # Pydantic settings
+├── bot/
+│   ├── poller.py        # Telegram polling
+│   └── handlers.py      # Command handlers
+├── api/
+│   ├── health.py        # Health endpoints
+│   └── sessions.py      # REST API
+├── services/
+│   ├── telegram.py      # Telegram API client
+│   ├── aichat.py        # AIChat client
+│   ├── sessions.py      # Session management
+│   └── tokens.py        # Token counting
+├── models/
+│   ├── database.py      # DB models
+│   └── schemas.py       # Pydantic schemas
+├── db/
+│   └── repository.py    # Data access layer
+└── tasks/
+    ├── queues.py        # RQ queue definitions
+    └── chat.py          # Background tasks
 ```
 
 ## License
