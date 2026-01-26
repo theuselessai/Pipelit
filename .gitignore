@@ -1,6 +1,9 @@
 # Environment variables (contains secrets)
 .env
 
+# Database
+sessions.db
+
 # Python
 __pycache__/
 *.py[cod]
