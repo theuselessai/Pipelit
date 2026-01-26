@@ -38,8 +38,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
 
-    # Task thresholds
-    BACKGROUND_THRESHOLD_TOKENS: int = 5000
+    # Task settings
     JOB_TIMEOUT: int = 300
 
     # Optional API

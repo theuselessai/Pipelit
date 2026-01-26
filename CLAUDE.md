@@ -114,7 +114,7 @@ app/
 
 - Uses `httpx` for HTTP calls (async for bot, sync for workers)
 - OpenAI-compatible request format: `{"model": ..., "messages": [...]}`
-- Messages over `BACKGROUND_THRESHOLD_TOKENS` are processed via RQ
+- All messages processed via RQ workers for consistent architecture
 - Automatic conversation compression when tokens exceed threshold
 - SQLite for session persistence (`sessions.db`)
 - Redis for task queue (`localhost:6379`)
@@ -136,8 +136,7 @@ AICHAT_MODEL=venice:zai-org-glm-4.7
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# Task thresholds
-BACKGROUND_THRESHOLD_TOKENS=5000  # Use RQ above this
+# Task settings
 JOB_TIMEOUT=300  # 5 minutes
 
 # Optional API

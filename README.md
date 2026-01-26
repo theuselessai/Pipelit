@@ -117,7 +117,7 @@ rq-dashboard  # Opens at http://localhost:9181
 | `AICHAT_MODEL` | Model to use | `venice:zai-org-glm-4.7` |
 | `REDIS_HOST` | Redis server host | `localhost` |
 | `REDIS_PORT` | Redis server port | `6379` |
-| `BACKGROUND_THRESHOLD_TOKENS` | Token count to trigger background processing | `5000` |
+| `JOB_TIMEOUT` | Max time for RQ job (seconds) | `300` |
 | `API_ENABLED` | Enable optional FastAPI server | `false` |
 
 ## Project Structure

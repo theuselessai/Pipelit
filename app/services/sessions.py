@@ -123,16 +123,6 @@ class SessionService:
             logger.error(f"Error processing message for user {user_id}: {e}")
             raise
 
-    def should_use_background(self, user_id: int, text: str) -> bool:
-        """Determine if message should be processed in background."""
-        # Get current token count
-        stats = self.get_stats(user_id)
-        current_tokens = stats.get("token_count", 0)
-
-        # Use background processing for large contexts
-        return current_tokens >= settings.BACKGROUND_THRESHOLD_TOKENS
-
-
 # Convenience functions
 _session_service: SessionService | None = None
 

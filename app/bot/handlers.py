@@ -2,19 +2,12 @@
 import asyncio
 import logging
 
-import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.config import settings
-from app.services.aichat import (
-    AsyncAIChatService,
-    get_compress_threshold,
-    get_context_window,
-    strip_thinking_tags,
-)
+from app.services.aichat import get_compress_threshold, get_context_window
 from app.services.sessions import SessionService
-from app.services.tokens import count_tokens
 from app.tasks.chat import process_chat_message
 from app.tasks.queues import default_queue
 
@@ -141,49 +134,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Show typing indicator
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    session_service = get_session_service()
-
-    # Check if we should use background processing
-    should_background = await asyncio.to_thread(
-        session_service.should_use_background, user_id, user_message
+    # Enqueue to RQ worker for processing
+    job = default_queue.enqueue(
+        process_chat_message,
+        chat_id=chat_id,
+        user_id=user_id,
+        message=user_message,
+        message_id=message_id,
+        job_timeout=settings.JOB_TIMEOUT,
     )
-
-    if should_background:
-        # Enqueue to RQ for background processing
-        job = default_queue.enqueue(
-            process_chat_message,
-            chat_id=chat_id,
-            user_id=user_id,
-            message=user_message,
-            message_id=message_id,
-            job_timeout=settings.JOB_TIMEOUT,
-        )
-        logger.info(f"Enqueued job {job.id} for user {user_id}")
-        # Don't send "processing" message - just let the worker respond
-        return
-
-    # Process synchronously via thread pool for small contexts
-    try:
-        response = await asyncio.to_thread(
-            session_service.process_message, user_id, user_message
-        )
-
-        # Send response (split if too long)
-        max_len = 4096
-        if len(response) <= max_len:
-            await update.message.reply_text(response)
-        else:
-            for i in range(0, len(response), max_len):
-                await update.message.reply_text(response[i : i + max_len])
-
-    except httpx.TimeoutException:
-        await update.message.reply_text(
-            "Request timed out. The server took too long to respond.\n"
-            "Your message was saved - you can try again or use /clear to start fresh."
-        )
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error: {e}")
-        await update.message.reply_text(f"API error: {e.response.status_code}")
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text(f"Error: {str(e)}")
+    logger.info(f"Enqueued job {job.id} for user {user_id}")
