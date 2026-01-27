@@ -1,26 +1,23 @@
 """
-Router: Classifies incoming messages and determines execution strategy.
+Router: Data classes and parse helper for message categorization.
 
-Routes messages to:
-- MACRO: Predefined AIChat macros for common workflows
-- AGENT: Direct agent execution for simple tasks
-- DYNAMIC_PLAN: LLM-based planning for complex/novel tasks
-- CHAT: Regular conversation (fallback to existing chat processing)
+The actual classification is done by the aichat categorizer role via RQ worker.
 """
 
-import re
+import json
+import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+logger = logging.getLogger(__name__)
 
 
 class ExecutionStrategy(Enum):
     """How a message should be executed."""
 
-    MACRO = "macro"  # Use predefined AIChat macro
-    AGENT = "agent"  # Use single agent directly
-    DYNAMIC_PLAN = "dynamic"  # Use dynamic planner for complex tasks
-    CHAT = "chat"  # Regular conversation (existing flow)
+    MACRO = "macro"
+    AGENT = "agent"
+    DYNAMIC_PLAN = "dynamic"
+    CHAT = "chat"
 
 
 @dataclass
@@ -28,146 +25,66 @@ class RouteResult:
     """Result of routing a message."""
 
     strategy: ExecutionStrategy
-    target: str  # Macro name, agent name, or "planner"/"chat"
+    target: str
     requires_confirmation: bool
-    requires_planning: bool  # True if dynamic planner needed
+    requires_planning: bool
     confidence: float
     original_message: str
 
 
-# Pattern-based routing rules
-# Format: (pattern, target, requires_confirmation)
-MACRO_ROUTES: list[tuple[str, str, bool]] = [
-    # Predefined workflows -> use macros
-    (r"\b(commit|git commit)\s*(message)?\b", "generate-commit-message", False),
-    (r"\b(daily news|news summary)\b", "daily-news-summary", False),
-    (r"\b(shop|buy from)\s+woolworths\b", "shop-woolworths", True),
-]
+def parse_categorizer_output(raw: str, original_message: str) -> RouteResult:
+    """
+    Parse JSON output from `aichat -r categorizer` into a RouteResult.
 
-AGENT_ROUTES: list[tuple[str, str, bool]] = [
-    # Browser agent tasks
-    (
-        r"\b(navigate|go to|open|visit)\b.*\.(com|org|net|au|io|dev)",
-        "browser_agent",
-        False,
-    ),
-    (r"\b(screenshot|take screenshot|capture screen)\b", "browser_agent", False),
-    (r"\b(click|type|fill|scroll)\b.*\b(on|in|at)\b", "browser_agent", False),
-    # System agent tasks
-    (r"\b(disk usage|df|free space|storage)\b", "system_agent", False),
-    (r"\b(list files|ls|directory|show files)\b", "system_agent", False),
-    (r"\b(run|execute)\s+(command|script)\b", "system_agent", True),
-    (r"\b(process|processes|ps|htop)\b", "system_agent", False),
-]
+    Falls back to CHAT strategy on any parse failure.
+    """
+    if not raw:
+        return _default_route(original_message)
 
-COMPLEX_PATTERNS: list[str] = [
-    # Multi-step tasks -> dynamic planner
-    r"\b(find|search|compare|analyze).*\band\b.*(save|summarize|compare|list)\b",
-    r"\b(research|investigate)\b.*\b(then|and)\b",
-    r"\bstep.?by.?step\b",
-    r"\b(first|then|finally|after that)\b.*\b(then|and|finally)\b",
-    r"\bcompare\b.*\boptions?\b",
-]
+    try:
+        # Strip markdown fences if present
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            cleaned = cleaned.rsplit("```", 1)[0]
+            cleaned = cleaned.strip()
 
-CONFIRMATION_PATTERNS: list[str] = [
-    r"\b(buy|order|purchase|checkout|pay)\b",
-    r"\b(delete|remove|rm\s+-rf?)\b",
-    r"\b(send|submit|post)\b",
-    r"\b(install|uninstall)\b",
-    r"\b(reboot|shutdown|restart)\b",
-]
+        data = json.loads(cleaned)
 
+        strategy_str = data.get("strategy", "chat").lower()
+        target = data.get("target", "chat")
+        requires_confirmation = bool(data.get("requires_confirmation", False))
 
-class Router:
-    """Routes incoming requests to appropriate execution strategy."""
-
-    def __init__(
-        self,
-        macro_routes: Optional[list[tuple[str, str, bool]]] = None,
-        agent_routes: Optional[list[tuple[str, str, bool]]] = None,
-        complex_patterns: Optional[list[str]] = None,
-        confirmation_patterns: Optional[list[str]] = None,
-    ):
-        """Initialize router with optional custom routing rules."""
-        self.macro_routes = macro_routes or MACRO_ROUTES
-        self.agent_routes = agent_routes or AGENT_ROUTES
-        self.complex_patterns = complex_patterns or COMPLEX_PATTERNS
-        self.confirmation_patterns = confirmation_patterns or CONFIRMATION_PATTERNS
-
-    def classify(self, message: str) -> RouteResult:
-        """
-        Classify a message and determine execution strategy.
-
-        Args:
-            message: The user's message to classify
-
-        Returns:
-            RouteResult with strategy, target, and metadata
-        """
-        message_lower = message.lower().strip()
-
-        # Check if this action requires confirmation
-        requires_confirmation = any(
-            re.search(p, message_lower) for p in self.confirmation_patterns
-        )
-
-        # 1. Check for macro routes first (predefined workflows)
-        for pattern, macro_name, needs_confirm in self.macro_routes:
-            if re.search(pattern, message_lower):
-                return RouteResult(
-                    strategy=ExecutionStrategy.MACRO,
-                    target=macro_name,
-                    requires_confirmation=needs_confirm or requires_confirmation,
-                    requires_planning=False,
-                    confidence=0.95,
-                    original_message=message,
-                )
-
-        # 2. Check if task is complex (needs dynamic planning)
-        is_complex = any(re.search(p, message_lower) for p in self.complex_patterns)
-
-        if is_complex:
-            return RouteResult(
-                strategy=ExecutionStrategy.DYNAMIC_PLAN,
-                target="planner",
-                requires_confirmation=requires_confirmation,
-                requires_planning=True,
-                confidence=0.8,
-                original_message=message,
-            )
-
-        # 3. Check for direct agent routes
-        for pattern, agent_name, needs_confirm in self.agent_routes:
-            if re.search(pattern, message_lower):
-                return RouteResult(
-                    strategy=ExecutionStrategy.AGENT,
-                    target=agent_name,
-                    requires_confirmation=needs_confirm or requires_confirmation,
-                    requires_planning=False,
-                    confidence=0.9,
-                    original_message=message,
-                )
-
-        # 4. Default: regular chat conversation
-        return RouteResult(
-            strategy=ExecutionStrategy.CHAT,
-            target="chat",
-            requires_confirmation=False,
-            requires_planning=False,
-            confidence=1.0,
-            original_message=message,
-        )
-
-    def is_command(self, message: str) -> bool:
-        """Check if message is a Telegram command."""
-        return message.startswith("/")
-
-    def get_strategy_description(self, strategy: ExecutionStrategy) -> str:
-        """Get human-readable description of a strategy."""
-        descriptions = {
-            ExecutionStrategy.MACRO: "Predefined workflow",
-            ExecutionStrategy.AGENT: "Agent task",
-            ExecutionStrategy.DYNAMIC_PLAN: "Multi-step plan",
-            ExecutionStrategy.CHAT: "Conversation",
+        # Map strategy string to enum
+        strategy_map = {
+            "macro": ExecutionStrategy.MACRO,
+            "agent": ExecutionStrategy.AGENT,
+            "dynamic": ExecutionStrategy.DYNAMIC_PLAN,
+            "dynamic_plan": ExecutionStrategy.DYNAMIC_PLAN,
+            "chat": ExecutionStrategy.CHAT,
         }
-        return descriptions.get(strategy, "Unknown")
+        strategy = strategy_map.get(strategy_str, ExecutionStrategy.CHAT)
+
+        return RouteResult(
+            strategy=strategy,
+            target=target,
+            requires_confirmation=requires_confirmation,
+            requires_planning=strategy == ExecutionStrategy.DYNAMIC_PLAN,
+            confidence=0.9,
+            original_message=original_message,
+        )
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        logger.warning(f"Failed to parse categorizer output: {e}, raw={raw!r}")
+        return _default_route(original_message)
+
+
+def _default_route(message: str) -> RouteResult:
+    """Return a default CHAT route."""
+    return RouteResult(
+        strategy=ExecutionStrategy.CHAT,
+        target="chat",
+        requires_confirmation=False,
+        requires_planning=False,
+        confidence=0.5,
+        original_message=message,
+    )

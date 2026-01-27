@@ -12,12 +12,12 @@ from app.gateway import (
     ConfirmationHandler,
     Executor,
     ExecutionStrategy,
-    Router,
 )
 from app.services.aichat import get_compress_threshold, get_context_window
 from app.services.sessions import SessionService
 from app.tasks.chat import process_chat_message
-from app.tasks.queues import default_queue
+from app.tasks.categorizer import categorize_and_execute
+from app.tasks.queues import default_queue, high_queue
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,6 @@ logger = logging.getLogger(__name__)
 _session_service: SessionService | None = None
 
 # Gateway components
-_router: Router | None = None
-_executor: Executor | None = None
 _confirmation_handler: ConfirmationHandler | None = None
 
 
@@ -36,22 +34,6 @@ def get_session_service() -> SessionService:
     if _session_service is None:
         _session_service = SessionService()
     return _session_service
-
-
-def get_router() -> Router:
-    """Get or create router."""
-    global _router
-    if _router is None:
-        _router = Router()
-    return _router
-
-
-def get_executor() -> Executor:
-    """Get or create executor."""
-    global _executor
-    if _executor is None:
-        _executor = Executor()
-    return _executor
 
 
 def get_confirmation_handler() -> ConfirmationHandler:
@@ -214,7 +196,7 @@ async def confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Execute the confirmed task
     await update.message.reply_text(f"Confirmed! Executing task...")
 
-    executor = get_executor()
+    executor = Executor()
     chat_id = update.effective_chat.id
     session_id = f"user_{user_id}"
 
@@ -320,59 +302,18 @@ async def _handle_via_gateway(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Route message through the gateway."""
-    router = get_router()
-    executor = get_executor()
-    confirmation_handler = get_confirmation_handler()
-
-    # Classify the message
-    route = router.classify(user_message)
-    logger.info(
-        f"Routed to {route.strategy.value}: {route.target} "
-        f"(confidence={route.confidence:.2f}, confirm={route.requires_confirmation})"
-    )
-
-    # Check if confirmation is needed
-    if route.requires_confirmation:
-        task_id = confirmation_handler.create_pending_task(
-            user_id=user_id,
-            chat_id=chat_id,
-            message=user_message,
-            target=route.target,
-            strategy=route.strategy.value,
-        )
-
-        strategy_desc = router.get_strategy_description(route.strategy)
-        msg = confirmation_handler.format_confirmation_message(
-            confirmation_handler.get_pending_task(task_id),
-            f"{strategy_desc}: {route.target}",
-        )
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        return
-
-    # Execute the task
+    """Route message through the gateway by enqueuing a categorizer task."""
     session_id = f"user_{user_id}"
-    job_id = executor.execute(
-        route=route,
+    job = high_queue.enqueue(
+        categorize_and_execute,
+        message=user_message,
         user_id=user_id,
         chat_id=chat_id,
         message_id=message_id,
         session_id=session_id,
+        job_timeout=settings.JOB_TIMEOUT,
     )
-
-    # Send status message for non-chat routes
-    if route.strategy != ExecutionStrategy.CHAT:
-        status_msg = {
-            ExecutionStrategy.MACRO: f"Running macro: {route.target}",
-            ExecutionStrategy.AGENT: f"Processing with {route.target}",
-            ExecutionStrategy.DYNAMIC_PLAN: "Creating execution plan...",
-        }
-        await update.message.reply_text(
-            f"{status_msg.get(route.strategy, 'Processing...')}\nJob: `{job_id[:8]}`",
-            parse_mode="Markdown",
-        )
-
-    logger.info(f"Enqueued job {job_id} for user {user_id}")
+    logger.info(f"Enqueued categorizer job {job.id} for user {user_id}")
 
 
 async def _handle_direct_chat(

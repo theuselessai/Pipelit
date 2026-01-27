@@ -44,7 +44,7 @@ A Python bot that bridges Telegram messaging with a local [AIChat](https://githu
 
 ## Features
 
-- **Intelligent Routing** - Gateway classifies messages to appropriate agents or chat
+- **LLM-based Routing** - Gateway classifies messages via aichat categorizer role
 - **AIChat Agents** - Execute system commands, browser automation, and more via AIChat function calling
 - **Dynamic Planning** - LLM-based planning for complex multi-step tasks
 - **Confirmation Flow** - Sensitive actions require user confirmation
@@ -94,9 +94,11 @@ A Python bot that bridges Telegram messaging with a local [AIChat](https://githu
    # Edit .env with your TELEGRAM_BOT_TOKEN and ALLOWED_USER_IDS
    ```
 
-5. **Setup AIChat agents** (optional, for agent routing)
+5. **Setup AIChat categorizer role and agents** (required for gateway routing)
    ```bash
+   ./scripts/create_categorizer_role.sh
    ./scripts/setup_system_agent.sh
+   # Verify: aichat -r categorizer "hello"
    # Verify: aichat --list-agents
    ```
 
@@ -143,16 +145,16 @@ rq-dashboard  # Opens at http://localhost:9181
 
 ## Gateway Routing
 
-When `GATEWAY_ENABLED=true`, messages are intelligently routed:
+When `GATEWAY_ENABLED=true`, messages are classified by an LLM via `aichat -r categorizer`:
 
-| Strategy | Trigger | Example |
-|----------|---------|---------|
+| Strategy | Description | Example |
+|----------|-------------|---------|
 | **AGENT** | System/browser tasks | "list files in /tmp", "check disk usage" |
 | **MACRO** | Predefined workflows | "generate commit message" |
 | **DYNAMIC** | Complex multi-step | "find houses and compare them" |
 | **CHAT** | Everything else | Regular conversation |
 
-Actions matching sensitive patterns (buy, delete, send) require confirmation.
+The categorizer also determines when confirmation is needed (buy, delete, send, install, reboot).
 
 ## Configuration
 
@@ -178,7 +180,7 @@ app/
 │   ├── poller.py        # Telegram polling
 │   └── handlers.py      # Command handlers
 ├── gateway/
-│   ├── router.py        # Message classification
+│   ├── router.py        # Route dataclasses + categorizer parser
 │   ├── planner.py       # Dynamic planning
 │   ├── executor.py      # Task enqueueing
 │   └── confirmation.py  # Confirmation handling
@@ -190,6 +192,7 @@ app/
 │   └── tokens.py        # Token counting
 ├── tasks/
 │   ├── queues.py        # RQ queue definitions
+│   ├── categorizer.py   # LLM message categorization
 │   ├── chat.py          # Chat processing
 │   └── agent_tasks.py   # Agent execution
 ├── models/              # DB models & schemas
@@ -200,7 +203,8 @@ docs/
 └── dev_plan_gateway.md      # Architecture plan
 
 scripts/
-└── setup_system_agent.sh    # Agent setup script
+├── create_categorizer_role.sh  # Categorizer role setup
+└── setup_system_agent.sh       # Agent setup script
 ```
 
 ## Documentation
