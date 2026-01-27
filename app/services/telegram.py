@@ -51,6 +51,31 @@ class TelegramService:
             response.raise_for_status()
             return response.json()
 
+    def send_photo(
+        self,
+        chat_id: int,
+        photo_path: str,
+        caption: str | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> dict:
+        """Send a photo to a chat."""
+        with httpx.Client(timeout=60.0) as client:
+            with open(photo_path, "rb") as photo_file:
+                files = {"photo": photo_file}
+                data = {"chat_id": chat_id}
+                if caption:
+                    data["caption"] = caption[:1024]  # Telegram caption limit
+                if reply_to_message_id:
+                    data["reply_to_message_id"] = reply_to_message_id
+
+                response = client.post(
+                    f"{self.base_url}/sendPhoto",
+                    files=files,
+                    data=data,
+                )
+                response.raise_for_status()
+                return response.json()
+
     def send_long_message(
         self,
         chat_id: int,
@@ -93,3 +118,15 @@ def send_message(
 def send_typing(chat_id: int) -> dict:
     """Send typing indicator (convenience function for tasks)."""
     return get_telegram_service().send_chat_action(chat_id, "typing")
+
+
+def send_photo(
+    chat_id: int,
+    photo_path: str,
+    caption: str | None = None,
+    reply_to_message_id: int | None = None,
+) -> dict:
+    """Send a photo (convenience function for tasks)."""
+    return get_telegram_service().send_photo(
+        chat_id, photo_path, caption, reply_to_message_id
+    )
