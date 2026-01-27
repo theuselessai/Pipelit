@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(xargs:*)",
-      "Bash(pip3 freeze:*)"
+      "Bash(pip3 freeze:*)",
+      "Bash(git push:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(curl:*)",
+      "WebFetch(domain:docs.venice.ai)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python -c:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git init:*)",
+      "Bash(git checkout:*)",
+      "Bash(aichat --info:*)",
+      "Bash(timeout 60 aichat:*)"
     ]
   }
 }
