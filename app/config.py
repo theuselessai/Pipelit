@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # Task settings
     JOB_TIMEOUT: int = 300
 
+    # Gateway settings
+    GATEWAY_ENABLED: bool = True  # Use gateway routing (vs direct chat)
+    CONFIRMATION_TIMEOUT_MINUTES: int = 5
+    CHROME_PROFILE_PATH: str = "~/.config/agent-chrome-profile"
+    BROWSER_HEADLESS: bool = True
+
     # Optional API
     API_ENABLED: bool = False
     API_PORT: int = 8080

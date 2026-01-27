@@ -15,6 +15,7 @@ redis_conn = Redis(
 high_queue = Queue("high", connection=redis_conn)  # Commands, small messages
 default_queue = Queue("default", connection=redis_conn)  # Normal chat
 low_queue = Queue("low", connection=redis_conn)  # Compression, cleanup
+browser_queue = Queue("browser", connection=redis_conn)  # Browser agent (single worker)
 
 
 def get_queue(priority: str = "default") -> Queue:
@@ -23,5 +24,6 @@ def get_queue(priority: str = "default") -> Queue:
         "high": high_queue,
         "default": default_queue,
         "low": low_queue,
+        "browser": browser_queue,
     }
     return queues.get(priority, default_queue)
