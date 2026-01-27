@@ -44,7 +44,7 @@ aichat --serve
 **Terminal 3 - Start RQ Worker:**
 ```bash
 source .venv/bin/activate
-rq worker high default low
+rq worker high default low browser
 ```
 
 **Terminal 4 - Start Telegram Bot:**
@@ -90,7 +90,8 @@ app/
 │   ├── telegram.py      # Bot API client (sync, for workers)
 │   ├── aichat.py        # AIChat client (sync + async)
 │   ├── sessions.py      # Session logic
-│   └── tokens.py        # Token counting
+│   ├── tokens.py        # Token counting
+│   └── agent_setup.py   # Programmatic agent/tool creation
 ├── models/
 │   ├── database.py      # Database models
 │   └── schemas.py       # Pydantic schemas
@@ -176,6 +177,30 @@ API_ENABLED=false
 API_PORT=8080
 ```
 
+## AIChat Agent Setup
+
+To set up agents for the gateway to use:
+
+```bash
+# Run the setup script
+./scripts/setup_system_agent.sh
+
+# Or use Python
+python -c "from app.services.agent_setup import setup_system_agent; setup_system_agent()"
+
+# Verify
+aichat --list-agents
+aichat --agent system_agent "check disk usage"
+```
+
+Agent files are created in `~/.config/aichat/functions/`:
+- `tools/` - Tool scripts (bash with argc)
+- `bin/` - JSON-to-args wrappers
+- `agents/<name>/` - Agent config (index.yaml, functions.json, tools.txt)
+
+See `docs/aichat_agents_setup.md` for detailed documentation.
+
 ## Documentation
 
-Detailed architecture diagrams, systemd service files, and roadmap are in `docs/main.md`.
+- `docs/aichat_agents_setup.md` - How to create and configure AIChat agents
+- `docs/dev_plan_gateway.md` - Gateway architecture plan and roadmap
