@@ -7,28 +7,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Telegram Bot that bridges Telegram messaging with LLM providers via LangChain. Supports OpenAI, Anthropic, and any OpenAI-compatible endpoint (Venice.ai, Ollama, etc.). Uses FastAPI + RQ for background task processing with Redis.
 
 **Architecture Flow:**
-```
-User message
-     │
-     ▼
-┌──────────┐   GATEWAY=true    ┌────────────┐    ┌──────────┐    ┌──────────┐
-│ Telegram │──────────────────▶│ Categorizer│───▶│ Executor │───▶│ RQ Queue │
-│ Poller   │                   │ (LLM +     │    │          │    │          │
-│ (async)  │   GATEWAY=false   │  history)  │    └──────────┘    └────┬─────┘
-│          │──────┐            └────────────┘                         │
-└──────────┘      │                                                   │
-                  │            Routing decision:                      ▼
-                  │            ├─ AGENT ──▶ LangGraph agent    ┌──────────┐
-                  │            ├─ CHAT ───▶ LLM (no tools)     │ RQ Worker│
-                  └───────────▶│ DYNAMIC ─▶ Planner + agents   │          │
-                   direct chat └───────────────────────────────│          │
-                                                               └────┬─────┘
-                                                                    │
-                                                                    ▼
-                                                            ┌──────────────┐
-                                                            │ Save session │
-                                                            │ Reply to user│
-                                                            └──────────────┘
+```mermaid
+flowchart LR
+    USER[User message] --> POLLER[Telegram Poller<br/>async]
+
+    POLLER -->|GATEWAY=true| CAT[Categorizer<br/>LLM + history]
+    POLLER -->|GATEWAY=false| DIRECT[direct chat]
+
+    CAT --> EXEC[Executor]
+    EXEC --> RQ[RQ Queue]
+
+    subgraph ROUTING["Routing decision"]
+        AGENT[AGENT → LangGraph agent]
+        CHAT[CHAT → LLM no tools]
+        DYNAMIC[DYNAMIC → Planner + agents]
+    end
+
+    DIRECT --> ROUTING
+    RQ --> WORKER[RQ Worker]
+    WORKER --> ROUTING
+
+    ROUTING --> SAVE[Save session<br/>Reply to user]
 ```
 
 ## Commands
@@ -89,11 +88,13 @@ app/
 │   ├── base.py          # Agent factory (LangGraph react agents + AgentWrapper)
 │   ├── system_agent.py  # Shell, file, process tools
 │   ├── browser_agent.py # Playwright browser tools
+│   ├── search_agent.py  # Web search via SearXNG
 │   └── research_agent.py# Analysis and summarization
 ├── tools/               # LangChain tool definitions
 │   ├── __init__.py
 │   ├── system.py        # shell_execute, file_read/write, disk_usage, etc.
 │   ├── browser.py       # navigate, screenshot, click, type, get_page_text
+│   ├── search.py        # web_search, web_search_news, web_search_images (SearXNG)
 │   └── research.py      # analyze_text, compare_items
 ├── api/                 # Optional - for future web UI
 │   ├── health.py        # Health check endpoints
@@ -143,7 +144,7 @@ When `GATEWAY_ENABLED=true`, messages are classified by a LangChain LLM categori
 
 | Strategy | Description | Example |
 |----------|-------------|---------|
-| **AGENT** | Direct agent tasks | "run df", "go to google.com", "analyze this" |
+| **AGENT** | Direct agent tasks | "run df", "go to google.com", "search for X", "analyze this" |
 | **DYNAMIC_PLAN** | Complex multi-step tasks | "find houses and compare them" |
 | **CHAT** | Everything else | Regular conversation |
 
@@ -204,6 +205,9 @@ BROWSER_HEADLESS=true
 # Optional API
 API_ENABLED=false
 API_PORT=8080
+
+# SearXNG (for web search)
+SEARXNG_BASE_URL=http://localhost:8888
 ```
 
 ## Documentation

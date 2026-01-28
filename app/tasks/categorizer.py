@@ -26,7 +26,8 @@ CATEGORIZER_SYSTEM_PROMPT = """You are a message categorizer. Classify the user'
 ### Agents (strategy: "agent")
 - `system_agent` — ANY request to run a command, check disk/memory/network, read/write files, list directories, check processes, or interact with the operating system. If the user asks you to "run", "execute", "check", "show", "list", or do anything that requires shell access, use this agent.
 - `browser_agent` — Web browsing: navigate to URLs, take screenshots, click, type, fill forms, scroll pages.
-- `research_agent` — Text analysis, comparison, and summarization tasks that don't need shell or browser.
+- `search_agent` — Web search: search the internet for information, news, images. Use for queries like "search for", "find information about", "what's the latest news on", "look up".
+- `research_agent` — Text analysis, comparison, and summarization tasks that don't need shell, browser, or web search.
 
 ### Dynamic Plan (strategy: "dynamic")
 Use when the task requires multiple steps across different agents, research + comparison, or sequential actions with "then/and/finally".

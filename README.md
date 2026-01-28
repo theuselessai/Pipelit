@@ -4,102 +4,66 @@ A Python bot that bridges Telegram messaging with LLM providers via LangChain. S
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          LOCAL MACHINE                           │
-│                                                                  │
-│  ┌──────────────┐                                                │
-│  │   Telegram   │                                                │
-│  │   Message    │                                                │
-│  └──────┬───────┘                                                │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌──────────────┐     ┌──────────────────────────────────────┐  │
-│  │   Telegram   │     │             GATEWAY                   │  │
-│  │   Poller     │────▶│                                       │  │
-│  │  (async)     │     │  ┌────────────┐    ┌──────────────┐  │  │
-│  └──────────────┘     │  │ Categorizer│───▶│   Executor   │  │  │
-│                       │  │  (LLM)     │    │  (enqueue)   │  │  │
-│                       │  └────────────┘    └──────┬───────┘  │  │
-│                       │                           │          │  │
-│                       │         ┌─────────────────┼────┐     │  │
-│                       │         │                 │    │     │  │
-│                       │         ▼                 ▼    ▼     │  │
-│                       │  ┌───────────┐  ┌─────┐  ┌────────┐ │  │
-│                       │  │  Planner  │  │Chat │  │Confirm │ │  │
-│                       │  │ (dynamic) │  │     │  │(Redis) │ │  │
-│                       │  └───────────┘  └─────┘  └────────┘ │  │
-│                       └──────────────────────────────────────┘  │
-│                                    │                             │
-│         ┌──────────────────────────┼──────────────────┐         │
-│         ▼                          ▼                  ▼         │
-│  ┌─────────────┐          ┌─────────────┐     ┌───────────┐    │
-│  │   browser   │          │   default   │     │   high    │    │
-│  │    queue    │          │    queue    │     │   queue   │    │
-│  └──────┬──────┘          └──────┬──────┘     └─────┬─────┘    │
-│         │                        │                  │          │
-│         ▼                        ▼                  ▼          │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                       RQ WORKERS                         │   │
-│  │                                                          │   │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │   │
-│  │  │   Browser   │  │    System    │  │    Research    │  │   │
-│  │  │   Agent     │  │    Agent     │  │    Agent       │  │   │
-│  │  │ (Playwright)│  │   (shell)    │  │  (analysis)    │  │   │
-│  │  └─────────────┘  └──────────────┘  └────────────────┘  │   │
-│  │                                                          │   │
-│  │  LangGraph react agents with tool-calling                │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                    │                            │
-│                                    ▼                            │
-│                    ┌───────────────────────────────┐           │
-│                    │     Redis + SQLite + LLM      │           │
-│                    │  (queues) (sessions) (provider)│           │
-│                    └───────────────────────────────┘           │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph LOCAL["LOCAL MACHINE"]
+        TM[Telegram Message]
+        TM --> TP[Telegram Poller<br/>async]
+
+        subgraph GW["GATEWAY"]
+            CAT[Categorizer<br/>LLM] --> EXEC[Executor<br/>enqueue]
+            EXEC --> PLAN[Planner<br/>dynamic]
+            EXEC --> CHAT[Chat]
+            EXEC --> CONF[Confirm<br/>Redis]
+        end
+
+        TP --> GW
+
+        subgraph QUEUES["RQ QUEUES"]
+            BQ[browser queue]
+            DQ[default queue]
+            HQ[high queue]
+        end
+
+        GW --> QUEUES
+
+        subgraph WORKERS["RQ WORKERS - LangGraph react agents with tool-calling"]
+            BA[Browser Agent<br/>Playwright]
+            SA[System Agent<br/>shell]
+            SEA[Search Agent<br/>SearXNG]
+            RA[Research Agent<br/>analysis]
+        end
+
+        QUEUES --> WORKERS
+
+        STORAGE[(Redis + SQLite + LLM<br/>queues / sessions / provider)]
+        WORKERS --> STORAGE
+    end
 ```
 
 ### Message Flow
 
-```
-User sends message on Telegram
-         │
-         ▼
-   ┌───────────┐    GATEWAY_ENABLED=false    ┌───────────────┐
-   │  Poller   │───────────────────────────▶│  Chat (LLM)   │──▶ Reply
-   │           │                             └───────────────┘
-   │           │    GATEWAY_ENABLED=true
-   │           │──────────┐
-   └───────────┘          ▼
-                   ┌──────────────┐
-                   │  Categorizer │  Classifies message using LLM
-                   │  (+ history) │  with recent conversation context
-                   └──────┬───────┘
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-        ┌──────────┐ ┌────────┐ ┌──────────┐
-        │  AGENT   │ │  CHAT  │ │ DYNAMIC  │
-        │          │ │        │ │  PLAN    │
-        └────┬─────┘ └───┬────┘ └────┬─────┘
-             │           │           │
-             ▼           ▼           ▼
-       ┌──────────┐ ┌────────┐ ┌──────────┐
-       │ LangGraph│ │  LLM   │ │ Planner  │
-       │  Agent   │ │  Chat  │ │  creates │
-       │ (tools)  │ │  (no   │ │  steps,  │
-       │          │ │ tools) │ │  runs    │
-       │ system/  │ │        │ │  agents  │
-       │ browser/ │ │        │ │  in      │
-       │ research │ │        │ │ sequence │
-       └────┬─────┘ └───┬────┘ └────┬─────┘
-            │           │           │
-            └───────────┼───────────┘
-                        ▼
-              ┌──────────────────┐
-              │  Save to session │
-              │  Reply to user   │
-              └──────────────────┘
+```mermaid
+flowchart TB
+    USER[User sends message on Telegram]
+    USER --> POLLER[Poller]
+
+    POLLER -->|GATEWAY_ENABLED=false| CHAT_DIRECT[Chat LLM]
+    CHAT_DIRECT --> REPLY1[Reply]
+
+    POLLER -->|GATEWAY_ENABLED=true| CAT[Categorizer<br/>+ history]
+
+    CAT --> AGENT[AGENT]
+    CAT --> CHAT[CHAT]
+    CAT --> DYNAMIC[DYNAMIC PLAN]
+
+    AGENT --> LG[LangGraph Agent<br/>with tools<br/>system/browser/search/research]
+    CHAT --> LLM[LLM Chat<br/>no tools]
+    DYNAMIC --> PLANNER[Planner<br/>creates steps<br/>runs agents in sequence]
+
+    LG --> SAVE[Save to session<br/>Reply to user]
+    LLM --> SAVE
+    PLANNER --> SAVE
 ```
 
 ## Features
@@ -119,6 +83,7 @@ User sends message on Telegram
 - Redis server
 - Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 - An LLM provider: OpenAI API key, Anthropic API key, or any OpenAI-compatible endpoint
+- SearXNG instance (optional, for web search) - see [setup guide](https://ppfeufer.de/searxng-build-your-own-search-engine/)
 
 ## Setup
 
@@ -146,7 +111,34 @@ User sends message on Telegram
    sudo systemctl start redis
    ```
 
-4. **Configure environment**
+4. **Install SearXNG (optional, for web search)**
+   ```bash
+   # Create directories for configuration and persistent data
+   mkdir -p ./searxng/config/ ./searxng/data/
+   cd ./searxng/
+
+   # Run the container
+   docker run --name searxng -d \
+       -p 8888:8080 \
+       -v "./config/:/etc/searxng/" \
+       -v "./data/:/var/cache/searxng/" \
+       docker.io/searxng/searxng:latest
+   ```
+
+   After first run, enable JSON API by editing `./searxng/config/settings.yml`:
+   ```yaml
+   search:
+     formats:
+       - html
+       - json
+   ```
+
+   Then restart the container:
+   ```bash
+   docker restart searxng
+   ```
+
+5. **Configure environment**
    ```bash
    cp .env.example .env
    # Edit .env with your TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, and LLM settings
@@ -194,7 +186,7 @@ When `GATEWAY_ENABLED=true`, messages are classified by an LLM categorizer with 
 
 | Strategy | Description | Example |
 |----------|-------------|---------|
-| **AGENT** | System/browser/research tasks | "run df", "go to google.com", "analyze this text" |
+| **AGENT** | System/browser/search/research tasks | "run df", "go to google.com", "search for Python tutorials", "analyze this text" |
 | **DYNAMIC** | Complex multi-step tasks | "find houses and compare them" |
 | **CHAT** | Everything else | Regular conversation, questions, greetings |
 
@@ -206,6 +198,7 @@ The categorizer also determines when confirmation is needed (buy, delete, send, 
 |-------|-------|-------------|
 | `system_agent` | `default` | Shell commands, file operations, process management |
 | `browser_agent` | `browser` | Web navigation, screenshots, form filling (Playwright) |
+| `search_agent` | `default` | Web search via SearXNG (general, news, images) |
 | `research_agent` | `default` | Text analysis, comparison, summarization |
 
 ## Configuration
@@ -229,6 +222,7 @@ The categorizer also determines when confirmation is needed (buy, delete, send, 
 | `BROWSER_HEADLESS` | Run browser headless | `true` |
 | `API_ENABLED` | Enable optional REST API | `false` |
 | `API_PORT` | REST API port | `8080` |
+| `SEARXNG_BASE_URL` | SearXNG instance URL for web search | `http://localhost:8888` |
 
 ## Project Structure
 
@@ -248,10 +242,12 @@ app/
 │   ├── base.py          # Agent factory (LangGraph react agents)
 │   ├── system_agent.py  # Shell, file, process tools
 │   ├── browser_agent.py # Playwright browser tools
+│   ├── search_agent.py  # Web search via SearXNG
 │   └── research_agent.py# Analysis and summarization
 ├── tools/
 │   ├── system.py        # shell_execute, file_read/write, disk_usage, etc.
 │   ├── browser.py       # navigate, screenshot, click, type, get_page_text
+│   ├── search.py        # web_search, web_search_news, web_search_images
 │   └── research.py      # analyze_text, compare_items
 ├── services/
 │   ├── telegram.py      # Telegram API client (sync, for workers)

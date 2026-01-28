@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     API_ENABLED: bool = False
     API_PORT: int = 8080
 
+    # SearXNG (for web search)
+    SEARXNG_BASE_URL: str = "http://localhost:8888"
+
     @property
     def allowed_user_ids_list(self) -> list[int]:
         """Parse allowed user IDs into a list of integers."""

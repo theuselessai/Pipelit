@@ -25,6 +25,9 @@ def _get_agent(agent_name: str):
     elif agent_name == "research_agent":
         from app.agents.research_agent import create_research_agent
         return create_research_agent()
+    elif agent_name == "search_agent":
+        from app.agents.search_agent import create_search_agent
+        return create_search_agent()
     else:
         raise ValueError(f"Unknown agent: {agent_name}")
 
