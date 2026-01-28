@@ -4,25 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AIChat Telegram Bot bridges Telegram messaging with a local AIChat server (Rust binary providing an OpenAI-compatible API gateway to Venice.ai GLM-4.7). Uses FastAPI + RQ for background task processing with Redis.
+Telegram Bot that bridges Telegram messaging with LLM providers via LangChain. Supports OpenAI, Anthropic, and any OpenAI-compatible endpoint (Venice.ai, Ollama, etc.). Uses FastAPI + RQ for background task processing with Redis.
 
 **Architecture Flow:**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Local Machine                           │
-│                                                             │
-│  ┌──────────────┐     ┌──────────────┐     ┌─────────────┐ │
-│  │  Telegram    │     │   FastAPI    │     │ RQ Worker   │ │
-│  │  Poller      │────▶│   Server     │────▶│  (tasks)    │ │
-│  │  (async)     │     │  (optional)  │     │             │ │
-│  └──────────────┘     └──────────────┘     └─────────────┘ │
-│         │                    │                    │        │
-│         └────────────────────┼────────────────────┘        │
-│                              ▼                             │
-│           ┌─────────────────────────────────┐              │
-│           │         Redis + SQLite          │              │
-│           └─────────────────────────────────┘              │
-└─────────────────────────────────────────────────────────────┘
+User message
+     │
+     ▼
+┌──────────┐   GATEWAY=true    ┌────────────┐    ┌──────────┐    ┌──────────┐
+│ Telegram │──────────────────▶│ Categorizer│───▶│ Executor │───▶│ RQ Queue │
+│ Poller   │                   │ (LLM +     │    │          │    │          │
+│ (async)  │   GATEWAY=false   │  history)  │    └──────────┘    └────┬─────┘
+│          │──────┐            └────────────┘                         │
+└──────────┘      │                                                   │
+                  │            Routing decision:                      ▼
+                  │            ├─ AGENT ──▶ LangGraph agent    ┌──────────┐
+                  │            ├─ CHAT ───▶ LLM (no tools)     │ RQ Worker│
+                  └───────────▶│ DYNAMIC ─▶ Planner + agents   │          │
+                   direct chat └───────────────────────────────│          │
+                                                               └────┬─────┘
+                                                                    │
+                                                                    ▼
+                                                            ┌──────────────┐
+                                                            │ Save session │
+                                                            │ Reply to user│
+                                                            └──────────────┘
 ```
 
 ## Commands
@@ -36,18 +42,13 @@ AIChat Telegram Bot bridges Telegram messaging with a local AIChat server (Rust 
 redis-cli ping  # Should return PONG
 ```
 
-**Terminal 2 - Start AIChat Server:**
-```bash
-aichat --serve
-```
-
-**Terminal 3 - Start RQ Worker:**
+**Terminal 2 - Start RQ Worker:**
 ```bash
 source .venv/bin/activate
 rq worker high default low browser
 ```
 
-**Terminal 4 - Start Telegram Bot:**
+**Terminal 3 - Start Telegram Bot:**
 ```bash
 source .venv/bin/activate
 python -m app.main
@@ -64,7 +65,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env with your TELEGRAM_BOT_TOKEN and ALLOWED_USER_IDS
+# Edit .env with your TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, and LLM settings
 ```
 
 ## Code Architecture
@@ -83,15 +84,25 @@ app/
 │   ├── planner.py       # LLM-based dynamic planning
 │   ├── executor.py      # Enqueue tasks to RQ
 │   └── confirmation.py  # Redis-backed confirmations
+├── agents/              # LangGraph agent definitions
+│   ├── __init__.py
+│   ├── base.py          # Agent factory (LangGraph react agents + AgentWrapper)
+│   ├── system_agent.py  # Shell, file, process tools
+│   ├── browser_agent.py # Playwright browser tools
+│   └── research_agent.py# Analysis and summarization
+├── tools/               # LangChain tool definitions
+│   ├── __init__.py
+│   ├── system.py        # shell_execute, file_read/write, disk_usage, etc.
+│   ├── browser.py       # navigate, screenshot, click, type, get_page_text
+│   └── research.py      # analyze_text, compare_items
 ├── api/                 # Optional - for future web UI
 │   ├── health.py        # Health check endpoints
 │   └── sessions.py      # REST API for sessions
 ├── services/
 │   ├── telegram.py      # Bot API client (sync, for workers)
-│   ├── aichat.py        # AIChat client (sync + async)
+│   ├── llm.py           # LangChain LLM factory + service
 │   ├── sessions.py      # Session logic
-│   ├── tokens.py        # Token counting
-│   └── agent_setup.py   # Programmatic agent/tool creation
+│   └── tokens.py        # Token counting
 ├── models/
 │   ├── database.py      # Database models
 │   └── schemas.py       # Pydantic schemas
@@ -100,8 +111,8 @@ app/
 └── tasks/
     ├── queues.py        # RQ queue definitions
     ├── chat.py          # Chat processing tasks
-    ├── categorizer.py   # LLM-based message categorization task
-    └── agent_tasks.py   # Agent/macro execution tasks
+    ├── categorizer.py   # LangChain-based message categorization
+    └── agent_tasks.py   # LangGraph agent execution tasks
 ```
 
 ### Key Components
@@ -109,29 +120,30 @@ app/
 - **app/config.py** - Pydantic settings loaded from `.env`
 - **app/bot/handlers.py** - Telegram command handlers (`/start`, `/clear`, `/stats`, `/context`, `/pending`, `/confirm_*`, `/cancel_*`)
 - **app/bot/poller.py** - Telegram polling setup
+- **app/services/llm.py** - LangChain LLM factory (`create_llm()`) and `LLMService` wrapper
 - **app/gateway/router.py** - Route dataclasses (`ExecutionStrategy`, `RouteResult`) and `parse_categorizer_output()` helper
 - **app/gateway/planner.py** - LLM-based dynamic planning for complex tasks
 - **app/gateway/executor.py** - Enqueues tasks to appropriate RQ queues
 - **app/gateway/confirmation.py** - Redis-backed confirmation for sensitive actions
 - **app/services/sessions.py** - Session management with compression
-- **app/tasks/categorizer.py** - LLM categorizer task: runs `aichat -r categorizer`, parses result, enqueues execution
+- **app/tasks/categorizer.py** - LangChain categorizer: invokes LLM with system prompt + conversation context, parses result, enqueues execution
 - **app/tasks/chat.py** - Background tasks for RQ workers
-- **app/tasks/agent_tasks.py** - Agent and macro execution via `aichat` CLI
-- **app/tasks/queues.py** - Redis/RQ queue configuration
+- **app/tasks/agent_tasks.py** - LangGraph agent execution (system, browser, research agents)
+- **app/agents/base.py** - Creates LangGraph react agents via `AgentWrapper` (wraps `langgraph.prebuilt.create_react_agent`)
 
 ### Gateway Routing
 
-When `GATEWAY_ENABLED=true`, messages are classified by an LLM categorizer (`aichat -r categorizer`):
+When `GATEWAY_ENABLED=true`, messages are classified by a LangChain LLM categorizer with conversation context:
 
 1. Handler enqueues `categorize_and_execute` task on the `high` queue
-2. RQ worker runs `aichat -r categorizer "<message>"` (subprocess)
-3. Parses JSON output into a `RouteResult`
-4. Enqueues the real execution task via `Executor.execute()`
+2. RQ worker loads recent conversation history from SQLite
+3. Invokes LLM with categorizer system prompt + context
+4. Parses JSON output into a `RouteResult`
+5. Enqueues the real execution task via `Executor.execute()`
 
 | Strategy | Description | Example |
 |----------|-------------|---------|
-| **MACRO** | Predefined workflows | "generate commit message" |
-| **AGENT** | Direct agent tasks | "go to google.com", "screenshot" |
+| **AGENT** | Direct agent tasks | "run df", "go to google.com", "analyze this" |
 | **DYNAMIC_PLAN** | Complex multi-step tasks | "find houses and compare them" |
 | **CHAT** | Everything else | Regular conversation |
 
@@ -139,15 +151,19 @@ The LLM also determines if confirmation is needed (buy, delete, send, install, r
 
 ### RQ Queues
 
-- `high` - Commands, small messages (fast processing)
+- `high` - Commands, categorization (fast processing)
 - `default` - Normal chat messages, agent tasks
 - `low` - Compression, cleanup tasks
 - `browser` - Browser agent tasks (single worker for Playwright)
 
 ## Key Technical Details
 
-- Uses `httpx` for HTTP calls (async for bot, sync for workers)
-- OpenAI-compatible request format: `{"model": ..., "messages": [...]}`
+- Uses LangChain for LLM interactions (chat, categorization, planning)
+- Uses LangGraph for agent execution (`langgraph.prebuilt.create_react_agent`)
+- Supports multiple LLM providers: OpenAI, Anthropic, OpenAI-compatible (Venice.ai, Ollama, etc.)
+- Agents receive conversation history from SQLite for context continuity
+- Agent responses are saved back to the session for cross-strategy context
+- Categorizer receives recent history to correctly route follow-up messages
 - All messages processed via RQ workers for consistent architecture
 - Automatic conversation compression when tokens exceed threshold
 - SQLite for session persistence (`sessions.db`)
@@ -162,9 +178,15 @@ Key environment variables (see `.env.example`):
 TELEGRAM_BOT_TOKEN=your_bot_token
 ALLOWED_USER_IDS=123456789  # Comma-separated
 
-# AIChat
-AICHAT_BASE_URL=http://127.0.0.1:8000
-AICHAT_MODEL=venice:zai-org-glm-4.7
+# LLM (choose provider)
+LLM_PROVIDER=openai_compatible  # openai, anthropic, openai_compatible
+LLM_MODEL=your-model-name
+LLM_API_KEY=your_api_key
+LLM_BASE_URL=http://127.0.0.1:8000/v1  # For openai_compatible
+LLM_TEMPERATURE=0.7
+
+# Optional: cheaper model for categorization
+CATEGORIZER_MODEL=
 
 # Redis
 REDIS_HOST=localhost
@@ -184,46 +206,6 @@ API_ENABLED=false
 API_PORT=8080
 ```
 
-## AIChat Setup
-
-### Categorizer Role
-
-The gateway uses an aichat role to classify messages:
-
-```bash
-./scripts/create_categorizer_role.sh
-
-# Test
-aichat -r categorizer "go to google.com"
-# → {"strategy": "agent", "target": "browser_agent", "requires_confirmation": false}
-```
-
-The role is created at `~/.config/aichat/roles/categorizer.md`.
-
-### Agent Setup
-
-To set up agents for the gateway to use:
-
-```bash
-# Run the setup script
-./scripts/setup_system_agent.sh
-
-# Or use Python
-python -c "from app.services.agent_setup import setup_system_agent; setup_system_agent()"
-
-# Verify
-aichat --list-agents
-aichat --agent system_agent "check disk usage"
-```
-
-Agent files are created in `~/.config/aichat/functions/`:
-- `tools/` - Tool scripts (bash with argc)
-- `bin/` - JSON-to-args wrappers
-- `agents/<name>/` - Agent config (index.yaml, functions.json, tools.txt)
-
-See `docs/aichat_agents_setup.md` for detailed documentation.
-
 ## Documentation
 
-- `docs/aichat_agents_setup.md` - How to create and configure AIChat agents
 - `docs/dev_plan_gateway.md` - Gateway architecture plan and roadmap

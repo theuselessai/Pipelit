@@ -1,19 +1,32 @@
 """
-RQ tasks that invoke AIChat agents and macros via CLI.
+RQ tasks that invoke LangChain agents.
 
-Workers execute these tasks using local `aichat` commands.
+Workers execute these tasks using LangChain AgentExecutors.
 """
 
 import logging
 import os
 import re
-import subprocess
 from typing import Optional
 
 from app.config import settings
 from app.services.telegram import send_message, send_photo, send_typing
 
 logger = logging.getLogger(__name__)
+
+def _get_agent(agent_name: str):
+    """Get an agent executor by name."""
+    if agent_name == "system_agent":
+        from app.agents.system_agent import create_system_agent
+        return create_system_agent()
+    elif agent_name == "browser_agent":
+        from app.agents.browser_agent import create_browser_agent
+        return create_browser_agent()
+    elif agent_name == "research_agent":
+        from app.agents.research_agent import create_research_agent
+        return create_research_agent()
+    else:
+        raise ValueError(f"Unknown agent: {agent_name}")
 
 
 def run_agent_task(
@@ -25,7 +38,7 @@ def run_agent_task(
     message_id: Optional[int] = None,
 ) -> dict:
     """
-    Run an AIChat agent via CLI.
+    Run a LangChain agent.
 
     Args:
         agent: Agent name (e.g., "browser_agent", "system_agent")
@@ -34,137 +47,45 @@ def run_agent_task(
         chat_id: Telegram chat ID
         session_id: Session ID for conversation continuity
         message_id: Original message ID for reply
-
-    Returns:
-        Dict with success status and response
     """
-    # Set environment variables for tools
-    env = os.environ.copy()
-    env["USER_ID"] = str(user_id)
-    env["CHAT_ID"] = str(chat_id)
-
-    cmd = [
-        "aichat",
-        "--agent",
-        agent,
-        "--session",
-        session_id,
-        message,
-    ]
-
     logger.info(f"Running agent: {agent} for user {user_id}")
 
     try:
         send_typing(chat_id)
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=settings.JOB_TIMEOUT,
-        )
+        # Load conversation history for context
+        from app.db.repository import get_repository
+        from app.services.tokens import count_tokens
 
-        response_text = result.stdout.strip()
-        stderr = result.stderr.strip()
+        repo = get_repository()
+        conversation = repo.get_conversation(user_id)
 
-        if stderr:
-            logger.warning(f"Agent stderr: {stderr[:500]}")
+        agent_executor = _get_agent(agent)
+        result = agent_executor.invoke({
+            "input": message,
+            "chat_history": conversation,
+        })
+        response_text = result.get("output", "").strip()
 
-        if result.returncode != 0:
-            logger.error(f"Agent {agent} failed with code {result.returncode}")
-            error_msg = stderr or response_text or "Unknown error"
-            send_message(chat_id, f"Agent error: {error_msg[:500]}", message_id)
-            return {"success": False, "error": error_msg}
+        # Save the exchange to session so future messages have context
+        conversation.append({"role": "user", "content": message})
+        conversation.append({"role": "assistant", "content": response_text or "Task completed (no output)"})
+        repo.save_conversation(user_id, conversation, count_tokens(conversation))
+
+        if not response_text:
+            send_message(chat_id, "Task completed (no output)", message_id)
+            return {"success": True, "response": ""}
 
         # Handle image responses (e.g., screenshots)
         if "[IMAGE:" in response_text:
             _handle_image_response(chat_id, response_text, message_id)
-        elif response_text:
-            _send_response(chat_id, response_text, message_id)
         else:
-            send_message(chat_id, "Task completed (no output)", message_id)
+            _send_response(chat_id, response_text, message_id)
 
         return {"success": True, "response": response_text}
-
-    except subprocess.TimeoutExpired:
-        logger.error(f"Agent {agent} timed out")
-        send_message(chat_id, "Task timed out. Please try again.", message_id)
-        return {"success": False, "error": "timeout"}
 
     except Exception as e:
         logger.exception(f"Agent task failed: {agent}")
-        send_message(chat_id, f"Error: {str(e)[:500]}", message_id)
-        return {"success": False, "error": str(e)}
-
-
-def run_macro_task(
-    macro: str,
-    args: str,
-    user_id: int,
-    chat_id: int,
-    message_id: Optional[int] = None,
-) -> dict:
-    """
-    Run an AIChat macro via CLI.
-
-    Args:
-        macro: Macro name (e.g., "generate-commit-message")
-        args: Arguments for the macro
-        user_id: Telegram user ID
-        chat_id: Telegram chat ID
-        message_id: Original message ID for reply
-
-    Returns:
-        Dict with success status and response
-    """
-    # Build command - macros may have variable arguments
-    cmd = ["aichat", "--macro", macro]
-
-    # Parse args if provided
-    if args and args.strip():
-        # Simple argument parsing - split on whitespace
-        # TODO: Handle quoted strings properly
-        cmd.extend(args.split())
-
-    logger.info(f"Running macro: {macro} for user {user_id}")
-
-    try:
-        send_typing(chat_id)
-
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=settings.JOB_TIMEOUT,
-        )
-
-        response_text = result.stdout.strip()
-        stderr = result.stderr.strip()
-
-        if stderr:
-            logger.warning(f"Macro stderr: {stderr[:500]}")
-
-        if result.returncode != 0:
-            logger.error(f"Macro {macro} failed with code {result.returncode}")
-            error_msg = stderr or response_text or "Unknown error"
-            send_message(chat_id, f"Macro error: {error_msg[:500]}", message_id)
-            return {"success": False, "error": error_msg}
-
-        if response_text:
-            _send_response(chat_id, response_text, message_id)
-        else:
-            send_message(chat_id, "Macro completed (no output)", message_id)
-
-        return {"success": True, "response": response_text}
-
-    except subprocess.TimeoutExpired:
-        logger.error(f"Macro {macro} timed out")
-        send_message(chat_id, "Task timed out. Please try again.", message_id)
-        return {"success": False, "error": "timeout"}
-
-    except Exception as e:
-        logger.exception(f"Macro task failed: {macro}")
         send_message(chat_id, f"Error: {str(e)[:500]}", message_id)
         return {"success": False, "error": str(e)}
 
@@ -180,16 +101,6 @@ def run_plan_step(
     Execute the next step in a dynamic plan.
 
     Automatically enqueues the following step after completion.
-
-    Args:
-        plan_id: Plan identifier
-        user_id: Telegram user ID
-        chat_id: Telegram chat ID
-        session_id: Session ID for agent conversations
-        message_id: Original message ID for reply
-
-    Returns:
-        Dict with success status and step info
     """
     from app.gateway.executor import Executor
     from app.gateway.planner import DynamicPlanner, StepStatus
@@ -198,7 +109,6 @@ def run_plan_step(
     step = planner.get_next_step(plan_id)
 
     if not step:
-        # Plan is complete or has no more steps
         plan = planner.get_plan(plan_id)
         if plan:
             completed, total = plan.get_progress()
@@ -248,7 +158,7 @@ def run_plan_step(
         user_id=user_id,
         chat_id=chat_id,
         session_id=session_id,
-        message_id=None,  # Don't reply to original for intermediate steps
+        message_id=None,
     )
 
     # Update step status
@@ -266,7 +176,6 @@ def run_plan_step(
     next_job_id = executor.enqueue_next_plan_step(plan_id, user_id, chat_id, session_id)
 
     if not next_job_id:
-        # No more steps
         plan = planner.get_plan(plan_id)
         if plan:
             completed, total = plan.get_progress()
@@ -287,20 +196,13 @@ def run_plan_step(
 def _handle_image_response(
     chat_id: int, response_text: str, message_id: Optional[int]
 ) -> None:
-    """
-    Handle response containing image markers.
-
-    Expected format: [IMAGE:/path/to/image.png]
-    """
-    # Extract image path
+    """Handle response containing image markers."""
     match = re.search(r"\[IMAGE:([^\]]+)\]", response_text)
     if not match:
         send_message(chat_id, response_text, message_id)
         return
 
     img_path = match.group(1)
-
-    # Clean text (remove image markers)
     clean_text = re.sub(r"\[IMAGE:[^\]]+\]", "", response_text).strip()
 
     if os.path.exists(img_path):
@@ -319,9 +221,7 @@ def _send_response(
     if len(response_text) <= max_len:
         send_message(chat_id, response_text, message_id)
     else:
-        # Split into chunks
         for i in range(0, len(response_text), max_len):
             chunk = response_text[i : i + max_len]
-            # Only reply to original for first chunk
             reply_id = message_id if i == 0 else None
             send_message(chat_id, chunk, reply_id)

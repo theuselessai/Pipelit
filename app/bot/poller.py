@@ -14,35 +14,17 @@ from app.bot.handlers import (
     stats_handler,
 )
 from app.config import settings
-from app.services.aichat import AsyncAIChatService
 
 logger = logging.getLogger(__name__)
-
-# Async AIChat service for fetching model info at startup
-_aichat_service: AsyncAIChatService | None = None
 
 
 async def on_startup(application: Application) -> None:
     """Initialize on startup."""
-    global _aichat_service
-
-    # Create async AIChat service
-    _aichat_service = AsyncAIChatService()
-
-    # Fetch model context windows
-    await _aichat_service.fetch_model_context_windows()
-
-    logger.info("Bot started with session management and RQ integration")
+    logger.info("Bot started with LangChain LLM and RQ integration")
 
 
 async def on_shutdown(application: Application) -> None:
     """Cleanup on shutdown."""
-    global _aichat_service
-
-    if _aichat_service is not None:
-        await _aichat_service.close()
-        _aichat_service = None
-
     logger.info("Bot shutdown complete")
 
 

@@ -62,12 +62,7 @@ class Executor:
         """
         session_id = session_id or f"user_{user_id}"
 
-        if route.strategy == ExecutionStrategy.MACRO:
-            return self._enqueue_macro(
-                route.target, route.original_message, user_id, chat_id, message_id
-            )
-
-        elif route.strategy == ExecutionStrategy.AGENT:
+        if route.strategy == ExecutionStrategy.AGENT:
             return self._enqueue_agent(
                 route.target,
                 route.original_message,
@@ -86,29 +81,6 @@ class Executor:
             return self._enqueue_chat(
                 route.original_message, user_id, chat_id, message_id
             )
-
-    def _enqueue_macro(
-        self,
-        macro: str,
-        message: str,
-        user_id: int,
-        chat_id: int,
-        message_id: Optional[int],
-    ) -> str:
-        """Enqueue a macro execution."""
-        from app.tasks.agent_tasks import run_macro_task
-
-        job = self.queues["default"].enqueue(
-            run_macro_task,
-            macro=macro,
-            args=message,
-            user_id=user_id,
-            chat_id=chat_id,
-            message_id=message_id,
-            job_timeout=settings.JOB_TIMEOUT,
-        )
-        logger.info(f"Enqueued macro '{macro}' as job {job.id}")
-        return job.id
 
     def _enqueue_agent(
         self,

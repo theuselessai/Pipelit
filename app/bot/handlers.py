@@ -13,7 +13,7 @@ from app.gateway import (
     Executor,
     ExecutionStrategy,
 )
-from app.services.aichat import get_compress_threshold, get_context_window
+from app.services.llm import get_compress_threshold, get_context_window
 from app.services.sessions import SessionService
 from app.tasks.chat import process_chat_message
 from app.tasks.categorizer import categorize_and_execute
@@ -50,7 +50,7 @@ def is_allowed(user_id: int) -> bool:
     """Check if user is whitelisted."""
     allowed = settings.allowed_user_ids_list
     if not allowed:
-        return True  # No whitelist = allow all (for testing)
+        return True
     return user_id in allowed
 
 
@@ -63,7 +63,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     gateway_status = "enabled" if settings.GATEWAY_ENABLED else "disabled"
 
     await update.message.reply_text(
-        "Hello! I'm connected to AIChat + Venice.ai.\n\n"
+        "Hello! I'm connected via LangChain.\n\n"
         "Commands:\n"
         "/clear - Clear conversation history\n"
         "/stats - Show session statistics\n"
@@ -123,8 +123,8 @@ async def context_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session_service = get_session_service()
     stats_data = await asyncio.to_thread(session_service.get_stats, user_id)
 
-    context_window = get_context_window(settings.AICHAT_MODEL)
-    threshold = get_compress_threshold(settings.AICHAT_MODEL)
+    context_window = get_context_window()
+    threshold = get_compress_threshold()
     token_count = stats_data["token_count"]
 
     usage_pct = (token_count / context_window * 100) if context_window > 0 else 0
@@ -132,7 +132,7 @@ async def context_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     text = (
         f"Context Window Usage:\n"
-        f"- Model: {settings.AICHAT_MODEL}\n"
+        f"- Model: {settings.LLM_MODEL}\n"
         f"- Context window: {context_window:,} tokens\n"
         f"- Compress threshold: {threshold:,} tokens ({settings.COMPRESS_RATIO:.0%})\n"
         f"- Current usage: {token_count:,} tokens ({usage_pct:.1f}%)\n"
@@ -176,7 +176,6 @@ async def confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Access denied.")
         return
 
-    # Extract task_id from command
     text = update.message.text
     match = re.match(r"/confirm_([a-f0-9]+)", text)
     if not match:
@@ -193,14 +192,12 @@ async def confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # Execute the confirmed task
     await update.message.reply_text(f"Confirmed! Executing task...")
 
     executor = Executor()
     chat_id = update.effective_chat.id
     session_id = f"user_{user_id}"
 
-    # Re-create route result to execute
     from app.gateway.router import RouteResult
 
     route = RouteResult(
@@ -208,13 +205,12 @@ async def confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if task.strategy in ("macro", "agent", "dynamic")
         else ExecutionStrategy.AGENT,
         target=task.target,
-        requires_confirmation=False,  # Already confirmed
+        requires_confirmation=False,
         requires_planning=task.strategy == "dynamic",
         confidence=1.0,
         original_message=task.message,
     )
 
-    # Handle plan step confirmation specially
     if task.strategy == "plan_step" and task.plan_id:
         from app.tasks.agent_tasks import run_plan_step
         from app.tasks.queues import default_queue as dq
@@ -248,7 +244,6 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Access denied.")
         return
 
-    # Extract task_id from command
     text = update.message.text
     match = re.match(r"/cancel_([a-f0-9]+)", text)
     if not match:
@@ -282,10 +277,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     logger.info(f"[{user_id}] {user_message[:50]}...")
 
-    # Show typing indicator
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # Use gateway if enabled, otherwise fall back to direct chat
     if settings.GATEWAY_ENABLED:
         await _handle_via_gateway(
             user_id, chat_id, message_id, user_message, update, context

@@ -17,13 +17,15 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str
     ALLOWED_USER_IDS: str = ""
 
-    # AIChat server
-    AICHAT_BASE_URL: str = "http://127.0.0.1:8000"
-    AICHAT_MODEL: str = "venice:zai-org-glm-4.7"
+    # LLM Configuration
+    LLM_PROVIDER: str = "openai_compatible"  # openai, anthropic, openai_compatible
+    LLM_MODEL: str = "zai-org-glm-4.7"
+    LLM_API_KEY: str = ""
+    LLM_BASE_URL: str = "http://127.0.0.1:8000/v1"  # For openai_compatible
+    LLM_TEMPERATURE: float = 0.7
 
-    # Venice.ai API (for fetching model context windows)
-    VENICE_API_BASE: str = "https://api.venice.ai/api/v1"
-    VENICE_API_KEY: str = ""
+    # Optional: use a cheaper/faster model for categorization
+    CATEGORIZER_MODEL: str = ""  # Falls back to LLM_MODEL if empty
 
     # Database
     DB_PATH: str = "sessions.db"
@@ -42,7 +44,7 @@ class Settings(BaseSettings):
     JOB_TIMEOUT: int = 300
 
     # Gateway settings
-    GATEWAY_ENABLED: bool = True  # Use gateway routing (vs direct chat)
+    GATEWAY_ENABLED: bool = True
     CONFIRMATION_TIMEOUT_MINUTES: int = 5
     CHROME_PROFILE_PATH: str = "~/.config/agent-chrome-profile"
     BROWSER_HEADLESS: bool = True
@@ -66,6 +68,11 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """Get Redis URL."""
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    @property
+    def categorizer_model(self) -> str:
+        """Get categorizer model, falling back to main model."""
+        return self.CATEGORIZER_MODEL or self.LLM_MODEL
 
 
 @lru_cache

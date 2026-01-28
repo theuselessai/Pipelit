@@ -11,3 +11,10 @@ rq>=1.16.0
 redis>=5.0.0
 rq-dashboard>=0.7.0
 pydantic-settings>=2.1.0
+
+# LangChain
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.2.0

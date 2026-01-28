@@ -3,8 +3,8 @@ import logging
 
 from app.config import settings
 from app.db.repository import ConversationRepository, get_repository
-from app.services.aichat import (
-    AIChatService,
+from app.services.llm import (
+    LLMService,
     get_compress_threshold,
     strip_thinking_tags,
 )
@@ -19,11 +19,11 @@ class SessionService:
     def __init__(
         self,
         repository: ConversationRepository | None = None,
-        aichat_service: AIChatService | None = None,
+        llm_service: LLMService | None = None,
     ):
         """Initialize with optional dependencies."""
         self.repository = repository or get_repository()
-        self.aichat = aichat_service or AIChatService()
+        self.llm = llm_service or LLMService()
 
     def get_conversation(self, user_id: int) -> list[dict]:
         """Get conversation for a user."""
@@ -59,7 +59,7 @@ class SessionService:
         )
 
         try:
-            summary = self.aichat.summarize(old_text)
+            summary = self.llm.summarize(old_text)
             logger.info(f"Compressed {len(old)} messages into summary")
 
             # Rebuild conversation with summary
@@ -89,7 +89,7 @@ class SessionService:
 
         # Check if compression is needed
         token_count = count_tokens(messages)
-        threshold = get_compress_threshold(settings.AICHAT_MODEL)
+        threshold = get_compress_threshold()
 
         if token_count > threshold:
             logger.info(
@@ -99,9 +99,9 @@ class SessionService:
             messages = self.compress_conversation(messages)
             token_count = count_tokens(messages)
 
-        # Send to AIChat
+        # Send to LLM
         try:
-            assistant_message = self.aichat.chat(messages)
+            assistant_message = self.llm.chat(messages)
 
             # Strip thinking tags for display
             display_message = strip_thinking_tags(assistant_message)

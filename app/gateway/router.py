@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 class ExecutionStrategy(Enum):
     """How a message should be executed."""
 
-    MACRO = "macro"
     AGENT = "agent"
     DYNAMIC_PLAN = "dynamic"
     CHAT = "chat"
@@ -57,7 +56,6 @@ def parse_categorizer_output(raw: str, original_message: str) -> RouteResult:
 
         # Map strategy string to enum
         strategy_map = {
-            "macro": ExecutionStrategy.MACRO,
             "agent": ExecutionStrategy.AGENT,
             "dynamic": ExecutionStrategy.DYNAMIC_PLAN,
             "dynamic_plan": ExecutionStrategy.DYNAMIC_PLAN,
