@@ -121,6 +121,8 @@ erDiagram
     }
 
     %% ==================== WORKFLOW CORE ====================
+    Workflow }o--o| LLMProviderCredentials : "default LLM credential"
+    Workflow }o--o| TelegramCredential : "runs on bot"
     Workflow ||--|| GitRepository : "has dedicated repo"
     Workflow ||--o{ WorkflowCollaborator : "has collaborators"
     Workflow ||--|{ WorkflowTrigger : "activated by"
@@ -138,7 +140,9 @@ erDiagram
         text description
         int owner_id FK "UserProfile"
         int repository_id FK "GitRepository"
+        int default_llm_credential_id FK "LLMProviderCredentials, nullable — default LLM for this workflow"
         int default_llm_model_id FK "LLMModel, nullable — inherited by nodes without explicit model"
+        int telegram_credential_id FK "TelegramCredential, nullable — which bot runs this workflow"
         bool is_active
         bool is_public "discoverable"
         bool is_template "can be forked"
@@ -1259,6 +1263,13 @@ is_callable: false
 is_public: false
 is_template: true
 
+# Credential references — resolved by name from the owner's credentials in DB.
+# These are not secrets; they are lookup keys into the credentials app.
+credentials:
+  telegram: "my-telegram-bot"            # name of a TelegramCredential
+  llm: "openai-production"               # name of an LLMProviderCredentials
+  llm_model: "gpt-4o"                    # name of an LLMModel (under the llm credential's provider)
+
 input_schema:  # For callable workflows
   type: object
   properties:
@@ -1299,6 +1310,9 @@ nodes:
     config:
       system_prompt: "You are a research assistant..."
       tools: [web_search, research]
+      # Optional per-node credential override (defaults to workflow-level):
+      # llm: "anthropic-production"
+      # llm_model: "claude-sonnet-4-20250514"
 
   - node_id: chat
     component_type: chat_model
@@ -1557,6 +1571,11 @@ def execute_workflow_job(
 name: "Default Assistant"
 is_default: true
 
+credentials:
+  telegram: "my-telegram-bot"
+  llm: "openai-production"
+  llm_model: "gpt-4o"
+
 triggers:
   - type: telegram_chat
     config:
@@ -1628,6 +1647,11 @@ edges:
 ```yaml
 name: "Daily Market Report"
 
+credentials:
+  telegram: "my-telegram-bot"
+  llm: "openai-production"
+  llm_model: "gpt-4o"
+
 triggers:
   - type: schedule
     config:
@@ -1665,6 +1689,10 @@ edges:
 ```yaml
 name: "Summarizer"
 is_callable: true
+
+credentials:
+  llm: "openai-production"
+  llm_model: "gpt-4o"
 
 input_schema:
   type: object
@@ -1781,6 +1809,8 @@ project/
 ## Environment Variables
 
 ```bash
+# Infrastructure only — everything else lives in the database (Credentials app).
+
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/workflows
 
@@ -1792,19 +1822,18 @@ SECRET_KEY=your-secret-key
 DEBUG=false
 ALLOWED_HOSTS=localhost,yourdomain.com
 
-# Telegram
-TELEGRAM_BOT_TOKEN=your-bot-token
-
 # Git Repos Storage
 REPOS_BASE_PATH=/data/repos
 
-# LLM Providers (optional defaults)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Encryption
+# Encryption (for credential fields in DB)
 FIELD_ENCRYPTION_KEY=your-encryption-key
 ```
+
+> **Note:** Telegram bot tokens, LLM API keys, and other service credentials
+> are stored in the `credentials` app (`TelegramCredential`,
+> `LLMProviderCredentials`, `ToolCredential`). They are **not** environment
+> variables — this allows multiple bots, multiple LLM providers, and
+> per-workflow credential selection via the database and workflow YAML.
 
 ---
 
