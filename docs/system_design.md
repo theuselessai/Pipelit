@@ -132,6 +132,7 @@ erDiagram
     Workflow ||--o{ CodeBlock : "contains code"
     Workflow ||--o{ WorkflowExecution : "runs as"
     Workflow ||--o| Workflow : "forked from"
+    Workflow ||--o| Workflow : "error handler"
 
     Workflow {
         int id PK
@@ -149,6 +150,7 @@ erDiagram
         bool is_callable "can be invoked by other workflows"
         bool is_default "fallback for user"
         int forked_from_id FK "Workflow, nullable"
+        int error_handler_workflow_id FK "Workflow, nullable — invoked on failure; target must not itself have an error handler"
         json input_schema "for callable workflows"
         json output_schema "for callable workflows"
         datetime created_at
@@ -170,7 +172,7 @@ erDiagram
     WorkflowTrigger {
         int id PK
         int workflow_id FK
-        string trigger_type "telegram_message | telegram_chat | schedule | webhook | manual | workflow"
+        string trigger_type "telegram_message | telegram_chat | schedule | webhook | manual | workflow | error"
         json config "type-specific configuration"
         bool is_active
         int priority "for matching order"
@@ -437,6 +439,7 @@ erDiagram
         string default_timezone "UTC"
         int max_workflow_execution_seconds "600"
         int confirmation_timeout_seconds "300"
+        bool sandbox_code_execution "false — enable for multi-user/cloud"
         json feature_flags
         datetime updated_at
     }
@@ -528,6 +531,80 @@ classDiagram
         Execute Python code safely
     }
 
+    class Loop {
+        +string loop_type "for_each | while"
+        +string source_key
+        +string condition
+        +int max_iterations
+        +string body_node_id
+        Iterate over list or repeat until condition
+    }
+
+    class Wait {
+        +string wait_type "duration | webhook_event | schedule"
+        +int duration_seconds
+        +string webhook_path
+        +string resume_cron
+        Pause until duration or external event
+    }
+
+    class Merge {
+        +string merge_strategy "append | zip | key_merge | wait_all"
+        Combine outputs from multiple branches
+    }
+
+    class Filter {
+        +string source_key
+        +string condition
+        +string output_key
+        Filter items in a list by expression
+    }
+
+    class Transform {
+        +list~Mapping~ mappings
+        Reshape data using field mappings
+    }
+
+    class Sort {
+        +string source_key
+        +string sort_key
+        +string direction "asc | desc"
+        Sort items by key or expression
+    }
+
+    class Limit {
+        +string source_key
+        +int count
+        +int offset
+        Take first N items from a list
+    }
+
+    class HttpRequest {
+        +string method
+        +string url_template
+        +dict headers
+        +string body_template
+        +int auth_credential_id
+        +string response_key
+        Make HTTP calls as a workflow step
+    }
+
+    class ErrorHandler {
+        +string target_node_id
+        +string error_node_id
+        +int retry_count
+        +int retry_delay_seconds
+        Wrap node and route errors to recovery
+    }
+
+    class OutputParser {
+        +string parser_type "json | list | regex | pydantic_schema"
+        +string schema
+        +string source_key
+        +string output_key
+        Parse LLM output into structured data
+    }
+
     BaseWorkflowComponent <|-- Categorizer
     BaseWorkflowComponent <|-- Router
     BaseWorkflowComponent <|-- ChatModel
@@ -539,6 +616,16 @@ classDiagram
     BaseWorkflowComponent <|-- Parallel
     BaseWorkflowComponent <|-- WorkflowNode
     BaseWorkflowComponent <|-- CodeNode
+    BaseWorkflowComponent <|-- Loop
+    BaseWorkflowComponent <|-- Wait
+    BaseWorkflowComponent <|-- Merge
+    BaseWorkflowComponent <|-- Filter
+    BaseWorkflowComponent <|-- Transform
+    BaseWorkflowComponent <|-- Sort
+    BaseWorkflowComponent <|-- Limit
+    BaseWorkflowComponent <|-- HttpRequest
+    BaseWorkflowComponent <|-- ErrorHandler
+    BaseWorkflowComponent <|-- OutputParser
 ```
 
 ### Component Type Enum
@@ -566,9 +653,29 @@ class ComponentType(str, Enum):
     
     # Composition
     WORKFLOW = "workflow"            # Call another workflow
-    
+
     # Code Execution
     CODE = "code"                    # Execute Python code
+
+    # Flow Control
+    LOOP = "loop"                    # Iterate over list or repeat until condition
+    WAIT = "wait"                    # Pause for duration or external event
+    MERGE = "merge"                  # Combine outputs from multiple branches
+
+    # Data Transformation
+    FILTER = "filter"                # Filter items by expression
+    TRANSFORM = "transform"          # Reshape/map data with field mappings
+    SORT = "sort"                    # Sort items by key
+    LIMIT = "limit"                  # Take first N items
+
+    # Integration
+    HTTP_REQUEST = "http_request"    # Make HTTP calls as workflow step
+
+    # Error Handling
+    ERROR_HANDLER = "error_handler"  # Wrap node and route errors to recovery
+
+    # AI
+    OUTPUT_PARSER = "output_parser"  # Parse LLM output into structured data
 ```
 
 ---
@@ -626,12 +733,19 @@ classDiagram
         Called by another workflow
     }
 
+    class ErrorTrigger {
+        +int source_workflow_id
+        +list~string~ error_types
+        Fires when a workflow execution fails
+    }
+
     BaseTrigger <|-- TelegramMessageTrigger
     BaseTrigger <|-- TelegramChatTrigger
     BaseTrigger <|-- ScheduleTrigger
     BaseTrigger <|-- WebhookTrigger
     BaseTrigger <|-- ManualTrigger
     BaseTrigger <|-- WorkflowTrigger
+    BaseTrigger <|-- ErrorTrigger
 ```
 
 ### Trigger Type Enum
@@ -649,6 +763,7 @@ class TriggerType(str, Enum):
     
     # Internal triggers
     WORKFLOW = "workflow"                   # Called by another workflow
+    ERROR = "error"                         # Fires when a workflow execution fails
 ```
 
 ### Trigger Configuration Schemas
@@ -700,6 +815,12 @@ class WorkflowTriggerConfig(BaseModel):
     """Called by another workflow"""
     trigger_type: Literal["workflow"] = "workflow"
     input_schema: dict | None = None        # Expected input schema
+
+class ErrorTriggerConfig(BaseModel):
+    """Fires when a workflow execution fails — for monitoring/alerting"""
+    trigger_type: Literal["error"] = "error"
+    source_workflow_id: int | None = None    # Specific workflow, or None for any
+    error_types: list[str] = []             # Filter by error type (empty = all)
 ```
 
 ---
@@ -783,6 +904,9 @@ class WorkflowState(TypedDict, total=False):
     # ===== Final Output =====
     output: Any  # Set by terminal nodes
     
+    # ===== Loop State =====
+    loop_state: dict[str, Any] | None  # iteration index, current item, etc.
+
     # ===== Error Handling =====
     error: str | None
     should_retry: bool
@@ -1834,6 +1958,69 @@ FIELD_ENCRYPTION_KEY=your-encryption-key
 > `LLMProviderCredentials`, `ToolCredential`). They are **not** environment
 > variables — this allows multiple bots, multiple LLM providers, and
 > per-workflow credential selection via the database and workflow YAML.
+
+---
+
+## Edge Cases & Concurrency
+
+### Chat Session Race Condition
+
+Two messages arriving simultaneously for the same chat could both miss the active session
+check and create duplicate sessions. Use Redis `SETNX` with the session key
+(`chat_session:{chat_id}:{user_profile_id}`) to atomically claim the session. The loser
+sees the key already exists and joins the existing session.
+
+### Blocking During Execution
+
+When a workflow execution is in progress for a given `thread_id`, the user is blocked from
+sending new messages. The bot replies with an acknowledgment (e.g., "Still working on your
+previous request...") and discards the incoming message. This prevents checkpoint conflicts
+where two concurrent `graph.invoke()` calls on the same thread corrupt state.
+
+Implementation: before enqueueing a new execution, check Redis for an active execution lock
+(`execution_lock:{thread_id}`). Set the lock when the job starts, release on completion/failure.
+Use a TTL matching the job timeout as a safety net against worker crashes.
+
+### Error Trigger Recursion
+
+Each workflow can optionally reference a single **error-handling workflow** (n8n-style).
+When a workflow execution fails, the platform invokes the designated error-handling workflow
+instead of using a generic `ErrorTrigger` that matches broadly.
+
+**Circuit breaker:** A workflow that is itself an error handler cannot have its own error
+handler. Enforce this at the model level — if `Workflow.error_handler_workflow_id` is set,
+that target workflow's `error_handler_workflow_id` must be `NULL`. This prevents infinite
+error loops.
+
+Add to the `Workflow` model:
+
+```
+error_handler_workflow_id FK "Workflow, nullable — invoked on execution failure"
+```
+
+With constraint: the referenced workflow cannot itself reference an error handler.
+
+### Code Block Sandboxing
+
+Code blocks run on a local machine acting on behalf of the owner. No sandboxing is applied.
+This is a deliberate design decision for single-user local deployments.
+
+If the platform becomes multi-user or cloud-hosted, sandboxing becomes mandatory. A
+`SANDBOX_ENABLED` flag in `SystemConfig` should be added so this can be toggled without
+redesigning the execution layer.
+
+Add to `SystemConfig`:
+
+```
+bool sandbox_code_execution "false — enable for multi-user/cloud"
+```
+
+### Git Sync Locking
+
+Concurrent `GitSyncTask` jobs for the same repository could corrupt the local clone.
+Use a Redis lock per repository (`git_sync_lock:{repository_id}`) with a TTL matching
+the git-sync queue timeout. If the lock is held, the new sync task waits or is
+re-enqueued with backoff.
 
 ---
 
