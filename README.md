@@ -168,6 +168,17 @@ python -m app.main
 rq-dashboard  # Opens at http://localhost:9181
 ```
 
+## Testing
+
+### Platform tests (Django)
+
+```bash
+cd platform
+source ../.venv/bin/activate
+export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+python -m pytest tests/ -v
+```
+
 ## Bot Commands
 
 | Command | Description |
