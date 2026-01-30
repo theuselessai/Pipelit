@@ -1,0 +1,81 @@
+"""Categorizer component — LLM-based classification into categories."""
+
+from __future__ import annotations
+
+import json
+import re
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from apps.workflows.components import register
+from apps.workflows.llm import resolve_llm_for_node
+
+
+@register("categorizer")
+def categorizer_factory(node):
+    """Build a categorizer graph node."""
+    llm = resolve_llm_for_node(node)
+    extra = node.component_config.extra_config
+    categories = extra.get("categories", [])
+    node_id = node.node_id
+
+    category_descriptions = "\n".join(
+        f"- {cat['name']}: {cat.get('description', '')}" for cat in categories
+    )
+    category_names = [cat["name"] for cat in categories]
+
+    system_prompt = (
+        "You are a message classifier. Classify the user's message into exactly one category.\n\n"
+        f"Categories:\n{category_descriptions}\n\n"
+        f"Respond with ONLY a JSON object: {{\"category\": \"<name>\"}}\n"
+        f"Valid category names: {category_names}"
+    )
+
+    if node.component_config.system_prompt:
+        system_prompt = node.component_config.system_prompt + "\n\n" + system_prompt
+
+    def categorizer_node(state: dict) -> dict:
+        messages = [SystemMessage(content=system_prompt)]
+        user_messages = state.get("messages", [])
+        if user_messages:
+            messages.append(user_messages[-1])
+        else:
+            messages.append(HumanMessage(content="(no message)"))
+
+        response = llm.invoke(messages)
+        content = response.content.strip()
+
+        # Parse category from response
+        category = _parse_category(content, category_names)
+        return {
+            "messages": [response],
+            "route": category,
+            "node_outputs": {node_id: {"category": category, "raw": content}},
+        }
+
+    return categorizer_node
+
+
+def _parse_category(content: str, valid_names: list[str]) -> str:
+    """Extract category name from LLM response."""
+    # Try JSON parse
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and "category" in data:
+            name = data["category"]
+            if name in valid_names:
+                return name
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Try regex for {"category": "..."}
+    match = re.search(r'"category"\s*:\s*"([^"]+)"', content)
+    if match and match.group(1) in valid_names:
+        return match.group(1)
+
+    # Try exact match in content
+    for name in valid_names:
+        if name.lower() in content.lower():
+            return name
+
+    return valid_names[0] if valid_names else "unknown"

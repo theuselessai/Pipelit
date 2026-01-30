@@ -1,0 +1,11 @@
+Django>=5.1,<5.2
+django-rq>=2.10
+django-encrypted-model-fields>=0.6
+langchain>=0.3
+langgraph>=0.2
+python-telegram-bot>=21.0
+requests>=2.31
+
+# Testing
+pytest>=8.0
+pytest-django>=4.8
