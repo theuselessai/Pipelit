@@ -1,5 +1,6 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
+from django.views.generic import TemplateView
 
 from apps.workflows.api import api
 from apps.workflows.handlers.manual import execution_status_view, manual_execute_view
@@ -22,4 +23,6 @@ urlpatterns = [
         execution_status_view,
         name="execution-status",
     ),
+    # SPA catch-all — serves index.html for all non-API routes
+    re_path(r"^(?!api/|admin/).*$", TemplateView.as_view(template_name="index.html"), name="spa"),
 ]

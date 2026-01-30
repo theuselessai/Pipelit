@@ -239,19 +239,50 @@ The categorizer also determines when confirmation is needed (buy, delete, send, 
 
 The `platform/` directory contains a Django-based workflow management system with a REST API built on django-ninja, served at `/api/v1/`.
 
-Authentication uses Django session or HTTP Basic auth. All endpoints return JSON.
+Authentication uses Django session or Bearer token (`POST /api/v1/auth/token/` to obtain). All endpoints return JSON.
 
 ### Endpoints
 
 | Resource | Endpoints |
 |----------|-----------|
+| **Auth** | `POST /api/v1/auth/token/` |
 | **Workflows** | `GET/POST /api/v1/workflows/`, `GET/PATCH/DELETE /api/v1/workflows/{slug}/` |
 | **Nodes** | `GET/POST /api/v1/workflows/{slug}/nodes/`, `PATCH/DELETE .../nodes/{node_id}/` |
 | **Edges** | `GET/POST /api/v1/workflows/{slug}/edges/`, `PATCH/DELETE .../edges/{id}/` |
 | **Triggers** | `GET/POST /api/v1/workflows/{slug}/triggers/`, `PATCH/DELETE .../triggers/{id}/` |
 | **Executions** | `GET /api/v1/executions/`, `GET .../executions/{id}/`, `POST .../executions/{id}/cancel/` |
+| **Credentials** | `GET/POST /api/v1/credentials/`, `GET/PATCH/DELETE .../credentials/{id}/` |
+| **LLM Providers** | `GET /api/v1/credentials/llm-providers/` |
+| **LLM Models** | `GET /api/v1/credentials/llm-models/?provider_id=` |
 
-Workflow detail (`GET /api/v1/workflows/{slug}/`) returns nested nodes, edges, and triggers. Workflow deletion is soft-delete. Node creation/update accepts inline `config` for the underlying `ComponentConfig`. Executions can be filtered by `?workflow_slug=` and `?status=`.
+Workflow detail (`GET /api/v1/workflows/{slug}/`) returns nested nodes, edges, and triggers. Workflow deletion is soft-delete. Node creation/update accepts inline `config` for the underlying `ComponentConfig`. Executions can be filtered by `?workflow_slug=` and `?status=`. Credential sensitive fields (api_key, bot_token) are masked on GET.
+
+## React Frontend
+
+The `platform/frontend/` directory contains a React SPA for visual workflow management.
+
+**Stack:** React + Vite + TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query, React Router
+
+### Features
+
+- **Workflow Dashboard** — list, create, delete workflows
+- **Visual Editor** — three-panel layout with node palette, React Flow canvas, and config panel
+- **Node Configuration** — dynamic forms by component type (LLM model/credential selectors for AI nodes, system prompt, extra config JSON)
+- **Trigger Management** — create/delete triggers with type-specific forms
+- **Credentials Management** — CRUD for LLM, Telegram, Git, and Tool credentials with masked sensitive fields
+- **Execution Monitoring** — list with status filters, detail view with node logs, auto-refresh for running executions
+- **Dark Mode** — via Shadcn theme CSS variables
+
+### Running the Frontend
+
+```bash
+cd platform/frontend
+npm install
+npm run dev          # Dev server at http://localhost:5173 (proxies /api to Django)
+npm run build        # Production build to dist/
+```
+
+In development, run both Django (`python manage.py runserver`) and Vite (`npm run dev`) simultaneously. Vite proxies `/api` requests to Django at port 8000. In production, `npm run build` outputs to `dist/` which Django serves as static files.
 
 ## Project Structure
 

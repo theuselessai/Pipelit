@@ -219,23 +219,29 @@ The `platform/` directory contains a Django project with a django-ninja REST API
 ```
 platform/apps/workflows/api/
 ├── __init__.py      # NinjaAPI instance + router wiring
-├── auth.py          # Session + Basic auth backends
+├── auth.py          # Session + Bearer token auth backends
+├── auth_views.py    # POST /auth/token/ endpoint
 ├── schemas.py       # Pydantic in/out schemas
 ├── workflows.py     # Workflow CRUD router
 ├── nodes.py         # Node + Edge CRUD (nested under workflow)
 ├── triggers.py      # Trigger CRUD (nested under workflow)
-└── executions.py    # Execution list/detail/cancel
+├── executions.py    # Execution list/detail/cancel
+└── credentials.py   # Credential CRUD + LLM provider/model list
 ```
 
 ### API Endpoints
 
-All under `/api/v1/`, authenticated via Django session or HTTP Basic auth.
+All under `/api/v1/`, authenticated via Django session or Bearer token.
 
+- **Auth** — `POST /auth/token/` (obtain Bearer token)
 - **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`
 - **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
 - **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{id}/`
 - **Triggers** — `GET/POST /workflows/{slug}/triggers/`, `PATCH/DELETE /workflows/{slug}/triggers/{id}/`
 - **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`
+- **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`
+- **LLM Providers** — `GET /credentials/llm-providers/`
+- **LLM Models** — `GET /credentials/llm-models/?provider_id=`
 
 ### Platform Model Design
 
@@ -256,6 +262,70 @@ export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet;
 python -m pytest tests/ -v
 ```
 
+## React Frontend
+
+The `platform/frontend/` directory contains a React SPA for managing workflows visually.
+
+**Stack:** React + Vite + TypeScript, Shadcn/ui, @xyflow/react (React Flow v12), TanStack Query, React Router
+
+### Frontend Structure
+
+```
+platform/frontend/src/
+├── api/                    # TanStack Query hooks + fetch client
+│   ├── client.ts           # Bearer token injection, 401 redirect
+│   ├── auth.ts             # login() → token
+│   ├── workflows.ts        # useWorkflows(), useCreateWorkflow(), etc.
+│   ├── nodes.ts            # useCreateNode(), useUpdateNode(), useDeleteNode()
+│   ├── edges.ts            # useCreateEdge(), useUpdateEdge(), useDeleteEdge()
+│   ├── triggers.ts         # useCreateTrigger(), useDeleteTrigger()
+│   ├── executions.ts       # useExecutions(), useExecution() (auto-refresh)
+│   └── credentials.ts      # useCredentials(), useLLMModels(), useLLMProviders()
+├── components/
+│   ├── ui/                 # Shadcn components (auto-generated)
+│   └── layout/
+│       ├── AppLayout.tsx   # Sidebar + header shell
+│       └── ProtectedRoute.tsx
+├── features/
+│   ├── auth/               # AuthProvider, LoginPage
+│   ├── workflows/
+│   │   ├── DashboardPage.tsx          # Workflow list table + create/delete
+│   │   ├── WorkflowEditorPage.tsx     # Three-panel editor layout
+│   │   └── components/
+│   │       ├── WorkflowCanvas.tsx     # React Flow canvas with custom nodes
+│   │       ├── NodePalette.tsx        # Click-to-add node types
+│   │       ├── NodeDetailsPanel.tsx   # Right sidebar config form
+│   │       └── TriggerPanel.tsx       # Trigger CRUD
+│   ├── credentials/        # CredentialsPage (table + create dialog)
+│   ├── executions/         # ExecutionsPage, ExecutionDetailPage
+│   └── settings/           # SettingsPage (placeholder)
+├── types/models.ts         # TS types mirroring Django schemas
+├── App.tsx                 # Routes
+└── main.tsx                # QueryClient + AuthProvider + Router
+```
+
+### Running the Frontend
+
+```bash
+cd platform/frontend
+npm install
+npm run dev          # Dev server at http://localhost:5173 (proxies /api to Django)
+npm run build        # Production build to dist/
+```
+
+### Frontend Routes
+
+| Route | Page |
+|-------|------|
+| `/login` | Login form |
+| `/` | Workflow dashboard (list) |
+| `/workflows/:slug` | Workflow editor (canvas) |
+| `/credentials` | Credentials management |
+| `/executions` | Execution list |
+| `/executions/:id` | Execution detail + logs |
+| `/settings` | Settings (placeholder) |
+
 ## Documentation
 
 - `docs/dev_plan_gateway.md` - Gateway architecture plan and roadmap
+- `docs/dev_plan_gui.md` - React GUI implementation plan (completed)

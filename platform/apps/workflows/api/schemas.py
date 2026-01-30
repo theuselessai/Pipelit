@@ -4,6 +4,8 @@ from uuid import UUID
 
 from ninja import Schema
 
+CredentialTypeStr = Literal["git", "llm", "telegram", "tool"]
+
 ComponentTypeStr = Literal[
     "categorizer", "router", "chat_model", "react_agent", "plan_and_execute",
     "tool_node", "aggregator", "human_confirmation", "parallel", "workflow",
@@ -245,3 +247,48 @@ class ExecutionDetailOut(ExecutionOut):
     @staticmethod
     def resolve_logs(obj):
         return obj.logs.all()
+
+
+# ── Credentials ──────────────────────────────────────────────────────────────
+
+
+class CredentialIn(Schema):
+    name: str
+    credential_type: CredentialTypeStr
+    detail: dict | None = None
+
+
+class CredentialUpdate(Schema):
+    name: str | None = None
+    detail: dict | None = None
+
+
+class CredentialOut(Schema):
+    id: int
+    name: str
+    credential_type: CredentialTypeStr
+    detail: dict = {}
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── LLM Providers & Models ───────────────────────────────────────────────────
+
+
+class LLMProviderOut(Schema):
+    id: int
+    name: str
+    provider_type: str
+
+
+class LLMModelOut(Schema):
+    id: int
+    provider_id: int
+    provider_name: str = ""
+    model_name: str
+    default_temperature: float
+    context_window: int
+
+    @staticmethod
+    def resolve_provider_name(obj):
+        return obj.provider.name

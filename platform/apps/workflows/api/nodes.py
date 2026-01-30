@@ -28,6 +28,7 @@ def create_node(request, slug: str, payload: NodeIn):
         system_prompt=config_data.get("system_prompt", ""),
         extra_config=config_data.get("extra_config", {}),
         llm_model_id=config_data.get("llm_model_id"),
+        llm_credential_id=config_data.get("llm_credential_id"),
     )
     data["workflow"] = wf
     data["component_config"] = cc
