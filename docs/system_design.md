@@ -1090,8 +1090,8 @@ flowchart TD
         SEND_PROMPT[Send Prompt via Telegram]
         AWAIT_RESPONSE[Await User Response]
         
-        USER_CONFIRM[/confirm]
-        USER_CANCEL[/cancel]
+        USER_CONFIRM["/confirm"]
+        USER_CANCEL["/cancel"]
         USER_TIMEOUT[Timeout]
         
         RESUME_EXEC[Resume Execution]
