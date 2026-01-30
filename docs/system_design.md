@@ -1679,10 +1679,51 @@ def execute_workflow_job(
     
     except Exception as e:
         execution.status = "failed"
+        execution.error_message = str(e)
         notify_error(execution, e)
-    
+
+        # Invoke the workflow-level error handler if configured.
+        # This catches any uncaught error from any node.
+        if workflow.error_handler_workflow_id:
+            invoke_error_handler(workflow, execution, e)
+
     finally:
         execution.save()
+
+
+def invoke_error_handler(
+    workflow: Workflow,
+    failed_execution: WorkflowExecution,
+    error: Exception,
+):
+    """Invoke the workflow's error-handling workflow.
+
+    The error handler receives the failed execution context as its
+    trigger payload. Error handlers cannot themselves have error
+    handlers (enforced at model level) to prevent infinite loops.
+    """
+    error_workflow = Workflow.objects.get(id=workflow.error_handler_workflow_id)
+
+    error_payload = {
+        "trigger_type": "error",
+        "source": {
+            "workflow_id": workflow.id,
+            "workflow_name": workflow.name,
+            "execution_id": str(failed_execution.execution_id),
+            "node_id": failed_execution.error_node_id,
+        },
+        "data": {
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "trigger_payload": failed_execution.trigger_payload,
+        },
+    }
+
+    execute_workflow_job.delay(
+        workflow_id=error_workflow.id,
+        thread_id=str(uuid4()),
+        trigger_payload=error_payload,
+    )
 ```
 
 ---
