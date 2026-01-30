@@ -1,6 +1,7 @@
 from ninja import NinjaAPI
 
 from .auth import SessionOrBasicAuth  # list of auth backends
+from .auth_views import router as auth_router
 from .executions import router as executions_router
 from .nodes import router as nodes_router
 from .triggers import router as triggers_router
@@ -13,6 +14,7 @@ api = NinjaAPI(
     urls_namespace="api-v1",
 )
 
+api.add_router("/auth", auth_router)
 api.add_router("/workflows", workflows_router)
 api.add_router("/workflows", nodes_router)
 api.add_router("/workflows", triggers_router)

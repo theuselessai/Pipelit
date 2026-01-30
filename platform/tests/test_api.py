@@ -1,6 +1,5 @@
 """Tests for the django-ninja workflow REST API."""
 
-import base64
 import json
 
 import pytest
@@ -24,10 +23,12 @@ def auth_client(user):
 
 
 @pytest.fixture
-def basic_auth_client():
+def bearer_auth_client(user, user_profile):
+    from apps.users.models import APIKey
+
+    api_key = APIKey.objects.create(user=user)
     client = Client()
-    creds = base64.b64encode(b"testuser:testpass").decode()
-    client.defaults["HTTP_AUTHORIZATION"] = f"Basic {creds}"
+    client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {api_key.key}"
     return client
 
 
@@ -128,10 +129,64 @@ class TestWorkflowAPI:
         resp = client.get("/api/v1/workflows/")
         assert resp.status_code == 401
 
-    def test_basic_auth(self, basic_auth_client, user_profile, workflow):
-        resp = basic_auth_client.get("/api/v1/workflows/")
+    def test_bearer_auth(self, bearer_auth_client, workflow):
+        resp = bearer_auth_client.get("/api/v1/workflows/")
         assert resp.status_code == 200
         assert len(resp.json()) == 1
+
+
+# ── Auth Token Endpoint ──────────────────────────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestAuthTokenAPI:
+    def test_obtain_token(self, user, user_profile):
+        client = Client()
+        resp = client.post(
+            "/api/v1/auth/token/",
+            data=json.dumps({"username": "testuser", "password": "testpass"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "key" in data
+        assert len(data["key"]) == 36  # UUID format
+
+    def test_obtain_token_invalid_credentials(self):
+        client = Client()
+        resp = client.post(
+            "/api/v1/auth/token/",
+            data=json.dumps({"username": "bad", "password": "bad"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 401
+
+    def test_obtain_token_regenerates_key(self, user, user_profile):
+        client = Client()
+        resp1 = client.post(
+            "/api/v1/auth/token/",
+            data=json.dumps({"username": "testuser", "password": "testpass"}),
+            content_type="application/json",
+        )
+        resp2 = client.post(
+            "/api/v1/auth/token/",
+            data=json.dumps({"username": "testuser", "password": "testpass"}),
+            content_type="application/json",
+        )
+        assert resp1.json()["key"] != resp2.json()["key"]
+
+    def test_token_works_for_auth(self, user, user_profile, workflow):
+        client = Client()
+        resp = client.post(
+            "/api/v1/auth/token/",
+            data=json.dumps({"username": "testuser", "password": "testpass"}),
+            content_type="application/json",
+        )
+        key = resp.json()["key"]
+        bearer_client = Client()
+        bearer_client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+        resp = bearer_client.get("/api/v1/workflows/")
+        assert resp.status_code == 200
 
 
 # ── Node CRUD ─────────────────────────────────────────────────────────────────
