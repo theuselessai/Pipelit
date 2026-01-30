@@ -11,6 +11,13 @@ class WorkflowTrigger(models.Model):
         WORKFLOW = "workflow", "Workflow"
         ERROR = "error", "Error"
 
+    credential = models.ForeignKey(
+        "credentials.BaseCredentials",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="triggers",
+    )
     workflow = models.ForeignKey(
         "workflows.Workflow",
         on_delete=models.CASCADE,

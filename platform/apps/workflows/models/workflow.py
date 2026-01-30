@@ -29,27 +29,6 @@ class Workflow(models.Model):
         blank=True,
         related_name="workflow",
     )
-    default_llm_credential = models.ForeignKey(
-        "credentials.LLMProviderCredentials",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="default_for_workflows",
-    )
-    default_llm_model = models.ForeignKey(
-        "credentials.LLMModel",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="default_for_workflows",
-    )
-    telegram_credential = models.ForeignKey(
-        "credentials.TelegramCredential",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="workflows",
-    )
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)
     is_template = models.BooleanField(default=False)

@@ -237,6 +237,16 @@ All under `/api/v1/`, authenticated via Django session or HTTP Basic auth.
 - **Triggers** — `GET/POST /workflows/{slug}/triggers/`, `PATCH/DELETE /workflows/{slug}/triggers/{id}/`
 - **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`
 
+### Platform Model Design
+
+**Credentials** are global — any user on the machine can use any credential. The `user_profile` FK on `BaseCredentials` tracks who created it, not ownership.
+
+**Trigger credentials:** Each `WorkflowTrigger` has an optional `credential` FK to `BaseCredentials`. This is how triggers (Telegram, email, webhooks, etc.) reference their integration credentials. Bot token resolution for delivery goes through `execution.trigger.credential.telegram_credential.bot_token`.
+
+**LLM resolution:** LLM configuration lives entirely on `ComponentConfig` (per-node). Each agent-type node must have both `llm_model` and `llm_credential` set on its config. There are no workflow-level LLM defaults.
+
+**Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation, backed by Django `TextChoices` on the model side.
+
 ### Running Platform Tests
 
 ```bash

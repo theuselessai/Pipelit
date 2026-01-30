@@ -1,8 +1,20 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from ninja import Schema
+
+ComponentTypeStr = Literal[
+    "categorizer", "router", "chat_model", "react_agent", "plan_and_execute",
+    "tool_node", "aggregator", "human_confirmation", "parallel", "workflow",
+    "code", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
+    "http_request", "error_handler", "output_parser",
+]
+TriggerTypeStr = Literal[
+    "telegram_message", "telegram_chat", "schedule", "webhook", "manual",
+    "workflow", "error",
+]
+EdgeTypeStr = Literal["direct", "conditional"]
 
 
 # ── Workflow ──────────────────────────────────────────────────────────────────
@@ -15,9 +27,6 @@ class WorkflowIn(Schema):
     is_active: bool = True
     is_public: bool = False
     is_default: bool = False
-    telegram_credential_id: int | None = None
-    default_llm_credential_id: int | None = None
-    default_llm_model_id: int | None = None
     error_handler_workflow_id: int | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
@@ -30,9 +39,6 @@ class WorkflowUpdate(Schema):
     is_active: bool | None = None
     is_public: bool | None = None
     is_default: bool | None = None
-    telegram_credential_id: int | None = None
-    default_llm_credential_id: int | None = None
-    default_llm_model_id: int | None = None
     error_handler_workflow_id: int | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
@@ -46,9 +52,6 @@ class WorkflowOut(Schema):
     is_active: bool
     is_public: bool
     is_default: bool
-    telegram_credential_id: int | None = None
-    default_llm_credential_id: int | None = None
-    default_llm_model_id: int | None = None
     error_handler_workflow_id: int | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
@@ -96,11 +99,12 @@ class ComponentConfigData(Schema):
     system_prompt: str = ""
     extra_config: dict = {}
     llm_model_id: int | None = None
+    llm_credential_id: int | None = None
 
 
 class NodeIn(Schema):
     node_id: str
-    component_type: str
+    component_type: ComponentTypeStr
     is_entry_point: bool = False
     interrupt_before: bool = False
     interrupt_after: bool = False
@@ -113,7 +117,7 @@ class NodeIn(Schema):
 
 class NodeUpdate(Schema):
     node_id: str | None = None
-    component_type: str | None = None
+    component_type: ComponentTypeStr | None = None
     is_entry_point: bool | None = None
     interrupt_before: bool | None = None
     interrupt_after: bool | None = None
@@ -127,7 +131,7 @@ class NodeUpdate(Schema):
 class NodeOut(Schema):
     id: int
     node_id: str
-    component_type: str
+    component_type: ComponentTypeStr
     is_entry_point: bool
     interrupt_before: bool
     interrupt_after: bool
@@ -145,6 +149,7 @@ class NodeOut(Schema):
             "system_prompt": cc.system_prompt,
             "extra_config": cc.extra_config,
             "llm_model_id": cc.llm_model_id,
+            "llm_credential_id": cc.llm_credential_id,
         }
 
 
@@ -154,7 +159,7 @@ class NodeOut(Schema):
 class EdgeIn(Schema):
     source_node_id: str
     target_node_id: str = ""
-    edge_type: str = "direct"
+    edge_type: EdgeTypeStr = "direct"
     condition_mapping: dict | None = None
     priority: int = 0
 
@@ -162,7 +167,7 @@ class EdgeIn(Schema):
 class EdgeUpdate(Schema):
     source_node_id: str | None = None
     target_node_id: str | None = None
-    edge_type: str | None = None
+    edge_type: EdgeTypeStr | None = None
     condition_mapping: dict | None = None
     priority: int | None = None
 
@@ -171,7 +176,7 @@ class EdgeOut(Schema):
     id: int
     source_node_id: str
     target_node_id: str
-    edge_type: str
+    edge_type: EdgeTypeStr
     condition_mapping: dict | None = None
     priority: int
 
@@ -180,14 +185,16 @@ class EdgeOut(Schema):
 
 
 class TriggerIn(Schema):
-    trigger_type: str
+    trigger_type: TriggerTypeStr
+    credential_id: int | None = None
     config: dict = {}
     is_active: bool = True
     priority: int = 0
 
 
 class TriggerUpdate(Schema):
-    trigger_type: str | None = None
+    trigger_type: TriggerTypeStr | None = None
+    credential_id: int | None = None
     config: dict | None = None
     is_active: bool | None = None
     priority: int | None = None
@@ -195,7 +202,8 @@ class TriggerUpdate(Schema):
 
 class TriggerOut(Schema):
     id: int
-    trigger_type: str
+    trigger_type: TriggerTypeStr
+    credential_id: int | None = None
     config: dict
     is_active: bool
     priority: int

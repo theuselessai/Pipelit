@@ -117,14 +117,17 @@ class OutputDelivery:
             )
 
     def _resolve_bot_token(self, execution) -> str | None:
-        """Get bot token from the workflow's telegram credential."""
-        workflow = execution.workflow
-        if not workflow.telegram_credential_id:
+        """Get bot token from the execution's trigger credential."""
+        trigger = execution.trigger
+        if not trigger or not trigger.credential_id:
             return None
         try:
-            return workflow.telegram_credential.bot_token
+            return trigger.credential.telegram_credential.bot_token
         except Exception:
-            logger.exception("Failed to resolve bot token for workflow %s", workflow.slug)
+            logger.exception(
+                "Failed to resolve bot token for execution %s",
+                execution.execution_id,
+            )
             return None
 
     def _format_output(self, final_output: dict | None) -> str:

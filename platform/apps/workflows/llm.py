@@ -46,35 +46,17 @@ def create_llm_from_db(
 
 
 def resolve_llm_for_node(node) -> BaseChatModel:
-    """Resolve LLM for a WorkflowNode, falling back through the chain.
+    """Resolve LLM for a WorkflowNode from its ComponentConfig.
 
-    Precedence: node config → workflow default → error.
+    Both llm_model and llm_credential must be set on the node's ComponentConfig.
     """
     config = node.component_config
-    workflow = node.workflow
 
-    # Node-level LLM
-    if config.llm_model_id:
-        llm_model = config.llm_model
-        credential = workflow.default_llm_credential
-        if credential is None:
-            raise ValueError(
-                f"Node '{node.node_id}' has llm_model but workflow "
-                f"'{workflow.slug}' has no default_llm_credential"
-            )
-        temp = config.extra_config.get("temperature")
-        return create_llm_from_db(llm_model, credential, temperature=temp)
-
-    # Workflow-level defaults
-    if workflow.default_llm_model_id and workflow.default_llm_credential_id:
-        temp = config.extra_config.get("temperature")
-        return create_llm_from_db(
-            workflow.default_llm_model,
-            workflow.default_llm_credential,
-            temperature=temp,
+    if not config.llm_model_id or not config.llm_credential_id:
+        raise ValueError(
+            f"Node '{node.node_id}' in workflow '{node.workflow.slug}' "
+            "requires both llm_model and llm_credential on its ComponentConfig."
         )
 
-    raise ValueError(
-        f"No LLM configured for node '{node.node_id}' in workflow '{workflow.slug}'. "
-        "Set llm_model on ComponentConfig or default_llm_model/default_llm_credential on Workflow."
-    )
+    temp = config.extra_config.get("temperature")
+    return create_llm_from_db(config.llm_model, config.llm_credential, temperature=temp)

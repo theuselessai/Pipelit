@@ -35,25 +35,20 @@ def telegram_credential(user_profile):
         name="Test Bot",
         credential_type="telegram",
     )
-    return TelegramCredential.objects.create(
+    TelegramCredential.objects.create(
         base_credentials=base,
         bot_token="123456:ABC-DEF",
         allowed_user_ids="111222333,444555666",
     )
+    return base
 
 
 @pytest.fixture
-def workflow_with_telegram(workflow, telegram_credential):
-    workflow.telegram_credential = telegram_credential
-    workflow.save(update_fields=["telegram_credential"])
-    return workflow
-
-
-@pytest.fixture
-def telegram_trigger(workflow_with_telegram):
+def telegram_trigger(workflow, telegram_credential):
     return WorkflowTrigger.objects.create(
-        workflow=workflow_with_telegram,
+        workflow=workflow,
         trigger_type="telegram_chat",
+        credential=telegram_credential,
         config={},
         is_active=True,
         priority=10,

@@ -109,13 +109,14 @@ class TestSendLongMessage:
 
 @pytest.mark.django_db
 class TestDeliver:
-    def test_deliver_sends_to_chat(self, workflow_with_telegram):
+    def test_deliver_sends_to_chat(self, telegram_trigger):
         from apps.workflows.models import WorkflowExecution
-        from apps.users.models import UserProfile
 
-        profile = workflow_with_telegram.owner
+        workflow = telegram_trigger.workflow
+        profile = workflow.owner
         execution = WorkflowExecution.objects.create(
-            workflow=workflow_with_telegram,
+            workflow=workflow,
+            trigger=telegram_trigger,
             user_profile=profile,
             thread_id="t1",
             status="completed",
@@ -132,12 +133,14 @@ class TestDeliver:
         assert args[1] == 999  # chat_id
         assert "Result here" in args[2]
 
-    def test_deliver_skips_without_chat_id(self, workflow_with_telegram):
+    def test_deliver_skips_without_chat_id(self, telegram_trigger):
         from apps.workflows.models import WorkflowExecution
 
+        workflow = telegram_trigger.workflow
         execution = WorkflowExecution.objects.create(
-            workflow=workflow_with_telegram,
-            user_profile=workflow_with_telegram.owner,
+            workflow=workflow,
+            trigger=telegram_trigger,
+            user_profile=workflow.owner,
             thread_id="t2",
             status="completed",
             trigger_payload={},

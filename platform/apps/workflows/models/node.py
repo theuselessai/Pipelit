@@ -33,6 +33,12 @@ class ComponentConfig(models.Model):
         null=True,
         blank=True,
     )
+    llm_credential = models.ForeignKey(
+        "credentials.LLMProviderCredentials",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     system_prompt = models.TextField(blank=True, default="")
     extra_config = models.JSONField(
         default=dict,

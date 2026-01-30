@@ -81,9 +81,9 @@ class TestHandleMessage:
 
 @pytest.mark.django_db
 class TestHandleConfirmation:
-    def test_resumes_on_confirm(self, user_profile, workflow_with_telegram):
+    def test_resumes_on_confirm(self, user_profile, workflow):
         execution = WorkflowExecution.objects.create(
-            workflow=workflow_with_telegram,
+            workflow=workflow,
             user_profile=user_profile,
             thread_id="abc123",
             status="interrupted",
@@ -107,9 +107,9 @@ class TestHandleConfirmation:
         mock_queue.enqueue.assert_called_once()
         assert not PendingTask.objects.filter(task_id="aabbccdd").exists()
 
-    def test_cancels_execution(self, user_profile, workflow_with_telegram):
+    def test_cancels_execution(self, user_profile, workflow):
         execution = WorkflowExecution.objects.create(
-            workflow=workflow_with_telegram,
+            workflow=workflow,
             user_profile=user_profile,
             thread_id="abc123",
             status="interrupted",
@@ -133,9 +133,9 @@ class TestHandleConfirmation:
         assert execution.status == "cancelled"
         assert not PendingTask.objects.filter(task_id="aabbccdd").exists()
 
-    def test_expired_task(self, user_profile, workflow_with_telegram):
+    def test_expired_task(self, user_profile, workflow):
         execution = WorkflowExecution.objects.create(
-            workflow=workflow_with_telegram,
+            workflow=workflow,
             user_profile=user_profile,
             thread_id="abc123",
             status="interrupted",
