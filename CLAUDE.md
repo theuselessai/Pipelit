@@ -210,6 +210,42 @@ API_PORT=8080
 SEARXNG_BASE_URL=http://localhost:8888
 ```
 
+## Platform REST API
+
+The `platform/` directory contains a Django project with a django-ninja REST API at `/api/v1/`.
+
+### API Structure
+
+```
+platform/apps/workflows/api/
+├── __init__.py      # NinjaAPI instance + router wiring
+├── auth.py          # Session + Basic auth backends
+├── schemas.py       # Pydantic in/out schemas
+├── workflows.py     # Workflow CRUD router
+├── nodes.py         # Node + Edge CRUD (nested under workflow)
+├── triggers.py      # Trigger CRUD (nested under workflow)
+└── executions.py    # Execution list/detail/cancel
+```
+
+### API Endpoints
+
+All under `/api/v1/`, authenticated via Django session or HTTP Basic auth.
+
+- **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`
+- **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
+- **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{id}/`
+- **Triggers** — `GET/POST /workflows/{slug}/triggers/`, `PATCH/DELETE /workflows/{slug}/triggers/{id}/`
+- **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`
+
+### Running Platform Tests
+
+```bash
+cd platform
+source ../.venv/bin/activate
+export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+python -m pytest tests/ -v
+```
+
 ## Documentation
 
 - `docs/dev_plan_gateway.md` - Gateway architecture plan and roadmap

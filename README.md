@@ -235,6 +235,24 @@ The categorizer also determines when confirmation is needed (buy, delete, send, 
 | `API_PORT` | REST API port | `8080` |
 | `SEARXNG_BASE_URL` | SearXNG instance URL for web search | `http://localhost:8888` |
 
+## Platform REST API
+
+The `platform/` directory contains a Django-based workflow management system with a REST API built on django-ninja, served at `/api/v1/`.
+
+Authentication uses Django session or HTTP Basic auth. All endpoints return JSON.
+
+### Endpoints
+
+| Resource | Endpoints |
+|----------|-----------|
+| **Workflows** | `GET/POST /api/v1/workflows/`, `GET/PATCH/DELETE /api/v1/workflows/{slug}/` |
+| **Nodes** | `GET/POST /api/v1/workflows/{slug}/nodes/`, `PATCH/DELETE .../nodes/{node_id}/` |
+| **Edges** | `GET/POST /api/v1/workflows/{slug}/edges/`, `PATCH/DELETE .../edges/{id}/` |
+| **Triggers** | `GET/POST /api/v1/workflows/{slug}/triggers/`, `PATCH/DELETE .../triggers/{id}/` |
+| **Executions** | `GET /api/v1/executions/`, `GET .../executions/{id}/`, `POST .../executions/{id}/cancel/` |
+
+Workflow detail (`GET /api/v1/workflows/{slug}/`) returns nested nodes, edges, and triggers. Workflow deletion is soft-delete. Node creation/update accepts inline `config` for the underlying `ComponentConfig`. Executions can be filtered by `?workflow_slug=` and `?status=`.
+
 ## Project Structure
 
 ```
