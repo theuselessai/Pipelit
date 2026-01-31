@@ -219,7 +219,7 @@ The `platform/` directory contains a Django project with a django-ninja REST API
 ```
 platform/apps/workflows/api/
 ├── __init__.py      # NinjaAPI instance + router wiring
-├── auth.py          # Session + Bearer token auth backends
+├── auth.py          # Bearer token auth backend
 ├── auth_views.py    # POST /auth/token/ endpoint
 ├── schemas.py       # Pydantic in/out schemas
 ├── workflows.py     # Workflow CRUD router
@@ -231,7 +231,7 @@ platform/apps/workflows/api/
 
 ### API Endpoints
 
-All under `/api/v1/`, authenticated via Django session or Bearer token.
+All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <key>`).
 
 - **Auth** — `POST /auth/token/` (obtain Bearer token)
 - **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`
@@ -309,9 +309,11 @@ platform/frontend/src/
 ```bash
 cd platform/frontend
 npm install
-npm run dev          # Dev server at http://localhost:5173 (proxies /api to Django)
-npm run build        # Production build to dist/
+npm run dev          # Dev server (proxies /api to Django at :8000)
+npm run build        # Production build to dist/ (served by Django)
 ```
+
+In development, run Vite alongside Django. Without Vite, run `npm run build` and access via Django directly.
 
 ### Frontend Routes
 

@@ -239,7 +239,7 @@ The categorizer also determines when confirmation is needed (buy, delete, send, 
 
 The `platform/` directory contains a Django-based workflow management system with a REST API built on django-ninja, served at `/api/v1/`.
 
-Authentication uses Django session or Bearer token (`POST /api/v1/auth/token/` to obtain). All endpoints return JSON.
+Authentication uses Bearer tokens (`Authorization: Bearer <key>`). Obtain a token via `POST /api/v1/auth/token/` with `{username, password}`. All endpoints return JSON. CSRF middleware is disabled in development settings.
 
 ### Endpoints
 
@@ -282,7 +282,9 @@ npm run dev          # Dev server at http://localhost:5173 (proxies /api to Djan
 npm run build        # Production build to dist/
 ```
 
-In development, run both Django (`python manage.py runserver`) and Vite (`npm run dev`) simultaneously. Vite proxies `/api` requests to Django at port 8000. In production, `npm run build` outputs to `dist/` which Django serves as static files.
+**Development:** Run both Django (`python manage.py runserver 0.0.0.0:8000`) and Vite (`npm run dev`) simultaneously. Vite proxies `/api` requests to Django at port 8000. Access the app at the Vite dev server URL (e.g. `http://192.168.1.68:5173`).
+
+**Production / without Vite:** Run `npm run build`, then access the app directly through Django (e.g. `http://192.168.1.68:8000`). Django serves the built `dist/` files as static assets and handles SPA routing via a catch-all URL.
 
 ## Project Structure
 

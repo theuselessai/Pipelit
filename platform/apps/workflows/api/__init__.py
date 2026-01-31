@@ -1,6 +1,6 @@
 from ninja import NinjaAPI
 
-from .auth import SessionOrBasicAuth  # list of auth backends
+from .auth import BearerAuth
 from .auth_views import router as auth_router
 from .credentials import router as credentials_router
 from .executions import router as executions_router
@@ -11,7 +11,7 @@ from .workflows import router as workflows_router
 api = NinjaAPI(
     title="Workflow Platform API",
     version="1.0.0",
-    auth=SessionOrBasicAuth,
+    auth=BearerAuth(),
     urls_namespace="api-v1",
 )
 

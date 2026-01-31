@@ -16,14 +16,7 @@ from apps.workflows.models import (
 
 
 @pytest.fixture
-def auth_client(user):
-    client = Client()
-    client.login(username="testuser", password="testpass")
-    return client
-
-
-@pytest.fixture
-def bearer_auth_client(user, user_profile):
+def auth_client(user, user_profile):
     from apps.users.models import APIKey
 
     api_key = APIKey.objects.create(user=user)
@@ -129,8 +122,8 @@ class TestWorkflowAPI:
         resp = client.get("/api/v1/workflows/")
         assert resp.status_code == 401
 
-    def test_bearer_auth(self, bearer_auth_client, workflow):
-        resp = bearer_auth_client.get("/api/v1/workflows/")
+    def test_bearer_auth(self, auth_client, workflow):
+        resp = auth_client.get("/api/v1/workflows/")
         assert resp.status_code == 200
         assert len(resp.json()) == 1
 
