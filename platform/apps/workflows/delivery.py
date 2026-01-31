@@ -117,12 +117,15 @@ class OutputDelivery:
             )
 
     def _resolve_bot_token(self, execution) -> str | None:
-        """Get bot token from the execution's trigger credential."""
-        trigger = execution.trigger
-        if not trigger or not trigger.credential_id:
+        """Get bot token from the execution's trigger node credential."""
+        trigger_node = execution.trigger_node
+        if not trigger_node:
             return None
         try:
-            return trigger.credential.telegram_credential.bot_token
+            concrete = trigger_node.component_config.concrete
+            if not concrete or not getattr(concrete, "credential_id", None):
+                return None
+            return concrete.credential.telegram_credential.bot_token
         except Exception:
             logger.exception(
                 "Failed to resolve bot token for execution %s",

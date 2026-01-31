@@ -1,18 +1,40 @@
 from .code import CodeBlock, CodeBlockTest, CodeBlockTestRun, CodeBlockVersion
 from .execution import ExecutionLog, PendingTask, WorkflowExecution
 from .git import GitCommit, GitRepository, GitSyncTask
-from .node import ComponentConfig, WorkflowEdge, WorkflowNode
+from .node import (
+    AIComponentConfig,
+    BaseComponentConfig,
+    CodeComponentConfig,
+    COMPONENT_TYPE_TO_CONFIG,
+    EdgeLabel,
+    ModelComponentConfig,
+    OtherComponentConfig,
+    ToolComponentConfig,
+    TriggerComponentConfig,
+    WorkflowEdge,
+    WorkflowNode,
+)
+
+# Backwards-compatible alias
+ComponentConfig = BaseComponentConfig
 from .tool import ToolCredentialMapping, ToolDefinition, WorkflowTool
-from .trigger import WorkflowTrigger
 from .workflow import Workflow, WorkflowCollaborator
 
 __all__ = [
     "Workflow",
     "WorkflowCollaborator",
-    "WorkflowTrigger",
     "WorkflowNode",
     "WorkflowEdge",
+    "BaseComponentConfig",
     "ComponentConfig",
+    "ModelComponentConfig",
+    "AIComponentConfig",
+    "CodeComponentConfig",
+    "ToolComponentConfig",
+    "OtherComponentConfig",
+    "TriggerComponentConfig",
+    "COMPONENT_TYPE_TO_CONFIG",
+    "EdgeLabel",
     "ToolDefinition",
     "WorkflowTool",
     "ToolCredentialMapping",

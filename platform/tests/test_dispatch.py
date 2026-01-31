@@ -57,7 +57,7 @@ class TestDispatchEvent:
             )
 
         assert result is not None
-        assert result.trigger == webhook_trigger
+        assert result.trigger_node == webhook_trigger
 
     def test_manual_dispatch(self, user_profile, manual_trigger):
         with patch("apps.workflows.handlers.django_rq") as mock_rq:
@@ -70,4 +70,4 @@ class TestDispatchEvent:
             )
 
         assert result is not None
-        assert result.trigger == manual_trigger
+        assert result.trigger_node == manual_trigger

@@ -26,11 +26,16 @@ class WorkflowBuilder:
             CompiledGraph ready for .invoke() or .stream().
         """
         nodes = list(
-            workflow.nodes.select_related("component_config", "component_config__llm_model")
+            workflow.nodes.select_related("component_config")
             .all()
             .order_by("id")
         )
-        edges = list(workflow.edges.all().order_by("priority", "id"))
+        # Only use control-flow edges (empty label) for graph structure.
+        # Labeled edges (llm, tool, etc.) are data references, not control flow.
+        edges = list(
+            workflow.edges.filter(edge_label="")
+            .order_by("priority", "id")
+        )
 
         if not nodes:
             raise ValueError(f"Workflow '{workflow.slug}' has no nodes")

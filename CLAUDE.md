@@ -294,8 +294,7 @@ platform/frontend/src/
 │   │   └── components/
 │   │       ├── WorkflowCanvas.tsx     # React Flow canvas with custom nodes
 │   │       ├── NodePalette.tsx        # Click-to-add node types
-│   │       ├── NodeDetailsPanel.tsx   # Right sidebar config form
-│   │       └── TriggerPanel.tsx       # Trigger CRUD
+│   │       └── NodeDetailsPanel.tsx   # Right sidebar config form
 │   ├── credentials/        # CredentialsPage (table + create dialog)
 │   ├── executions/         # ExecutionsPage, ExecutionDetailPage
 │   └── settings/           # SettingsPage (placeholder)
@@ -326,6 +325,36 @@ In development, run Vite alongside Django. Without Vite, run `npm run build` and
 | `/executions` | Execution list |
 | `/executions/:id` | Execution detail + logs |
 | `/settings` | Settings (placeholder) |
+
+### Workflow Node Visual Design
+
+Nodes on the canvas use Font Awesome icons and color-coded borders by component type.
+
+**Node handle layout:**
+- **Left handle** (circle): target/input connection
+- **Right handle** (circle): source/output connection
+- **Bottom handles** (diamond): sub-component connections (model, tools, memory, output_parser)
+- **Top handle** (diamond, `ai_model` only): source connection to other nodes
+
+**Trigger nodes** strip the `trigger_` prefix in display (e.g., `trigger_telegram` shows as `telegram`). All trigger nodes share orange (`#f97316`) borders. Node labels strip the `<component_type>_` prefix to show only the hash/suffix.
+
+**AI-type nodes** (`simple_agent`, `planner_agent`, `categorizer`, `router`, `extractor`) have fixed 250px width with a separator line and bottom sub-component pills:
+
+| Node | model | tools | memory | output_parser |
+|------|-------|-------|--------|---------------|
+| simple_agent | yes | yes | yes | no |
+| planner_agent | yes | yes | yes | no |
+| categorizer | yes | no | yes | yes |
+| router | yes | no | yes | yes |
+| extractor | yes | no | yes | yes |
+
+**Sub-component handle colors:**
+- model: `#3b82f6` (blue)
+- tools: `#10b981` (green)
+- memory: `#f59e0b` (amber)
+- output_parser: `#94a3b8` (slate)
+
+**`ai_model` node** has only a top diamond handle (source) — it connects upward to nodes that need a model.
 
 ## Documentation
 

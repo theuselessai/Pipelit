@@ -3,8 +3,6 @@ import { useWorkflow } from "@/api/workflows"
 import WorkflowCanvas from "./components/WorkflowCanvas"
 import NodePalette from "./components/NodePalette"
 import NodeDetailsPanel from "./components/NodeDetailsPanel"
-import TriggerPanel from "./components/TriggerPanel"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useState } from "react"
 
 export default function WorkflowEditorPage() {
@@ -20,20 +18,9 @@ export default function WorkflowEditorPage() {
 
   return (
     <div className="flex h-full">
-      {/* Left: Palette & Triggers */}
-      <div className="w-60 border-r flex flex-col overflow-auto">
-        <Tabs defaultValue="palette" className="flex-1 flex flex-col">
-          <TabsList className="mx-2 mt-2">
-            <TabsTrigger value="palette">Nodes</TabsTrigger>
-            <TabsTrigger value="triggers">Triggers</TabsTrigger>
-          </TabsList>
-          <TabsContent value="palette" className="flex-1 overflow-auto p-2">
-            <NodePalette slug={slug!} />
-          </TabsContent>
-          <TabsContent value="triggers" className="flex-1 overflow-auto p-2">
-            <TriggerPanel slug={slug!} triggers={workflow.triggers} />
-          </TabsContent>
-        </Tabs>
+      {/* Left: Palette */}
+      <div className="w-60 border-r flex flex-col overflow-auto p-2">
+        <NodePalette slug={slug!} />
       </div>
 
       {/* Center: Canvas */}

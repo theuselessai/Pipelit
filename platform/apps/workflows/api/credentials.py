@@ -1,11 +1,10 @@
+import httpx
 from django.shortcuts import get_object_or_404
 from ninja import Router
 
 from apps.credentials.models import (
     BaseCredentials,
     GitCredential,
-    LLMModel,
-    LLMProvider,
     LLMProviderCredentials,
     TelegramCredential,
     ToolCredential,
@@ -13,13 +12,20 @@ from apps.credentials.models import (
 
 from .schemas import (
     CredentialIn,
+    CredentialModelOut,
     CredentialOut,
+    CredentialTestOut,
     CredentialUpdate,
-    LLMModelOut,
-    LLMProviderOut,
 )
 
 router = Router(tags=["credentials"])
+
+ANTHROPIC_MODELS = [
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-0-20250514",
+    "claude-haiku-3-5-20241022",
+    "claude-3-5-sonnet-20241022",
+]
 
 
 def _mask(value: str) -> str:
@@ -40,9 +46,11 @@ def _serialize_credential(cred: BaseCredentials) -> dict:
     if cred.credential_type == "llm" and hasattr(cred, "llm_credential"):
         llm = cred.llm_credential
         data["detail"] = {
-            "provider_id": llm.provider_id,
+            "provider_type": llm.provider_type,
             "api_key": _mask(llm.api_key),
             "base_url": llm.base_url,
+            "organization_id": llm.organization_id,
+            "custom_headers": llm.custom_headers,
         }
     elif cred.credential_type == "telegram" and hasattr(cred, "telegram_credential"):
         tg = cred.telegram_credential
@@ -87,9 +95,11 @@ def create_credential(request, payload: CredentialIn):
     if payload.credential_type == "llm":
         LLMProviderCredentials.objects.create(
             base_credentials=base,
-            provider_id=detail.get("provider_id"),
+            provider_type=detail.get("provider_type", "openai_compatible"),
             api_key=detail.get("api_key", ""),
             base_url=detail.get("base_url", ""),
+            organization_id=detail.get("organization_id", ""),
+            custom_headers=detail.get("custom_headers", {}),
         )
     elif payload.credential_type == "telegram":
         TelegramCredential.objects.create(
@@ -147,12 +157,9 @@ def update_credential(request, credential_id: int, payload: CredentialUpdate):
     if detail:
         if cred.credential_type == "llm" and hasattr(cred, "llm_credential"):
             llm = cred.llm_credential
-            if "provider_id" in detail:
-                llm.provider_id = detail["provider_id"]
-            if "api_key" in detail:
-                llm.api_key = detail["api_key"]
-            if "base_url" in detail:
-                llm.base_url = detail["base_url"]
+            for field in ("provider_type", "api_key", "base_url", "organization_id", "custom_headers"):
+                if field in detail:
+                    setattr(llm, field, detail[field])
             llm.save()
         elif cred.credential_type == "telegram" and hasattr(cred, "telegram_credential"):
             tg = cred.telegram_credential
@@ -190,17 +197,71 @@ def delete_credential(request, credential_id: int):
     return 204, None
 
 
-# ── LLM Providers & Models ──────────────────────────────────────────────────
+# -- Test & Models endpoints ---------------------------------------------------
 
 
-@router.get("/llm-providers/", response=list[LLMProviderOut])
-def list_llm_providers(request):
-    return LLMProvider.objects.all()
+@router.post("/{credential_id}/test/", response=CredentialTestOut)
+def test_credential(request, credential_id: int):
+    cred = get_object_or_404(
+        BaseCredentials.objects.select_related("llm_credential"),
+        id=credential_id,
+        credential_type="llm",
+    )
+    llm = cred.llm_credential
+    try:
+        if llm.provider_type == "anthropic":
+            resp = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": llm.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-haiku-3-5-20241022",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+                timeout=15,
+            )
+            if resp.status_code >= 400:
+                return {"ok": False, "error": resp.text[:500]}
+        else:
+            base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
+            resp = httpx.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {llm.api_key}"},
+                timeout=15,
+            )
+            if resp.status_code >= 400:
+                return {"ok": False, "error": resp.text[:500]}
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:500]}
 
 
-@router.get("/llm-models/", response=list[LLMModelOut])
-def list_llm_models(request, provider_id: int | None = None):
-    qs = LLMModel.objects.select_related("provider").all()
-    if provider_id is not None:
-        qs = qs.filter(provider_id=provider_id)
-    return qs
+@router.get("/{credential_id}/models/", response=list[CredentialModelOut])
+def list_credential_models(request, credential_id: int):
+    cred = get_object_or_404(
+        BaseCredentials.objects.select_related("llm_credential"),
+        id=credential_id,
+        credential_type="llm",
+    )
+    llm = cred.llm_credential
+
+    if llm.provider_type == "anthropic":
+        return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
+
+    base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
+    try:
+        resp = httpx.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {llm.api_key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        models = sorted(data, key=lambda m: m.get("id", ""))
+        return [{"id": m["id"], "name": m["id"]} for m in models]
+    except Exception:
+        return []

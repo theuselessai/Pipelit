@@ -29,7 +29,7 @@ class WorkflowExecutor:
 
         execution = (
             WorkflowExecution.objects.select_related(
-                "workflow", "trigger", "user_profile"
+                "workflow", "trigger_node", "user_profile"
             )
             .get(execution_id=execution_id)
         )

@@ -116,7 +116,7 @@ class TestDeliver:
         profile = workflow.owner
         execution = WorkflowExecution.objects.create(
             workflow=workflow,
-            trigger=telegram_trigger,
+            trigger_node=telegram_trigger,
             user_profile=profile,
             thread_id="t1",
             status="completed",
@@ -139,7 +139,7 @@ class TestDeliver:
         workflow = telegram_trigger.workflow
         execution = WorkflowExecution.objects.create(
             workflow=workflow,
-            trigger=telegram_trigger,
+            trigger_node=telegram_trigger,
             user_profile=workflow.owner,
             thread_id="t2",
             status="completed",

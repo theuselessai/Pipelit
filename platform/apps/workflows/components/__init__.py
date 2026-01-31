@@ -29,8 +29,8 @@ def get_component_factory(component_type: str):
 
 # Import all component modules to trigger @register decorators
 from apps.workflows.components import (  # noqa: E402, F401
+    ai_model,
     categorizer,
-    chat,
     code,
     control_flow,
     data_ops,
@@ -38,9 +38,10 @@ from apps.workflows.components import (  # noqa: E402, F401
     human_confirmation,
     output_parser,
     parallel,
-    plan_and_execute,
-    react_agent,
+    planner_agent,
     router,
+    simple_agent,
     subworkflow,
     tool_node,
+    trigger,
 )

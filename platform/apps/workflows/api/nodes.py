@@ -1,7 +1,13 @@
 from django.shortcuts import get_object_or_404
 from ninja import Router
 
-from apps.workflows.models import ComponentConfig, WorkflowEdge, WorkflowNode
+from apps.workflows.models import WorkflowEdge, WorkflowNode
+from apps.workflows.models.node import (
+    COMPONENT_TYPE_TO_CONFIG,
+    BaseComponentConfig,
+    ModelComponentConfig,
+    TriggerComponentConfig,
+)
 
 from .schemas import EdgeIn, EdgeOut, EdgeUpdate, NodeIn, NodeOut, NodeUpdate
 from .workflows import _get_workflow
@@ -23,13 +29,32 @@ def create_node(request, slug: str, payload: NodeIn):
     wf = _get_workflow(slug, request.auth)
     data = payload.dict()
     config_data = data.pop("config")
-    cc = ComponentConfig.objects.create(
-        component_type=data["component_type"],
-        system_prompt=config_data.get("system_prompt", ""),
-        extra_config=config_data.get("extra_config", {}),
-        llm_model_id=config_data.get("llm_model_id"),
-        llm_credential_id=config_data.get("llm_credential_id"),
-    )
+    component_type = data["component_type"]
+
+    # Create the right config subclass
+    ConfigClass = COMPONENT_TYPE_TO_CONFIG.get(component_type, BaseComponentConfig)
+
+    kwargs = {
+        "component_type": component_type,
+        "extra_config": config_data.get("extra_config", {}),
+    }
+
+    # Add fields specific to the config subclass
+    if hasattr(ConfigClass, "system_prompt"):
+        kwargs["system_prompt"] = config_data.get("system_prompt", "")
+    if issubclass(ConfigClass, ModelComponentConfig):
+        kwargs["llm_credential_id"] = config_data.get("llm_credential_id")
+        kwargs["model_name"] = config_data.get("model_name", "")
+        for param in ("temperature", "max_tokens", "frequency_penalty", "presence_penalty", "top_p", "timeout", "max_retries", "response_format"):
+            if config_data.get(param) is not None:
+                kwargs[param] = config_data[param]
+    elif issubclass(ConfigClass, TriggerComponentConfig):
+        kwargs["credential_id"] = config_data.get("credential_id")
+        kwargs["is_active"] = config_data.get("is_active", True)
+        kwargs["priority"] = config_data.get("priority", 0)
+        kwargs["trigger_config"] = config_data.get("trigger_config", {})
+
+    cc = ConfigClass.objects.create(**kwargs)
     data["workflow"] = wf
     data["component_config"] = cc
     node = WorkflowNode.objects.create(**data)
@@ -44,12 +69,26 @@ def update_node(request, slug: str, node_id: str, payload: NodeUpdate):
     config_data = data.pop("config", None)
     if config_data:
         cc = node.component_config
+        concrete = cc.concrete
+        model_fields = ("llm_credential_id", "model_name", "temperature", "max_tokens", "frequency_penalty", "presence_penalty", "top_p", "timeout", "max_retries", "response_format")
+        trigger_fields = ("credential_id", "is_active", "priority", "trigger_config")
         for k, v in config_data.items():
-            if k == "llm_model_id":
-                cc.llm_model_id = v
+            if k in model_fields:
+                if isinstance(concrete, ModelComponentConfig):
+                    setattr(concrete, k, v)
+            elif k in trigger_fields:
+                if isinstance(concrete, TriggerComponentConfig):
+                    setattr(concrete, k, v)
+            elif k == "system_prompt":
+                if hasattr(concrete, "system_prompt"):
+                    concrete.system_prompt = v
+            elif k == "extra_config":
+                cc.extra_config = v
             else:
                 setattr(cc, k, v)
         cc.save()
+        if concrete is not cc:
+            concrete.save()
     for attr, value in data.items():
         setattr(node, attr, value)
     node.save()
@@ -63,8 +102,10 @@ def delete_node(request, slug: str, node_id: str):
     # Delete edges referencing this node
     wf.edges.filter(source_node_id=node_id).delete()
     wf.edges.filter(target_node_id=node_id).delete()
-    node.component_config.delete()
+    cc = node.component_config
     node.delete()
+    # Deleting the base config cascades to the child table
+    cc.delete()
     return 204, None
 
 

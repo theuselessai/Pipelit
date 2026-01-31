@@ -19,7 +19,6 @@ from .models import (
     WorkflowExecution,
     WorkflowNode,
     WorkflowTool,
-    WorkflowTrigger,
 )
 
 
@@ -36,15 +35,9 @@ class WorkflowCollaboratorAdmin(admin.ModelAdmin):
     list_display = ("workflow", "user_profile", "role", "invited_at")
 
 
-@admin.register(WorkflowTrigger)
-class WorkflowTriggerAdmin(admin.ModelAdmin):
-    list_display = ("workflow", "trigger_type", "is_active", "priority")
-    list_filter = ("trigger_type", "is_active")
-
-
 @admin.register(ComponentConfig)
 class ComponentConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "component_type", "llm_model")
+    list_display = ("id", "component_type")
 
 
 @admin.register(WorkflowNode)

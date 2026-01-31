@@ -1,7 +1,12 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Load .env from the repository root (one level above platform/)
+load_dotenv(BASE_DIR.parent / ".env")
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
 

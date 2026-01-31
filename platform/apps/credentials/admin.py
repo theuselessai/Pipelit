@@ -3,8 +3,6 @@ from django.contrib import admin
 from .models import (
     BaseCredentials,
     GitCredential,
-    LLMModel,
-    LLMProvider,
     LLMProviderCredentials,
     TelegramCredential,
     ToolCredential,
@@ -22,19 +20,9 @@ class GitCredentialAdmin(admin.ModelAdmin):
     list_display = ("base_credentials", "provider", "credential_type", "username")
 
 
-@admin.register(LLMProvider)
-class LLMProviderAdmin(admin.ModelAdmin):
-    list_display = ("name", "provider_type")
-
-
-@admin.register(LLMModel)
-class LLMModelAdmin(admin.ModelAdmin):
-    list_display = ("model_name", "provider", "default_temperature", "context_window")
-
-
 @admin.register(LLMProviderCredentials)
 class LLMProviderCredentialsAdmin(admin.ModelAdmin):
-    list_display = ("base_credentials", "provider", "base_url")
+    list_display = ("base_credentials", "provider_type", "base_url")
 
 
 @admin.register(TelegramCredential)

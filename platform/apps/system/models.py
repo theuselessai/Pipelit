@@ -2,12 +2,13 @@ from django.db import models
 
 
 class SystemConfig(models.Model):
-    default_llm_model = models.ForeignKey(
-        "credentials.LLMModel",
+    default_llm_credential = models.ForeignKey(
+        "credentials.BaseCredentials",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
     )
+    default_llm_model_name = models.CharField(max_length=255, blank=True, default="")
     default_timezone = models.CharField(max_length=50, default="UTC")
     max_workflow_execution_seconds = models.IntegerField(default=600)
     confirmation_timeout_seconds = models.IntegerField(default=300)

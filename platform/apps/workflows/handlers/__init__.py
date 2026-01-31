@@ -34,11 +34,11 @@ def dispatch_event(event_type: str, event_data: dict, user_profile):
         logger.debug("No workflow matched for event_type='%s'", event_type)
         return None
 
-    workflow, trigger = result
+    workflow, trigger_node = result
 
     execution = WorkflowExecution.objects.create(
         workflow=workflow,
-        trigger=trigger,
+        trigger_node=trigger_node,
         user_profile=user_profile,
         thread_id=uuid.uuid4().hex,
         trigger_payload=event_data,

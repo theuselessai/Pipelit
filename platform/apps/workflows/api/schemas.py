@@ -7,19 +7,18 @@ from ninja import Schema
 CredentialTypeStr = Literal["git", "llm", "telegram", "tool"]
 
 ComponentTypeStr = Literal[
-    "categorizer", "router", "chat_model", "react_agent", "plan_and_execute",
+    "categorizer", "router", "extractor", "ai_model", "simple_agent", "planner_agent",
     "tool_node", "aggregator", "human_confirmation", "parallel", "workflow",
     "code", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
     "http_request", "error_handler", "output_parser",
-]
-TriggerTypeStr = Literal[
-    "telegram_message", "telegram_chat", "schedule", "webhook", "manual",
-    "workflow", "error",
+    "trigger_telegram", "trigger_webhook", "trigger_schedule",
+    "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat",
 ]
 EdgeTypeStr = Literal["direct", "conditional"]
+EdgeLabelStr = Literal["", "llm", "tool", "memory", "output_parser"]
 
 
-# ── Workflow ──────────────────────────────────────────────────────────────────
+# -- Workflow ------------------------------------------------------------------
 
 
 class WorkflowIn(Schema):
@@ -59,7 +58,6 @@ class WorkflowOut(Schema):
     output_schema: dict | None = None
     node_count: int = 0
     edge_count: int = 0
-    trigger_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -71,15 +69,10 @@ class WorkflowOut(Schema):
     def resolve_edge_count(obj):
         return obj.edges.count()
 
-    @staticmethod
-    def resolve_trigger_count(obj):
-        return obj.triggers.count()
-
 
 class WorkflowDetailOut(WorkflowOut):
     nodes: list["NodeOut"] = []
     edges: list["EdgeOut"] = []
-    triggers: list["TriggerOut"] = []
 
     @staticmethod
     def resolve_nodes(obj):
@@ -89,19 +82,28 @@ class WorkflowDetailOut(WorkflowOut):
     def resolve_edges(obj):
         return obj.edges.all()
 
-    @staticmethod
-    def resolve_triggers(obj):
-        return obj.triggers.all()
 
-
-# ── Node ──────────────────────────────────────────────────────────────────────
+# -- Node ----------------------------------------------------------------------
 
 
 class ComponentConfigData(Schema):
     system_prompt: str = ""
     extra_config: dict = {}
-    llm_model_id: int | None = None
     llm_credential_id: int | None = None
+    model_name: str = ""
+    temperature: float | None = None
+    max_tokens: int | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    top_p: float | None = None
+    timeout: int | None = None
+    max_retries: int | None = None
+    response_format: dict | None = None
+    # Trigger fields
+    credential_id: int | None = None
+    is_active: bool = True
+    priority: int = 0
+    trigger_config: dict = {}
 
 
 class NodeIn(Schema):
@@ -147,21 +149,54 @@ class NodeOut(Schema):
     @staticmethod
     def resolve_config(obj):
         cc = obj.component_config
-        return {
-            "system_prompt": cc.system_prompt,
+        concrete = cc.concrete
+        result = {
+            "system_prompt": getattr(concrete, "system_prompt", ""),
             "extra_config": cc.extra_config,
-            "llm_model_id": cc.llm_model_id,
-            "llm_credential_id": cc.llm_credential_id,
+            "llm_credential_id": None,
+            "model_name": "",
+            "temperature": None,
+            "max_tokens": None,
+            "frequency_penalty": None,
+            "presence_penalty": None,
+            "top_p": None,
+            "timeout": None,
+            "max_retries": None,
+            "response_format": None,
+            "credential_id": None,
+            "is_active": True,
+            "priority": 0,
+            "trigger_config": {},
         }
+        from apps.workflows.models.node import ModelComponentConfig, TriggerComponentConfig
+
+        if isinstance(concrete, ModelComponentConfig):
+            result["llm_credential_id"] = concrete.llm_credential_id
+            result["model_name"] = concrete.model_name
+            result["temperature"] = concrete.temperature
+            result["max_tokens"] = concrete.max_tokens
+            result["frequency_penalty"] = concrete.frequency_penalty
+            result["presence_penalty"] = concrete.presence_penalty
+            result["top_p"] = concrete.top_p
+            result["timeout"] = concrete.timeout
+            result["max_retries"] = concrete.max_retries
+            result["response_format"] = concrete.response_format
+        elif isinstance(concrete, TriggerComponentConfig):
+            result["credential_id"] = concrete.credential_id
+            result["is_active"] = concrete.is_active
+            result["priority"] = concrete.priority
+            result["trigger_config"] = concrete.trigger_config
+        return result
 
 
-# ── Edge ──────────────────────────────────────────────────────────────────────
+# -- Edge ----------------------------------------------------------------------
 
 
 class EdgeIn(Schema):
     source_node_id: str
     target_node_id: str = ""
     edge_type: EdgeTypeStr = "direct"
+    edge_label: EdgeLabelStr = ""
     condition_mapping: dict | None = None
     priority: int = 0
 
@@ -170,6 +205,7 @@ class EdgeUpdate(Schema):
     source_node_id: str | None = None
     target_node_id: str | None = None
     edge_type: EdgeTypeStr | None = None
+    edge_label: EdgeLabelStr | None = None
     condition_mapping: dict | None = None
     priority: int | None = None
 
@@ -179,40 +215,12 @@ class EdgeOut(Schema):
     source_node_id: str
     target_node_id: str
     edge_type: EdgeTypeStr
+    edge_label: str = ""
     condition_mapping: dict | None = None
     priority: int
 
 
-# ── Trigger ───────────────────────────────────────────────────────────────────
-
-
-class TriggerIn(Schema):
-    trigger_type: TriggerTypeStr
-    credential_id: int | None = None
-    config: dict = {}
-    is_active: bool = True
-    priority: int = 0
-
-
-class TriggerUpdate(Schema):
-    trigger_type: TriggerTypeStr | None = None
-    credential_id: int | None = None
-    config: dict | None = None
-    is_active: bool | None = None
-    priority: int | None = None
-
-
-class TriggerOut(Schema):
-    id: int
-    trigger_type: TriggerTypeStr
-    credential_id: int | None = None
-    config: dict
-    is_active: bool
-    priority: int
-    created_at: datetime
-
-
-# ── Execution ─────────────────────────────────────────────────────────────────
+# -- Execution -----------------------------------------------------------------
 
 
 class ExecutionOut(Schema):
@@ -249,7 +257,17 @@ class ExecutionDetailOut(ExecutionOut):
         return obj.logs.all()
 
 
-# ── Credentials ──────────────────────────────────────────────────────────────
+# -- Credentials ---------------------------------------------------------------
+
+
+class ChatMessageIn(Schema):
+    text: str
+
+
+class ChatMessageOut(Schema):
+    execution_id: UUID
+    status: str
+    response: str
 
 
 class CredentialIn(Schema):
@@ -272,23 +290,14 @@ class CredentialOut(Schema):
     updated_at: datetime
 
 
-# ── LLM Providers & Models ───────────────────────────────────────────────────
+# -- Credential test/models responses ------------------------------------------
 
 
-class LLMProviderOut(Schema):
-    id: int
+class CredentialTestOut(Schema):
+    ok: bool
+    error: str = ""
+
+
+class CredentialModelOut(Schema):
+    id: str
     name: str
-    provider_type: str
-
-
-class LLMModelOut(Schema):
-    id: int
-    provider_id: int
-    provider_name: str = ""
-    model_name: str
-    default_temperature: float
-    context_window: int
-
-    @staticmethod
-    def resolve_provider_name(obj):
-        return obj.provider.name

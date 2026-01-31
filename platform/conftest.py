@@ -5,7 +5,8 @@ from django.contrib.auth.models import User
 
 from apps.credentials.models import BaseCredentials, TelegramCredential
 from apps.users.models import UserProfile
-from apps.workflows.models import Workflow, WorkflowTrigger
+from apps.workflows.models import Workflow, WorkflowNode
+from apps.workflows.models.node import TriggerComponentConfig
 
 
 @pytest.fixture
@@ -45,33 +46,48 @@ def telegram_credential(user_profile):
 
 @pytest.fixture
 def telegram_trigger(workflow, telegram_credential):
-    return WorkflowTrigger.objects.create(
-        workflow=workflow,
-        trigger_type="telegram_chat",
+    cc = TriggerComponentConfig.objects.create(
+        component_type="trigger_telegram",
         credential=telegram_credential,
-        config={},
+        trigger_config={},
         is_active=True,
         priority=10,
+    )
+    return WorkflowNode.objects.create(
+        workflow=workflow,
+        node_id="telegram_trigger_1",
+        component_type="trigger_telegram",
+        component_config=cc,
     )
 
 
 @pytest.fixture
 def webhook_trigger(workflow):
-    return WorkflowTrigger.objects.create(
-        workflow=workflow,
-        trigger_type="webhook",
-        config={"path": "test-hook"},
+    cc = TriggerComponentConfig.objects.create(
+        component_type="trigger_webhook",
+        trigger_config={"path": "test-hook"},
         is_active=True,
         priority=10,
+    )
+    return WorkflowNode.objects.create(
+        workflow=workflow,
+        node_id="webhook_trigger_1",
+        component_type="trigger_webhook",
+        component_config=cc,
     )
 
 
 @pytest.fixture
 def manual_trigger(workflow):
-    return WorkflowTrigger.objects.create(
-        workflow=workflow,
-        trigger_type="manual",
-        config={},
+    cc = TriggerComponentConfig.objects.create(
+        component_type="trigger_manual",
+        trigger_config={},
         is_active=True,
         priority=10,
+    )
+    return WorkflowNode.objects.create(
+        workflow=workflow,
+        node_id="manual_trigger_1",
+        component_type="trigger_manual",
+        component_config=cc,
     )

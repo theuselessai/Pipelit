@@ -53,52 +53,32 @@ class GitCredential(models.Model):
         return f"Git ({self.provider}) - {self.base_credentials.name}"
 
 
-class LLMProvider(models.Model):
+class LLMProviderCredentials(models.Model):
     class ProviderType(models.TextChoices):
         OPENAI = "openai", "OpenAI"
         ANTHROPIC = "anthropic", "Anthropic"
         OPENAI_COMPATIBLE = "openai_compatible", "OpenAI Compatible"
 
-    name = models.CharField(max_length=255)
-    provider_type = models.CharField(max_length=30, choices=ProviderType.choices)
-
-    def __str__(self):
-        return self.name
-
-
-class LLMModel(models.Model):
-    provider = models.ForeignKey(
-        LLMProvider,
-        on_delete=models.CASCADE,
-        related_name="models",
-    )
-    model_name = models.CharField(max_length=255)
-    default_temperature = models.FloatField(default=0.7)
-    context_window = models.IntegerField(default=4096)
-
-    def __str__(self):
-        return f"{self.provider.name}/{self.model_name}"
-
-
-class LLMProviderCredentials(models.Model):
     base_credentials = models.OneToOneField(
         BaseCredentials,
         on_delete=models.CASCADE,
         related_name="llm_credential",
     )
-    provider = models.ForeignKey(
-        LLMProvider,
-        on_delete=models.CASCADE,
-        related_name="credentials",
+    provider_type = models.CharField(
+        max_length=30,
+        choices=ProviderType.choices,
+        default=ProviderType.OPENAI_COMPATIBLE,
     )
     api_key = EncryptedCharField(max_length=500)
     base_url = models.URLField(blank=True, default="")
+    organization_id = models.CharField(max_length=255, blank=True, default="")
+    custom_headers = models.JSONField(default=dict, blank=True)
 
     class Meta:
         verbose_name_plural = "LLM provider credentials"
 
     def __str__(self):
-        return f"LLM ({self.provider.name}) - {self.base_credentials.name}"
+        return f"LLM ({self.provider_type}) - {self.base_credentials.name}"
 
 
 class TelegramCredential(models.Model):

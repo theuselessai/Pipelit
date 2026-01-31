@@ -31,8 +31,10 @@ def categorizer_factory(node):
         f"Valid category names: {category_names}"
     )
 
-    if node.component_config.system_prompt:
-        system_prompt = node.component_config.system_prompt + "\n\n" + system_prompt
+    concrete = node.component_config.concrete
+    custom_prompt = getattr(concrete, "system_prompt", "")
+    if custom_prompt:
+        system_prompt = custom_prompt + "\n\n" + system_prompt
 
     def categorizer_node(state: dict) -> dict:
         messages = [SystemMessage(content=system_prompt)]

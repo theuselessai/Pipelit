@@ -18,12 +18,12 @@ class WorkflowExecution(models.Model):
         on_delete=models.CASCADE,
         related_name="executions",
     )
-    trigger = models.ForeignKey(
-        "workflows.WorkflowTrigger",
+    trigger_node = models.ForeignKey(
+        "workflows.WorkflowNode",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="executions",
+        related_name="triggered_executions",
     )
     parent_execution = models.ForeignKey(
         "self",

@@ -6,13 +6,12 @@ import pytest
 from django.test import Client
 
 from apps.workflows.models import (
-    ComponentConfig,
     Workflow,
     WorkflowEdge,
     WorkflowExecution,
     WorkflowNode,
-    WorkflowTrigger,
 )
+from apps.workflows.models.node import AIComponentConfig, ModelComponentConfig, TriggerComponentConfig
 
 
 @pytest.fixture
@@ -27,15 +26,14 @@ def auth_client(user, user_profile):
 
 @pytest.fixture
 def node(workflow):
-    cc = ComponentConfig.objects.create(
-        component_type="chat_model",
-        system_prompt="You are helpful.",
+    cc = ModelComponentConfig.objects.create(
+        component_type="ai_model",
         extra_config={"temperature": 0.7},
     )
     return WorkflowNode.objects.create(
         workflow=workflow,
         node_id="chat1",
-        component_type="chat_model",
+        component_type="ai_model",
         component_config=cc,
         is_entry_point=True,
     )
@@ -52,12 +50,18 @@ def edge(workflow):
 
 
 @pytest.fixture
-def trigger(workflow):
-    return WorkflowTrigger.objects.create(
-        workflow=workflow,
-        trigger_type="manual",
-        config={},
+def trigger_node(workflow):
+    cc = TriggerComponentConfig.objects.create(
+        component_type="trigger_manual",
+        trigger_config={},
         is_active=True,
+        priority=0,
+    )
+    return WorkflowNode.objects.create(
+        workflow=workflow,
+        node_id="manual_trigger_1",
+        component_type="trigger_manual",
+        component_config=cc,
     )
 
 
@@ -93,13 +97,12 @@ class TestWorkflowAPI:
         assert resp.json()["slug"] == "new-wf"
         assert Workflow.objects.filter(slug="new-wf").exists()
 
-    def test_get_workflow_detail(self, auth_client, workflow, node, edge, trigger):
+    def test_get_workflow_detail(self, auth_client, workflow, node, edge, trigger_node):
         resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["nodes"]) == 1
+        assert len(data["nodes"]) == 2  # node + trigger_node
         assert len(data["edges"]) == 1
-        assert len(data["triggers"]) == 1
 
     def test_update_workflow(self, auth_client, workflow):
         resp = auth_client.patch(
@@ -197,7 +200,7 @@ class TestNodeAPI:
             f"/api/v1/workflows/{workflow.slug}/nodes/",
             data=json.dumps({
                 "node_id": "agent1",
-                "component_type": "react_agent",
+                "component_type": "simple_agent",
                 "is_entry_point": True,
                 "config": {"system_prompt": "Be helpful", "extra_config": {}},
             }),
@@ -209,16 +212,38 @@ class TestNodeAPI:
         assert data["config"]["system_prompt"] == "Be helpful"
         assert WorkflowNode.objects.filter(workflow=workflow, node_id="agent1").exists()
 
+    def test_create_trigger_node(self, auth_client, workflow):
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/",
+            data=json.dumps({
+                "node_id": "tg_trigger_1",
+                "component_type": "trigger_telegram",
+                "config": {
+                    "credential_id": None,
+                    "is_active": True,
+                    "priority": 5,
+                    "trigger_config": {"pattern": "hello"},
+                },
+            }),
+            content_type="application/json",
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["component_type"] == "trigger_telegram"
+        assert data["config"]["is_active"] is True
+        assert data["config"]["priority"] == 5
+        assert data["config"]["trigger_config"] == {"pattern": "hello"}
+
     def test_update_node(self, auth_client, workflow, node):
         resp = auth_client.patch(
             f"/api/v1/workflows/{workflow.slug}/nodes/{node.node_id}/",
-            data=json.dumps({"position_x": 100, "config": {"system_prompt": "Updated"}}),
+            data=json.dumps({"position_x": 100, "config": {"model_name": "gpt-4o"}}),
             content_type="application/json",
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["position_x"] == 100
-        assert data["config"]["system_prompt"] == "Updated"
+        assert data["config"]["model_name"] == "gpt-4o"
 
     def test_delete_node(self, auth_client, workflow, node, edge):
         resp = auth_client.delete(
@@ -264,41 +289,6 @@ class TestEdgeAPI:
 
     def test_delete_edge(self, auth_client, workflow, edge):
         resp = auth_client.delete(f"/api/v1/workflows/{workflow.slug}/edges/{edge.id}/")
-        assert resp.status_code == 204
-
-
-# ── Trigger CRUD ──────────────────────────────────────────────────────────────
-
-
-@pytest.mark.django_db
-class TestTriggerAPI:
-    def test_list_triggers(self, auth_client, workflow, trigger):
-        resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/triggers/")
-        assert resp.status_code == 200
-        assert len(resp.json()) == 1
-
-    def test_create_trigger(self, auth_client, workflow):
-        resp = auth_client.post(
-            f"/api/v1/workflows/{workflow.slug}/triggers/",
-            data=json.dumps({"trigger_type": "webhook", "config": {"path": "hook1"}}),
-            content_type="application/json",
-        )
-        assert resp.status_code == 201
-        assert resp.json()["trigger_type"] == "webhook"
-
-    def test_update_trigger(self, auth_client, workflow, trigger):
-        resp = auth_client.patch(
-            f"/api/v1/workflows/{workflow.slug}/triggers/{trigger.id}/",
-            data=json.dumps({"is_active": False}),
-            content_type="application/json",
-        )
-        assert resp.status_code == 200
-        assert resp.json()["is_active"] is False
-
-    def test_delete_trigger(self, auth_client, workflow, trigger):
-        resp = auth_client.delete(
-            f"/api/v1/workflows/{workflow.slug}/triggers/{trigger.id}/"
-        )
         assert resp.status_code == 204
 
 
