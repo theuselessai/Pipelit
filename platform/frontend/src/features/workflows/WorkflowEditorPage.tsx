@@ -24,7 +24,7 @@ export default function WorkflowEditorPage() {
       </div>
 
       {/* Center: Canvas */}
-      <div className="flex-1">
+      <div className="flex-1 h-full">
         <WorkflowCanvas
           slug={slug!}
           workflow={workflow}

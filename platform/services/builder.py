@@ -34,9 +34,11 @@ class WorkflowBuilder:
             .all()
         )
 
-        # Separate trigger nodes from execution nodes
+        # Separate non-executable nodes (triggers, ai_model sub-components)
+        SUB_COMPONENT_TYPES = {"ai_model"}
         trigger_nodes = {n.node_id for n in nodes if n.component_type.startswith("trigger_")}
-        exec_nodes = [n for n in nodes if n.node_id not in trigger_nodes]
+        skip_nodes = trigger_nodes | {n.node_id for n in nodes if n.component_type in SUB_COMPONENT_TYPES}
+        exec_nodes = [n for n in nodes if n.node_id not in skip_nodes]
 
         if not exec_nodes:
             raise ValueError(f"Workflow '{workflow.slug}' has no executable nodes")
@@ -47,7 +49,7 @@ class WorkflowBuilder:
             # Auto-detect: find the target of trigger edges
             trigger_targets = [
                 e.target_node_id for e in edges
-                if e.source_node_id in trigger_nodes and e.target_node_id not in trigger_nodes
+                if e.source_node_id in trigger_nodes and e.target_node_id not in skip_nodes
             ]
             if trigger_targets:
                 entry_nodes = [n for n in exec_nodes if n.node_id == trigger_targets[0]]
@@ -71,7 +73,7 @@ class WorkflowBuilder:
         graph.set_entry_point(entry_node.node_id)
 
         # Only include edges between executable nodes
-        exec_edges = [e for e in edges if e.source_node_id not in trigger_nodes and e.target_node_id not in trigger_nodes]
+        exec_edges = [e for e in edges if e.source_node_id not in skip_nodes and e.target_node_id not in skip_nodes]
         edges_by_source: dict[str, list] = {}
         for edge in exec_edges:
             edges_by_source.setdefault(edge.source_node_id, []).append(edge)
