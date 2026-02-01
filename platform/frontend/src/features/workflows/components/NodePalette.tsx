@@ -83,7 +83,7 @@ export default function NodePalette({ slug }: { slug: string }) {
                   disabled={createNode.isPending}
                 >
                   {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
-                  {type.replace(/^trigger_/, "").replace(/_/g, " ")}
+                  {type.replace(/^trigger_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                 </Button>
               )
             })}

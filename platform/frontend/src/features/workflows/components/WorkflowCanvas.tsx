@@ -38,6 +38,7 @@ import "@xyflow/react/dist/style.css"
 import type { WorkflowDetail, ComponentType, EdgeLabel } from "@/types/models"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
+import { useCredentials } from "@/api/credentials"
 
 const COMPONENT_COLORS: Record<string, string> = {
   ai_model: "#3b82f6",
@@ -74,20 +75,27 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   trigger_chat: faComments,
 }
 
+function formatDisplayName(s: string) {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean }; selected?: boolean }) {
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string }; selected?: boolean }) {
   const color = getColor(data.componentType)
   const isTrigger = data.componentType.startsWith("trigger_")
   const isFixedWidth = ["router", "categorizer", "planner_agent", "simple_agent", "extractor"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "tool_node", "output_parser"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["simple_agent", "planner_agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["simple_agent", "planner_agent"].includes(data.componentType)
   const hasMemory = ["simple_agent", "planner_agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasOutputParser = ["categorizer", "router", "extractor"].includes(data.componentType)
-  const displayType = isTrigger ? data.componentType.replace("trigger_", "") : data.componentType
+  const displayType = isAiModel
+    ? formatDisplayName(data.providerType || "ai_model")
+    : formatDisplayName(isTrigger ? data.componentType.replace("trigger_", "") : data.componentType)
   const displayLabel = data.label.startsWith(data.componentType + "_")
     ? data.label.slice(data.componentType.length + 1)
     : data.label
@@ -96,15 +104,15 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
       className={`px-3 py-2 rounded-lg border-2 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
       style={{ borderColor: color }}
     >
-      {!isTrigger && !isAiModel && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
-      {isAiModel && <Handle type="source" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
+      {!isTrigger && !isSubComponent && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
+      {isSubComponent && <Handle type="source" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
       <div className="flex items-center gap-2">
         {COMPONENT_ICONS[data.componentType] && (
           <FontAwesomeIcon icon={COMPONENT_ICONS[data.componentType]} className="w-5 h-5 shrink-0" style={{ color }} />
         )}
         <div>
           <div className="text-xs font-medium text-muted-foreground" style={{ color }}>{displayType}</div>
-          <div className="text-sm font-semibold">{displayLabel}</div>
+          <div className="text-sm font-semibold">{isAiModel ? (data.modelName || "undefined") : displayLabel}</div>
         </div>
       </div>
       {data.isEntryPoint && <div className="text-[10px] text-primary mt-1">Entry Point</div>}
@@ -139,7 +147,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           </div>
         </div>
       )}
-      {!isAiModel && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
+      {!isSubComponent && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
     </div>
   )
 }
@@ -185,14 +193,28 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const updateNode = useUpdateNode(slug)
   const deleteNode = useDeleteNode(slug)
   const deleteEdge = useDeleteEdge(slug)
+  const { data: credentials } = useCredentials()
 
-  const initialNodes: Node[] = useMemo(() => workflow.nodes.map((n) => ({
-    id: n.node_id,
-    type: "workflowNode",
-    position: { x: n.position_x, y: n.position_y },
-    data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point },
-    selected: n.node_id === selectedNodeId,
-  })), [workflow.nodes, selectedNodeId])
+  const credentialMap = useMemo(() => {
+    const map: Record<number, string> = {}
+    for (const c of credentials ?? []) {
+      if (c.credential_type === "llm") {
+        map[c.id] = c.name
+      }
+    }
+    return map
+  }, [credentials])
+
+  const initialNodes: Node[] = useMemo(() => workflow.nodes.map((n) => {
+    const providerType = n.config?.llm_credential_id ? credentialMap[n.config.llm_credential_id] : undefined
+    return {
+      id: n.node_id,
+      type: "workflowNode",
+      position: { x: n.position_x, y: n.position_y },
+      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType },
+      selected: n.node_id === selectedNodeId,
+    }
+  }), [workflow.nodes, selectedNodeId, credentialMap])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const labelColors: Record<string, string> = { tool: "#10b981", memory: "#f59e0b", output_parser: "#8b5cf6" }
