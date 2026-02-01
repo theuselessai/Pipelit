@@ -106,3 +106,79 @@ class TestBuilderSkipsAiModelNodes:
 
         assert "agent_1" in graph.nodes
         assert "code_1" in graph.nodes
+
+
+class TestBuilderTriggerScoping:
+    """When trigger_node_id is provided, only downstream-reachable nodes are compiled."""
+
+    def test_only_reachable_nodes_from_trigger(self, db, workflow):
+        """Nodes not connected downstream from the fired trigger are excluded."""
+        trigger_a = _add_node(db, workflow, "trigger_a", "trigger_telegram")
+        _add_node(db, workflow, "trigger_b", "trigger_webhook")
+        _add_node(db, workflow, "agent_a", "simple_agent")
+        _add_node(db, workflow, "agent_b", "categorizer")
+        _add_edge(db, workflow, "trigger_a", "agent_a")
+        _add_edge(db, workflow, "trigger_b", "agent_b")
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db, trigger_node_id=trigger_a.id)
+
+        assert "agent_a" in graph.nodes
+        assert "agent_b" not in graph.nodes
+
+    def test_unreachable_ai_model_excluded(self, db, workflow):
+        """An ai_model not connected to the triggered branch is excluded (no error)."""
+        trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
+        _add_node(db, workflow, "agent_1", "simple_agent")
+        _add_node(db, workflow, "orphan_model", "ai_model")
+        _add_node(db, workflow, "orphan_agent", "categorizer")
+        _add_edge(db, workflow, "trigger_1", "agent_1")
+        # orphan_model -> orphan_agent via llm edge (not reachable from trigger_1)
+        _add_edge(db, workflow, "orphan_model", "orphan_agent", edge_label="llm")
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db, trigger_node_id=trigger.id)
+
+        assert "agent_1" in graph.nodes
+        assert "orphan_agent" not in graph.nodes
+        assert "orphan_model" not in graph.nodes
+
+    def test_chain_of_nodes_reachable(self, db, workflow):
+        """Multi-hop chains downstream of trigger are all included."""
+        trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
+        _add_node(db, workflow, "agent_1", "simple_agent")
+        _add_node(db, workflow, "code_1", "code")
+        _add_node(db, workflow, "code_2", "code")
+        _add_edge(db, workflow, "trigger_1", "agent_1")
+        _add_edge(db, workflow, "agent_1", "code_1")
+        _add_edge(db, workflow, "code_1", "code_2")
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db, trigger_node_id=trigger.id)
+
+        assert "agent_1" in graph.nodes
+        assert "code_1" in graph.nodes
+        assert "code_2" in graph.nodes
+
+    def test_no_trigger_node_id_includes_all(self, db, workflow):
+        """Without trigger_node_id, all nodes are included (backwards-compatible)."""
+        _add_node(db, workflow, "trigger_a", "trigger_telegram")
+        _add_node(db, workflow, "trigger_b", "trigger_webhook")
+        _add_node(db, workflow, "agent_a", "simple_agent")
+        _add_node(db, workflow, "agent_b", "categorizer")
+        _add_edge(db, workflow, "trigger_a", "agent_a")
+        _add_edge(db, workflow, "trigger_b", "agent_b")
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db)
+
+        assert "agent_a" in graph.nodes
+        assert "agent_b" in graph.nodes

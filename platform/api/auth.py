@@ -7,9 +7,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import get_current_user
 from database import get_db
 from models.user import APIKey, UserProfile
-from schemas.auth import SetupRequest, SetupStatusResponse, TokenRequest, TokenResponse
+from schemas.auth import MeResponse, SetupRequest, SetupStatusResponse, TokenRequest, TokenResponse
 
 router = APIRouter()
 
@@ -38,6 +39,11 @@ def obtain_token(payload: TokenRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(api_key)
     return {"key": api_key.key}
+
+
+@router.get("/me/", response_model=MeResponse)
+def me(user: UserProfile = Depends(get_current_user)):
+    return {"username": user.username}
 
 
 @router.get("/setup-status/", response_model=SetupStatusResponse)

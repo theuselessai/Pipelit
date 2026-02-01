@@ -44,7 +44,7 @@ class WorkflowExecutor:
             db.commit()
 
             try:
-                graph = graph_cache.get_or_build(workflow, db)
+                graph = graph_cache.get_or_build(workflow, db, trigger_node_id=execution.trigger_node_id)
                 initial_state = self._build_initial_state(execution)
                 config = {"configurable": {"thread_id": execution.thread_id}}
 
@@ -101,7 +101,7 @@ class WorkflowExecutor:
             db.commit()
 
             try:
-                graph = graph_cache.get_or_build(workflow, db)
+                graph = graph_cache.get_or_build(workflow, db, trigger_node_id=execution.trigger_node_id)
                 config = {"configurable": {"thread_id": execution.thread_id}}
 
                 from langgraph.types import Command

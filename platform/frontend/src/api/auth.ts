@@ -1,3 +1,5 @@
+import { apiFetch } from "./client"
+
 export async function login(username: string, password: string): Promise<string> {
   const res = await fetch("/api/v1/auth/token/", {
     method: "POST",
@@ -7,6 +9,10 @@ export async function login(username: string, password: string): Promise<string>
   if (!res.ok) throw new Error("Invalid credentials")
   const data = await res.json()
   return data.key
+}
+
+export async function fetchMe(): Promise<{ username: string }> {
+  return apiFetch("/auth/me/")
 }
 
 export async function checkSetupStatus(): Promise<boolean> {

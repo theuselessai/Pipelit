@@ -19,3 +19,7 @@ class SetupRequest(BaseModel):
 
 class SetupStatusResponse(BaseModel):
     needs_setup: bool
+
+
+class MeResponse(BaseModel):
+    username: str

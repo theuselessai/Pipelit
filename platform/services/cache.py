@@ -23,8 +23,8 @@ class GraphCache:
         self._ttl = ttl
         self._builder = WorkflowBuilder()
 
-    def get_or_build(self, workflow, db: Session):
-        key = self._cache_key(workflow, db)
+    def get_or_build(self, workflow, db: Session, trigger_node_id: int | None = None):
+        key = self._cache_key(workflow, db, trigger_node_id)
 
         with self._lock:
             if key in self._cache:
@@ -33,7 +33,7 @@ class GraphCache:
                     return graph
                 del self._cache[key]
 
-        graph = self._builder.build(workflow, db)
+        graph = self._builder.build(workflow, db, trigger_node_id=trigger_node_id)
 
         with self._lock:
             self._cache[key] = (time.monotonic(), graph)
@@ -50,10 +50,10 @@ class GraphCache:
         with self._lock:
             self._cache.clear()
 
-    def _cache_key(self, workflow, db: Session) -> str:
+    def _cache_key(self, workflow, db: Session, trigger_node_id: int | None = None) -> str:
         from models.node import WorkflowNode
 
-        parts = [str(workflow.updated_at)]
+        parts = [str(workflow.updated_at), str(trigger_node_id)]
         nodes = (
             db.query(WorkflowNode)
             .filter(WorkflowNode.workflow_id == workflow.id)

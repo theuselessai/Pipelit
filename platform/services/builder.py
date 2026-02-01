@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -13,18 +14,42 @@ from services.state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
+SUB_COMPONENT_TYPES = {"ai_model"}
+
+
+def _reachable_node_ids(
+    start_node_id: str,
+    all_edges: list[WorkflowEdge],
+) -> set[str]:
+    """BFS from start_node_id following direct edges, returning all reachable node_ids."""
+    adjacency: dict[str, list[str]] = {}
+    for e in all_edges:
+        adjacency.setdefault(e.source_node_id, []).append(e.target_node_id)
+
+    visited: set[str] = set()
+    queue = deque([start_node_id])
+    while queue:
+        nid = queue.popleft()
+        if nid in visited:
+            continue
+        visited.add(nid)
+        for neighbor in adjacency.get(nid, []):
+            if neighbor not in visited:
+                queue.append(neighbor)
+    return visited
+
 
 class WorkflowBuilder:
     """Builds a LangGraph CompiledGraph from a Workflow model instance."""
 
-    def build(self, workflow, db: Session) -> "CompiledGraph":
-        nodes = (
+    def build(self, workflow, db: Session, trigger_node_id: int | None = None) -> "CompiledGraph":
+        all_nodes = (
             db.query(WorkflowNode)
             .filter(WorkflowNode.workflow_id == workflow.id)
             .order_by(WorkflowNode.id)
             .all()
         )
-        edges = (
+        all_edges = (
             db.query(WorkflowEdge)
             .filter(
                 WorkflowEdge.workflow_id == workflow.id,
@@ -34,11 +59,17 @@ class WorkflowBuilder:
             .all()
         )
 
-        # Separate non-executable nodes (triggers, ai_model sub-components)
-        SUB_COMPONENT_TYPES = {"ai_model"}
-        trigger_nodes = {n.node_id for n in nodes if n.component_type.startswith("trigger_")}
-        skip_nodes = trigger_nodes | {n.node_id for n in nodes if n.component_type in SUB_COMPONENT_TYPES}
-        exec_nodes = [n for n in nodes if n.node_id not in skip_nodes]
+        # If a trigger node fired, only include nodes reachable from it
+        if trigger_node_id is not None:
+            trigger_node = db.get(WorkflowNode, trigger_node_id)
+            if trigger_node:
+                reachable = _reachable_node_ids(trigger_node.node_id, all_edges)
+                all_nodes = [n for n in all_nodes if n.node_id in reachable]
+                all_edges = [e for e in all_edges if e.source_node_id in reachable and e.target_node_id in reachable]
+
+        trigger_nodes = {n.node_id for n in all_nodes if n.component_type.startswith("trigger_")}
+        skip_nodes = trigger_nodes | {n.node_id for n in all_nodes if n.component_type in SUB_COMPONENT_TYPES}
+        exec_nodes = [n for n in all_nodes if n.node_id not in skip_nodes]
 
         if not exec_nodes:
             raise ValueError(f"Workflow '{workflow.slug}' has no executable nodes")
@@ -46,23 +77,21 @@ class WorkflowBuilder:
         # Determine entry point
         entry_nodes = [n for n in exec_nodes if n.is_entry_point]
         if not entry_nodes:
-            # Auto-detect: find the target of trigger edges
             trigger_targets = [
-                e.target_node_id for e in edges
+                e.target_node_id for e in all_edges
                 if e.source_node_id in trigger_nodes and e.target_node_id not in skip_nodes
             ]
             if trigger_targets:
                 entry_nodes = [n for n in exec_nodes if n.node_id == trigger_targets[0]]
             if not entry_nodes:
-                entry_nodes = exec_nodes[:1]  # fallback to first exec node
+                entry_nodes = exec_nodes[:1]
         entry_node = entry_nodes[0]
 
-        interrupt_before = [n.node_id for n in nodes if n.interrupt_before]
-        interrupt_after = [n.node_id for n in nodes if n.interrupt_after]
+        interrupt_before = [n.node_id for n in all_nodes if n.interrupt_before]
+        interrupt_after = [n.node_id for n in all_nodes if n.interrupt_after]
 
         graph = StateGraph(WorkflowState)
 
-        # Import component factory
         from components import get_component_factory
 
         for node in exec_nodes:
@@ -72,8 +101,7 @@ class WorkflowBuilder:
 
         graph.set_entry_point(entry_node.node_id)
 
-        # Only include edges between executable nodes
-        exec_edges = [e for e in edges if e.source_node_id not in skip_nodes and e.target_node_id not in skip_nodes]
+        exec_edges = [e for e in all_edges if e.source_node_id not in skip_nodes and e.target_node_id not in skip_nodes]
         edges_by_source: dict[str, list] = {}
         for edge in exec_edges:
             edges_by_source.setdefault(edge.source_node_id, []).append(edge)

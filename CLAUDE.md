@@ -233,7 +233,7 @@ platform/apps/workflows/api/
 
 All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <key>`).
 
-- **Auth** — `POST /auth/token/` (obtain Bearer token)
+- **Auth** — `POST /auth/token/` (obtain Bearer token), `GET /auth/me/` (current user)
 - **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`
 - **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
 - **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{id}/`
@@ -250,6 +250,8 @@ All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <ke
 **Trigger credentials:** Each `WorkflowTrigger` has an optional `credential` FK to `BaseCredentials`. This is how triggers (Telegram, email, webhooks, etc.) reference their integration credentials. Bot token resolution for delivery goes through `execution.trigger.credential.telegram_credential.bot_token`.
 
 **LLM resolution:** LLM configuration lives entirely on `ComponentConfig` (per-node). Each agent-type node must have both `llm_model` and `llm_credential` set on its config. There are no workflow-level LLM defaults.
+
+**Trigger-scoped execution:** When a trigger fires, the builder only compiles nodes reachable downstream from that trigger (BFS over direct edges). Unconnected nodes on the same canvas are ignored. This allows a single workflow to have multiple trigger branches and unused nodes without causing build errors. The `trigger_node_id` FK on `WorkflowExecution` is passed through the cache and builder.
 
 **Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation, backed by Django `TextChoices` on the model side.
 
@@ -274,7 +276,7 @@ The `platform/frontend/` directory contains a React SPA for managing workflows v
 platform/frontend/src/
 ├── api/                    # TanStack Query hooks + fetch client
 │   ├── client.ts           # Bearer token injection, 401 redirect
-│   ├── auth.ts             # login() → token
+│   ├── auth.ts             # login(), fetchMe() → token + user info
 │   ├── workflows.ts        # useWorkflows(), useCreateWorkflow(), etc.
 │   ├── nodes.ts            # useCreateNode(), useUpdateNode(), useDeleteNode()
 │   ├── edges.ts            # useCreateEdge(), useUpdateEdge(), useDeleteEdge()
@@ -284,7 +286,7 @@ platform/frontend/src/
 ├── components/
 │   ├── ui/                 # Shadcn components (auto-generated)
 │   └── layout/
-│       ├── AppLayout.tsx   # Sidebar + header shell
+│       ├── AppLayout.tsx   # Collapsible sidebar + user menu
 │       └── ProtectedRoute.tsx
 ├── features/
 │   ├── auth/               # AuthProvider, LoginPage
@@ -297,7 +299,9 @@ platform/frontend/src/
 │   │       └── NodeDetailsPanel.tsx   # Right sidebar config form
 │   ├── credentials/        # CredentialsPage (table + create dialog)
 │   ├── executions/         # ExecutionsPage, ExecutionDetailPage
-│   └── settings/           # SettingsPage (placeholder)
+│   └── settings/           # SettingsPage (theme selector)
+├── hooks/
+│   └── useTheme.ts         # Dark mode hook (system/light/dark, persisted to localStorage)
 ├── types/models.ts         # TS types mirroring Django schemas
 ├── App.tsx                 # Routes
 └── main.tsx                # QueryClient + AuthProvider + Router
@@ -324,7 +328,7 @@ In development, run Vite alongside Django. Without Vite, run `npm run build` and
 | `/credentials` | Credentials management |
 | `/executions` | Execution list |
 | `/executions/:id` | Execution detail + logs |
-| `/settings` | Settings (placeholder) |
+| `/settings` | Settings (appearance/theme) |
 
 ### Workflow Node Visual Design
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react"
+import { useTheme } from "@/hooks/useTheme"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
 import {
@@ -189,6 +190,7 @@ interface Props {
 }
 
 export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelectNode }: Props) {
+  const { resolvedTheme } = useTheme()
   const createEdge = useCreateEdge(slug)
   const updateNode = useUpdateNode(slug)
   const deleteNode = useDeleteNode(slug)
@@ -295,6 +297,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       edgeTypes={edgeTypes}
       fitView
       deleteKeyCode={["Delete", "Backspace"]}
+      colorMode={resolvedTheme}
       className="bg-background"
     >
       <Background />
