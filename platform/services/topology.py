@@ -35,6 +35,7 @@ class EdgeInfo:
 
 @dataclass
 class Topology:
+    workflow_slug: str = ""
     nodes: dict[str, NodeInfo] = field(default_factory=dict)
     edges: list[EdgeInfo] = field(default_factory=list)
     entry_node_ids: list[str] = field(default_factory=list)
@@ -126,6 +127,7 @@ def build_topology(workflow, db: Session, trigger_node_id: int | None = None) ->
             entry_nodes = exec_nodes[:1]
 
     topo = Topology(
+        workflow_slug=workflow.slug,
         nodes=nodes,
         edges=edges,
         entry_node_ids=[n.node_id for n in entry_nodes],

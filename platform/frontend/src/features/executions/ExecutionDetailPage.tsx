@@ -1,5 +1,6 @@
 import { useParams } from "react-router-dom"
 import { useExecution, useCancelExecution } from "@/api/executions"
+import { useSubscription } from "@/hooks/useWebSocket"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -10,6 +11,7 @@ export default function ExecutionDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { data: execution, isLoading } = useExecution(id!)
   const cancelExecution = useCancelExecution()
+  useSubscription(id ? `execution:${id}` : null)
 
   if (isLoading || !execution) {
     return <div className="p-6"><div className="animate-pulse text-muted-foreground">Loading execution...</div></div>

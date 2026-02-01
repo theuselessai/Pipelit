@@ -4,11 +4,13 @@ import WorkflowCanvas from "./components/WorkflowCanvas"
 import NodePalette from "./components/NodePalette"
 import NodeDetailsPanel from "./components/NodeDetailsPanel"
 import { useState } from "react"
+import { useSubscription } from "@/hooks/useWebSocket"
 
 export default function WorkflowEditorPage() {
   const { slug } = useParams<{ slug: string }>()
   const { data: workflow, isLoading } = useWorkflow(slug!)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  useSubscription(slug ? `workflow:${slug}` : null)
 
   if (isLoading || !workflow) {
     return <div className="flex items-center justify-center h-full"><div className="animate-pulse text-muted-foreground">Loading workflow...</div></div>

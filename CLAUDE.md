@@ -243,6 +243,33 @@ All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <ke
 - **LLM Providers** — `GET /credentials/llm-providers/`
 - **LLM Models** — `GET /credentials/llm-models/?provider_id=`
 
+### Global WebSocket
+
+A single persistent authenticated WebSocket at `GET /ws/?token=<api_key>` replaces per-execution WebSocket connections and GET-after-POST refetches.
+
+**Backend files:**
+- `platform/ws/global_ws.py` — WebSocket endpoint with Redis pub/sub fan-out, ping/pong heartbeat (30s), token auth on connect
+- `platform/ws/broadcast.py` — Sync `broadcast(channel, event_type, data)` helper for publishing from API endpoints and RQ workers
+
+**Subscription protocol:**
+- Client sends `{"type":"subscribe","channel":"workflow:<slug>"}` or `execution:<id>`
+- Client sends `{"type":"unsubscribe","channel":"..."}`
+- Server sends `{"type":"subscribed/unsubscribed","channel":"..."}`
+- Server sends `{"type":"ping"}`, client responds `{"type":"pong"}`
+
+**Event types pushed via broadcast:**
+- `node_created`, `node_updated`, `node_deleted` — from node API mutations
+- `edge_created`, `edge_updated`, `edge_deleted` — from edge API mutations
+- `workflow_updated` — from workflow API mutations
+- `execution_completed`, `execution_failed`, `execution_interrupted` — from orchestrator via Redis
+
+**Frontend:**
+- `platform/frontend/src/lib/wsManager.ts` — Singleton `WebSocketManager` with exponential backoff reconnection, auto-resubscribe, and TanStack Query cache updates (`setQueryData` for nodes/edges, `invalidateQueries` for executions)
+- `platform/frontend/src/hooks/useWebSocket.ts` — `useWebSocket()` (connect on mount) and `useSubscription(channel)` (subscribe/unsubscribe reactively)
+- Node/edge mutation hooks no longer use `onSuccess` query invalidation — updates arrive via WebSocket
+- `useExecution()` no longer uses `refetchInterval` polling — updates arrive via WebSocket
+- ChatPanel uses `wsManager.registerHandler()` for execution completion instead of per-execution WebSocket
+
 ### Platform Model Design
 
 **Credentials** are global — any user on the machine can use any credential. The `user_profile` FK on `BaseCredentials` tracks who created it, not ownership.
@@ -281,7 +308,7 @@ platform/frontend/src/
 │   ├── nodes.ts            # useCreateNode(), useUpdateNode(), useDeleteNode()
 │   ├── edges.ts            # useCreateEdge(), useUpdateEdge(), useDeleteEdge()
 │   ├── triggers.ts         # useCreateTrigger(), useDeleteTrigger()
-│   ├── executions.ts       # useExecutions(), useExecution() (auto-refresh)
+│   ├── executions.ts       # useExecutions(), useExecution()
 │   └── credentials.ts      # useCredentials(), useLLMModels(), useLLMProviders()
 ├── components/
 │   ├── ui/                 # Shadcn components (auto-generated)
@@ -301,7 +328,10 @@ platform/frontend/src/
 │   ├── executions/         # ExecutionsPage, ExecutionDetailPage
 │   └── settings/           # SettingsPage (theme selector)
 ├── hooks/
-│   └── useTheme.ts         # Dark mode hook (system/light/dark, persisted to localStorage)
+│   ├── useTheme.ts         # Dark mode hook (system/light/dark, persisted to localStorage)
+│   └── useWebSocket.ts     # useWebSocket() + useSubscription(channel) for global WS
+├── lib/
+│   └── wsManager.ts        # Singleton WebSocketManager (reconnect, subscribe, cache updates)
 ├── types/models.ts         # TS types mirroring Django schemas
 ├── App.tsx                 # Routes
 └── main.tsx                # QueryClient + AuthProvider + Router

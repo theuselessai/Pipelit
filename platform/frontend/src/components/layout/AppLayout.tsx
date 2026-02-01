@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useTheme } from "@/hooks/useTheme"
+import { useWebSocket } from "@/hooks/useWebSocket"
 import {
   LayoutDashboard,
   KeyRound,
@@ -31,6 +32,7 @@ export default function AppLayout() {
   const { logout, username } = useAuth()
   const navigate = useNavigate()
   useTheme() // keep theme in sync
+  useWebSocket() // global authenticated WebSocket
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true")
 
   useEffect(() => {

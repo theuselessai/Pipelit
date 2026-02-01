@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
-import { useSendChatMessage, waitForExecution } from "@/api/chat"
+import { useSendChatMessage } from "@/api/chat"
+import { wsManager } from "@/lib/wsManager"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,30 +33,61 @@ function ChatPanel({ slug, node, onClose }: Props) {
   }, [messages])
 
   const [waiting, setWaiting] = useState(false)
+  const pendingExecRef = useRef<string | null>(null)
 
-  function handleSend() {
+  // Register a global WS handler to listen for execution completion
+  useEffect(() => {
+    const handlerId = `chat-panel-${node.node_id}`
+    wsManager.registerHandler(handlerId, (msg) => {
+      if (!pendingExecRef.current) return
+      if (msg.execution_id !== pendingExecRef.current) return
+
+      if (msg.type === "execution_completed") {
+        pendingExecRef.current = null
+        setWaiting(false)
+        const output = msg.data?.output as Record<string, unknown> | undefined
+        if (output) {
+          const text =
+            (output.message as string) ||
+            (output.output as string) ||
+            (output.node_outputs ? Object.values(output.node_outputs as Record<string, unknown>).map(String).join("\n\n") : null) ||
+            JSON.stringify(output)
+          setMessages((prev) => [...prev, { role: "assistant", text }])
+        } else {
+          setMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)" }])
+        }
+      } else if (msg.type === "execution_failed") {
+        pendingExecRef.current = null
+        setWaiting(false)
+        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}` }])
+      }
+    })
+    return () => wsManager.unregisterHandler(handlerId)
+  }, [node.node_id])
+
+  const handleSend = useCallback(() => {
     const text = input.trim()
     if (!text || sendMessage.isPending || waiting) return
     setInput("")
     setMessages((prev) => [...prev, { role: "user", text }])
     sendMessage.mutate(text, {
       onSuccess: (data) => {
-        // Connect via WebSocket to wait for the result
         setWaiting(true)
-        waitForExecution(data.execution_id)
-          .then((response) => {
-            setMessages((prev) => [...prev, { role: "assistant", text: response }])
-          })
-          .catch((err) => {
-            setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}` }])
-          })
-          .finally(() => setWaiting(false))
+        pendingExecRef.current = data.execution_id
+        // Timeout fallback
+        setTimeout(() => {
+          if (pendingExecRef.current === data.execution_id) {
+            pendingExecRef.current = null
+            setWaiting(false)
+            setMessages((prev) => [...prev, { role: "assistant", text: "Error: Execution timed out" }])
+          }
+        }, 120_000)
       },
       onError: (err) => {
         setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}` }])
       },
     })
-  }
+  }, [input, sendMessage, waiting])
 
   return (
     <div className="flex flex-col h-full">

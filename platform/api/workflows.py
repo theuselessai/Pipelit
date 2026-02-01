@@ -12,6 +12,7 @@ from models.user import UserProfile
 from models.workflow import Workflow, WorkflowCollaborator
 from schemas.workflow import WorkflowDetailOut, WorkflowIn, WorkflowOut, WorkflowUpdate
 from api._helpers import get_workflow, serialize_workflow, serialize_workflow_detail
+from ws.broadcast import broadcast
 
 router = APIRouter()
 
@@ -73,7 +74,9 @@ def update_workflow(
         setattr(wf, attr, value)
     db.commit()
     db.refresh(wf)
-    return serialize_workflow(wf, db)
+    result = serialize_workflow(wf, db)
+    broadcast(f"workflow:{slug}", "workflow_updated", result)
+    return result
 
 
 @router.delete("/{slug}/", status_code=204)

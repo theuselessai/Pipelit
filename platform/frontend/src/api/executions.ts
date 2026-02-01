@@ -11,7 +11,7 @@ export function useExecutions(filters?: { workflow_slug?: string; status?: strin
 }
 
 export function useExecution(id: string) {
-  return useQuery({ queryKey: ["executions", id], queryFn: () => apiFetch<ExecutionDetail>(`/executions/${id}/`), enabled: !!id, refetchInterval: (query) => { const d = query.state.data; return d && (d.status === "pending" || d.status === "running") ? 5000 : false } })
+  return useQuery({ queryKey: ["executions", id], queryFn: () => apiFetch<ExecutionDetail>(`/executions/${id}/`), enabled: !!id })
 }
 
 export function useCancelExecution() {

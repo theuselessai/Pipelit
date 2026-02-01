@@ -18,6 +18,7 @@ from models.node import (
 from models.user import UserProfile
 from schemas.node import EdgeIn, EdgeOut, EdgeUpdate, NodeIn, NodeOut, NodeUpdate
 from api._helpers import get_workflow, serialize_edge, serialize_node
+from ws.broadcast import broadcast
 
 router = APIRouter()
 
@@ -118,7 +119,9 @@ def create_node(
     db.add(node)
     db.commit()
     db.refresh(node)
-    return serialize_node(node)
+    result = serialize_node(node)
+    broadcast(f"workflow:{slug}", "node_created", result)
+    return result
 
 
 @router.patch("/{slug}/nodes/{node_id}/", response_model=NodeOut)
@@ -165,7 +168,9 @@ def update_node(
 
     db.commit()
     db.refresh(node)
-    return serialize_node(node)
+    result = serialize_node(node)
+    broadcast(f"workflow:{slug}", "node_updated", result)
+    return result
 
 
 @router.delete("/{slug}/nodes/{node_id}/", status_code=204)
@@ -190,6 +195,7 @@ def delete_node(
         (WorkflowEdge.source_node_id == node_id) | (WorkflowEdge.target_node_id == node_id),
     ).delete(synchronize_session=False)
 
+    deleted_node_id = node.node_id
     cc_id = node.component_config_id
     db.delete(node)
     # Delete the config
@@ -197,6 +203,7 @@ def delete_node(
     if cc:
         db.delete(cc)
     db.commit()
+    broadcast(f"workflow:{slug}", "node_deleted", {"node_id": deleted_node_id})
 
 
 # ── Edges ─────────────────────────────────────────────────────────────────────
@@ -231,7 +238,9 @@ def create_edge(
 
     db.commit()
     db.refresh(edge)
-    return serialize_edge(edge)
+    result = serialize_edge(edge)
+    broadcast(f"workflow:{slug}", "edge_created", result)
+    return result
 
 
 @router.patch("/{slug}/edges/{edge_id}/", response_model=EdgeOut)
@@ -254,7 +263,9 @@ def update_edge(
         setattr(edge, attr, value)
     db.commit()
     db.refresh(edge)
-    return serialize_edge(edge)
+    result = serialize_edge(edge)
+    broadcast(f"workflow:{slug}", "edge_updated", result)
+    return result
 
 
 @router.delete("/{slug}/edges/{edge_id}/", status_code=204)
@@ -277,5 +288,7 @@ def delete_edge(
     if edge.edge_label == "llm":
         _unlink_sub_component(db, wf.id, edge.target_node_id, "llm_model_config_id")
 
+    deleted_edge_id = edge.id
     db.delete(edge)
     db.commit()
+    broadcast(f"workflow:{slug}", "edge_deleted", {"id": deleted_edge_id})

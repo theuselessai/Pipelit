@@ -69,18 +69,24 @@ def save_state(execution_id: str, state: dict) -> None:
     r.set(_state_key(execution_id), json.dumps(serialize_state(state)), ex=STATE_TTL)
 
 
-def _publish_event(execution_id: str, event_type: str, data: dict | None = None) -> None:
+def _publish_event(execution_id: str, event_type: str, data: dict | None = None, workflow_slug: str | None = None) -> None:
     r = _redis()
     payload = {"type": event_type, "execution_id": execution_id, "timestamp": time.time()}
     if data:
         payload["data"] = data
-    r.publish(f"{PUBSUB_CHANNEL_PREFIX}{execution_id}", json.dumps(payload))
+    raw = json.dumps(payload)
+    r.publish(f"{PUBSUB_CHANNEL_PREFIX}{execution_id}", raw)
+    # Also publish to workflow channel so global WS subscribers get execution events
+    if workflow_slug:
+        payload["channel"] = f"workflow:{workflow_slug}"
+        r.publish(f"workflow:{workflow_slug}", json.dumps(payload))
 
 
 def _save_topology(execution_id: str, topo) -> None:
     """Cache topology edges and node info in Redis for worker access."""
     r = _redis()
     data = {
+        "workflow_slug": getattr(topo, "workflow_slug", ""),
         "entry_node_ids": topo.entry_node_ids,
         "nodes": {
             nid: {
@@ -161,10 +167,11 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
         r = _redis()
         r.delete(_completed_key(execution_id))
 
+        slug = workflow.slug
         from tasks import execute_node_job as _enqueue_node
         q = _queue()
         for node_id in topo.entry_node_ids:
-            _publish_event(execution_id, "node_enqueued", {"node_id": node_id})
+            _publish_event(execution_id, "node_enqueued", {"node_id": node_id}, workflow_slug=slug)
             q.enqueue(_enqueue_node, execution_id, node_id)
 
         logger.info("Started execution %s with entry nodes %s", execution_id, topo.entry_node_ids)
@@ -212,7 +219,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         state = load_state(execution_id)
         state["current_node"] = node_id
 
-        _publish_event(execution_id, "node_started", {"node_id": node_id})
+        slug = topo_data.get("workflow_slug", "")
+        _publish_event(execution_id, "node_started", {"node_id": node_id}, workflow_slug=slug)
 
         # Load node from DB and get component factory
         db_node = db.get(WorkflowNode, node_info["db_id"])
@@ -229,7 +237,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)
             _write_log(db, execution_id, node_id, "failed", duration_ms=duration_ms, error=str(exc))
-            _publish_event(execution_id, "node_failed", {"node_id": node_id, "error": str(exc)[:500]})
+            _publish_event(execution_id, "node_failed", {"node_id": node_id, "error": str(exc)[:500]}, workflow_slug=slug)
 
             # Retry logic
             if retry_count < MAX_NODE_RETRIES:
@@ -250,7 +258,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             execution.error_message = f"Node {node_id}: {str(exc)[:1900]}"
             execution.completed_at = datetime.now(timezone.utc)
             db.commit()
-            _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]})
+            _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=slug)
             _cleanup_redis(execution_id)
             return
 
@@ -263,7 +271,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         save_state(execution_id, state)
 
         _write_log(db, execution_id, node_id, "completed", duration_ms=duration_ms, output=_safe_json(result))
-        _publish_event(execution_id, "node_completed", {"node_id": node_id, "duration_ms": duration_ms})
+        _publish_event(execution_id, "node_completed", {"node_id": node_id, "duration_ms": duration_ms}, workflow_slug=slug)
 
         # Mark node completed
         r = _redis()
@@ -286,7 +294,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 db.commit()
         except Exception:
             pass
-        _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]})
+        _ws_slug = topo_data.get("workflow_slug", "") if "topo_data" in locals() else None
+        _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=_ws_slug)
     finally:
         db.close()
 
@@ -397,7 +406,7 @@ def _advance(
                 continue
             # All parents done — fall through to enqueue
 
-        _publish_event(execution_id, "node_enqueued", {"node_id": target_id})
+        _publish_event(execution_id, "node_enqueued", {"node_id": target_id}, workflow_slug=topo_data.get("workflow_slug", ""))
         from tasks import execute_node_job as _enqueue_node
         q.enqueue(_enqueue_node, execution_id, target_id)
 
@@ -437,7 +446,8 @@ def _finalize(execution_id: str, db: Session) -> None:
     db.commit()
 
     logger.info("Execution %s completed", execution_id)
-    _publish_event(execution_id, "execution_completed", {"output": execution.final_output})
+    slug = _get_workflow_slug(execution_id, db)
+    _publish_event(execution_id, "execution_completed", {"output": execution.final_output}, workflow_slug=slug)
 
     from services.delivery import output_delivery
     output_delivery.deliver(execution, db)
@@ -467,7 +477,8 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     execution.status = "interrupted"
     db.commit()
 
-    _publish_event(str(execution.execution_id), "execution_interrupted", {"node_id": node_id})
+    slug = _get_workflow_slug(str(execution.execution_id), db)
+    _publish_event(str(execution.execution_id), "execution_interrupted", {"node_id": node_id}, workflow_slug=slug)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -549,6 +560,26 @@ def _safe_json(obj) -> dict | None:
         except (TypeError, ValueError):
             return {"repr": repr(obj)[:1000]}
     return {"repr": repr(obj)[:1000]}
+
+
+def _get_workflow_slug(execution_id: str, db: Session | None = None) -> str | None:
+    """Look up workflow slug for an execution (cached in topo or from DB)."""
+    try:
+        topo = _load_topology(execution_id)
+        slug = topo.get("workflow_slug")
+        if slug:
+            return slug
+    except Exception:
+        pass
+    if db:
+        from models.execution import WorkflowExecution
+        from models.workflow import Workflow
+        ex = db.query(WorkflowExecution).filter(WorkflowExecution.execution_id == execution_id).first()
+        if ex:
+            wf = db.query(Workflow).filter(Workflow.id == ex.workflow_id).first()
+            if wf:
+                return wf.slug
+    return None
 
 
 def _cleanup_redis(execution_id: str) -> None:
