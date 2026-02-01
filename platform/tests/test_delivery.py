@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apps.workflows.delivery import OutputDelivery
+from services.delivery import OutputDelivery
 
 
 class TestFormatOutput:
@@ -37,7 +37,7 @@ class TestFormatOutput:
 class TestSendTelegramMessage:
     def test_sends_with_markdown(self):
         delivery = OutputDelivery()
-        with patch("apps.workflows.delivery.requests") as mock_req:
+        with patch("services.delivery.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.raise_for_status.return_value = None
             mock_resp.json.return_value = {"ok": True}
@@ -54,8 +54,7 @@ class TestSendTelegramMessage:
         delivery = OutputDelivery()
         import requests as real_requests
 
-        with patch("apps.workflows.delivery.requests") as mock_req:
-            # First call fails, second succeeds
+        with patch("services.delivery.requests") as mock_req:
             fail_resp = MagicMock()
             fail_resp.raise_for_status.side_effect = real_requests.RequestException("bad markdown")
             ok_resp = MagicMock()
@@ -68,13 +67,12 @@ class TestSendTelegramMessage:
 
         assert result == {"ok": True}
         assert mock_req.post.call_count == 2
-        # Second call should not have parse_mode
         second_call_data = mock_req.post.call_args_list[1][1]["json"]
         assert "parse_mode" not in second_call_data
 
     def test_reply_to(self):
         delivery = OutputDelivery()
-        with patch("apps.workflows.delivery.requests") as mock_req:
+        with patch("services.delivery.requests") as mock_req:
             mock_resp = MagicMock()
             mock_resp.raise_for_status.return_value = None
             mock_resp.json.return_value = {"ok": True}
@@ -89,13 +87,12 @@ class TestSendTelegramMessage:
 class TestSendLongMessage:
     def test_splits_long_messages(self):
         delivery = OutputDelivery()
-        long_text = "A" * 5000  # Exceeds 4096 limit
+        long_text = "A" * 5000
 
         with patch.object(delivery, "send_telegram_message") as mock_send:
             delivery._send_long_message("TOKEN", 123, long_text)
 
         assert mock_send.call_count == 2
-        # First chunk gets reply_to
         assert mock_send.call_args_list[0][1].get("reply_to") is None
 
     def test_short_message_not_split(self):
@@ -107,48 +104,59 @@ class TestSendLongMessage:
         mock_send.assert_called_once()
 
 
-@pytest.mark.django_db
 class TestDeliver:
-    def test_deliver_sends_to_chat(self, telegram_trigger):
-        from apps.workflows.models import WorkflowExecution
+    def test_deliver_sends_to_chat(self, db, telegram_trigger):
+        from models.execution import WorkflowExecution
+        from models.node import WorkflowNode
 
-        workflow = telegram_trigger.workflow
+        node = db.query(WorkflowNode).filter(WorkflowNode.id == telegram_trigger.id).first()
+        workflow = node.workflow
         profile = workflow.owner
-        execution = WorkflowExecution.objects.create(
-            workflow=workflow,
-            trigger_node=telegram_trigger,
-            user_profile=profile,
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            trigger_node_id=node.id,
+            user_profile_id=profile.id,
             thread_id="t1",
             status="completed",
             trigger_payload={"chat_id": 999, "message_id": 5},
             final_output={"message": "Result here"},
         )
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
 
         delivery = OutputDelivery()
         with patch.object(delivery, "send_telegram_message") as mock_send:
-            delivery.deliver(execution)
+            delivery.deliver(execution, db)
 
         mock_send.assert_called()
         args = mock_send.call_args[0]
-        assert args[1] == 999  # chat_id
+        assert args[1] == 999
         assert "Result here" in args[2]
 
-    def test_deliver_skips_without_chat_id(self, telegram_trigger):
-        from apps.workflows.models import WorkflowExecution
+    def test_deliver_skips_without_chat_id(self, db, telegram_trigger):
+        from models.execution import WorkflowExecution
+        from models.node import WorkflowNode
 
-        workflow = telegram_trigger.workflow
-        execution = WorkflowExecution.objects.create(
-            workflow=workflow,
-            trigger_node=telegram_trigger,
-            user_profile=workflow.owner,
+        node = db.query(WorkflowNode).filter(WorkflowNode.id == telegram_trigger.id).first()
+        workflow = node.workflow
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            trigger_node_id=node.id,
+            user_profile_id=workflow.owner_id,
             thread_id="t2",
             status="completed",
             trigger_payload={},
             final_output={"message": "Result"},
         )
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
 
         delivery = OutputDelivery()
         with patch.object(delivery, "send_telegram_message") as mock_send:
-            delivery.deliver(execution)
+            delivery.deliver(execution, db)
 
         mock_send.assert_not_called()

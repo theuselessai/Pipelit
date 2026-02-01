@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner"
 import ProtectedRoute from "@/components/layout/ProtectedRoute"
 import AppLayout from "@/components/layout/AppLayout"
 import LoginPage from "@/features/auth/LoginPage"
+import SetupPage from "@/features/auth/SetupPage"
 import DashboardPage from "@/features/workflows/DashboardPage"
 import WorkflowEditorPage from "@/features/workflows/WorkflowEditorPage"
 import CredentialsPage from "@/features/credentials/CredentialsPage"
@@ -23,6 +24,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/setup" element={<SetupPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />

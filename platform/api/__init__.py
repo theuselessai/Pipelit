@@ -1,0 +1,17 @@
+"""FastAPI router aggregation."""
+
+from fastapi import APIRouter
+
+from api.auth import router as auth_router
+from api.workflows import router as workflows_router
+from api.nodes import router as nodes_router
+from api.executions import router as executions_router
+from api.credentials import router as credentials_router
+
+api_router = APIRouter(prefix="/api/v1")
+
+api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
+api_router.include_router(nodes_router, prefix="/workflows", tags=["nodes", "edges"])
+api_router.include_router(executions_router, prefix="/executions", tags=["executions"])
+api_router.include_router(credentials_router, prefix="/credentials", tags=["credentials"])
