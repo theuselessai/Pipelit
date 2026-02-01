@@ -1,8 +1,6 @@
-"""Human confirmation component — interrupt for user approval."""
+"""Human confirmation component — reads _resume_input from orchestrator state."""
 
 from __future__ import annotations
-
-from langgraph.types import interrupt
 
 from components import register
 
@@ -15,13 +13,23 @@ def human_confirmation_factory(node):
     node_id = node.node_id
 
     def human_confirmation_node(state: dict) -> dict:
-        # Build prompt from template, substituting state values
-        prompt = prompt_template
-        for key, val in state.get("node_outputs", {}).items():
-            prompt = prompt.replace(f"{{{key}}}", str(val))
+        # If _resume_input is present, the orchestrator has resumed after interruption
+        user_response = state.get("_resume_input")
 
-        # LangGraph interrupt — suspends execution until resumed
-        user_response = interrupt({"prompt": prompt, "node_id": node_id})
+        if user_response is None:
+            # First invocation — the orchestrator should have interrupted before/after
+            # this node via interrupt_before/interrupt_after flags. If we get here without
+            # _resume_input, treat it as unconfirmed.
+            return {
+                "route": "cancelled",
+                "node_outputs": {
+                    node_id: {
+                        "confirmed": False,
+                        "user_response": None,
+                        "prompt": prompt_template,
+                    }
+                },
+            }
 
         confirmed = str(user_response).lower() in ("yes", "confirm", "true", "y", "1")
         return {

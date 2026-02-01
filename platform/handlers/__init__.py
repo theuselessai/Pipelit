@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def dispatch_event(event_type: str, event_data: dict, user_profile, db: Session):
     """Unified entry point for all trigger types."""
     from models.execution import WorkflowExecution
-    from services.executor import execute_workflow_job
+    from tasks import execute_workflow_job
 
     result = trigger_resolver.resolve(event_type, event_data, db)
     if result is None:

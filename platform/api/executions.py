@@ -111,11 +111,22 @@ def send_chat_message(
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
-    trigger_node = (
-        db.query(WorkflowNode)
-        .filter(WorkflowNode.workflow_id == workflow.id, WorkflowNode.component_type == "trigger_chat")
-        .first()
-    )
+    if payload.trigger_node_id:
+        trigger_node = (
+            db.query(WorkflowNode)
+            .filter(
+                WorkflowNode.workflow_id == workflow.id,
+                WorkflowNode.node_id == payload.trigger_node_id,
+                WorkflowNode.component_type == "trigger_chat",
+            )
+            .first()
+        )
+    else:
+        trigger_node = (
+            db.query(WorkflowNode)
+            .filter(WorkflowNode.workflow_id == workflow.id, WorkflowNode.component_type == "trigger_chat")
+            .first()
+        )
     if not trigger_node:
         raise HTTPException(status_code=404, detail="No chat trigger found.")
 
@@ -130,24 +141,21 @@ def send_chat_message(
     db.commit()
     db.refresh(execution)
 
-    # Execute synchronously
-    from services.executor import WorkflowExecutor
+    # Enqueue via RQ — frontend connects via WebSocket to stream results
+    import redis
+    from rq import Queue
 
-    WorkflowExecutor().execute(execution.execution_id, db)
+    from config import settings
+    from tasks import execute_workflow_job
 
-    db.refresh(execution)
-    response_text = ""
-    if execution.final_output:
-        response_text = (
-            execution.final_output.get("message")
-            or execution.final_output.get("output")
-            or str(execution.final_output)
-        )
+    conn = redis.from_url(settings.REDIS_URL)
+    queue = Queue("workflows", connection=conn)
+    queue.enqueue(execute_workflow_job, str(execution.execution_id))
 
     return ChatMessageOut(
         execution_id=execution.execution_id,
-        status=execution.status,
-        response=response_text,
+        status="pending",
+        response="",
     )
 
 

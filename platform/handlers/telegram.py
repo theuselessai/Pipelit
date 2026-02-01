@@ -58,7 +58,7 @@ class TelegramTriggerHandler:
 
         from config import settings
         from models.execution import PendingTask
-        from services.executor import resume_workflow_job
+        from tasks import resume_workflow_job
 
         pending = db.query(PendingTask).filter(PendingTask.task_id == task_id).first()
         if not pending:

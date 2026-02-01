@@ -20,6 +20,7 @@ from config import settings
 from database import Base, engine
 from handlers.webhook import router as webhook_router
 from handlers.manual import router as manual_router
+from ws import ws_router
 
 app = FastAPI(title="Workflow Platform API", version="1.0.0")
 
@@ -41,6 +42,9 @@ app.include_router(chat_router, prefix="/api/v1/workflows", tags=["chat"])
 # Webhook & manual execution endpoints
 app.include_router(webhook_router, prefix="/api", tags=["webhooks"])
 app.include_router(manual_router, prefix="/api", tags=["manual"])
+
+# WebSocket endpoints
+app.include_router(ws_router)
 
 # Serve frontend static files (built React SPA)
 frontend_dist = Path(__file__).parent / "frontend" / "dist"

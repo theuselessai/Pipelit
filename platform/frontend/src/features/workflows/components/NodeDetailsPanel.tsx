@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
-import { useSendChatMessage } from "@/api/chat"
+import { useSendChatMessage, waitForExecution } from "@/api/chat"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -22,7 +22,7 @@ const TRIGGER_TYPES = ["trigger_telegram", "trigger_webhook", "trigger_schedule"
 
 function ChatPanel({ slug, node, onClose }: Props) {
   const deleteNode = useDeleteNode(slug)
-  const sendMessage = useSendChatMessage(slug)
+  const sendMessage = useSendChatMessage(slug, node.node_id)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -31,14 +31,25 @@ function ChatPanel({ slug, node, onClose }: Props) {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
   }, [messages])
 
+  const [waiting, setWaiting] = useState(false)
+
   function handleSend() {
     const text = input.trim()
-    if (!text || sendMessage.isPending) return
+    if (!text || sendMessage.isPending || waiting) return
     setInput("")
     setMessages((prev) => [...prev, { role: "user", text }])
     sendMessage.mutate(text, {
       onSuccess: (data) => {
-        setMessages((prev) => [...prev, { role: "assistant", text: data.response || "(no response)" }])
+        // Connect via WebSocket to wait for the result
+        setWaiting(true)
+        waitForExecution(data.execution_id)
+          .then((response) => {
+            setMessages((prev) => [...prev, { role: "assistant", text: response }])
+          })
+          .catch((err) => {
+            setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}` }])
+          })
+          .finally(() => setWaiting(false))
       },
       onError: (err) => {
         setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}` }])
@@ -67,7 +78,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
             </div>
           </div>
         ))}
-        {sendMessage.isPending && (
+        {(sendMessage.isPending || waiting) && (
           <div className="flex justify-start">
             <div className="bg-muted rounded-lg px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
           </div>
@@ -80,9 +91,9 @@ function ChatPanel({ slug, node, onClose }: Props) {
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
           placeholder="Type a message..."
           className="text-sm"
-          disabled={sendMessage.isPending}
+          disabled={sendMessage.isPending || waiting}
         />
-        <Button size="sm" onClick={handleSend} disabled={sendMessage.isPending || !input.trim()}>
+        <Button size="sm" onClick={handleSend} disabled={sendMessage.isPending || waiting || !input.trim()}>
           <Send className="h-4 w-4" />
         </Button>
       </div>

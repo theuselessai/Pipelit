@@ -38,6 +38,7 @@ class ExecutionDetailOut(ExecutionOut):
 
 class ChatMessageIn(BaseModel):
     text: str
+    trigger_node_id: str | None = None
 
 
 class ChatMessageOut(BaseModel):
