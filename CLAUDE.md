@@ -210,6 +210,157 @@ API_PORT=8080
 SEARXNG_BASE_URL=http://localhost:8888
 ```
 
+## Platform REST API
+
+The `platform/` directory contains a Django project with a django-ninja REST API at `/api/v1/`.
+
+### API Structure
+
+```
+platform/apps/workflows/api/
+├── __init__.py      # NinjaAPI instance + router wiring
+├── auth.py          # Bearer token auth backend
+├── auth_views.py    # POST /auth/token/ endpoint
+├── schemas.py       # Pydantic in/out schemas
+├── workflows.py     # Workflow CRUD router
+├── nodes.py         # Node + Edge CRUD (nested under workflow)
+├── triggers.py      # Trigger CRUD (nested under workflow)
+├── executions.py    # Execution list/detail/cancel
+└── credentials.py   # Credential CRUD + LLM provider/model list
+```
+
+### API Endpoints
+
+All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <key>`).
+
+- **Auth** — `POST /auth/token/` (obtain Bearer token), `GET /auth/me/` (current user)
+- **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`
+- **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
+- **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{id}/`
+- **Triggers** — `GET/POST /workflows/{slug}/triggers/`, `PATCH/DELETE /workflows/{slug}/triggers/{id}/`
+- **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`
+- **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`
+- **LLM Providers** — `GET /credentials/llm-providers/`
+- **LLM Models** — `GET /credentials/llm-models/?provider_id=`
+
+### Platform Model Design
+
+**Credentials** are global — any user on the machine can use any credential. The `user_profile` FK on `BaseCredentials` tracks who created it, not ownership.
+
+**Trigger credentials:** Each `WorkflowTrigger` has an optional `credential` FK to `BaseCredentials`. This is how triggers (Telegram, email, webhooks, etc.) reference their integration credentials. Bot token resolution for delivery goes through `execution.trigger.credential.telegram_credential.bot_token`.
+
+**LLM resolution:** LLM configuration lives entirely on `ComponentConfig` (per-node). Each agent-type node must have both `llm_model` and `llm_credential` set on its config. There are no workflow-level LLM defaults.
+
+**Trigger-scoped execution:** When a trigger fires, the builder only compiles nodes reachable downstream from that trigger (BFS over direct edges). Unconnected nodes on the same canvas are ignored. This allows a single workflow to have multiple trigger branches and unused nodes without causing build errors. The `trigger_node_id` FK on `WorkflowExecution` is passed through the cache and builder.
+
+**Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation, backed by Django `TextChoices` on the model side.
+
+### Running Platform Tests
+
+```bash
+cd platform
+source ../.venv/bin/activate
+export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+python -m pytest tests/ -v
+```
+
+## React Frontend
+
+The `platform/frontend/` directory contains a React SPA for managing workflows visually.
+
+**Stack:** React + Vite + TypeScript, Shadcn/ui, @xyflow/react (React Flow v12), TanStack Query, React Router
+
+### Frontend Structure
+
+```
+platform/frontend/src/
+├── api/                    # TanStack Query hooks + fetch client
+│   ├── client.ts           # Bearer token injection, 401 redirect
+│   ├── auth.ts             # login(), fetchMe() → token + user info
+│   ├── workflows.ts        # useWorkflows(), useCreateWorkflow(), etc.
+│   ├── nodes.ts            # useCreateNode(), useUpdateNode(), useDeleteNode()
+│   ├── edges.ts            # useCreateEdge(), useUpdateEdge(), useDeleteEdge()
+│   ├── triggers.ts         # useCreateTrigger(), useDeleteTrigger()
+│   ├── executions.ts       # useExecutions(), useExecution() (auto-refresh)
+│   └── credentials.ts      # useCredentials(), useLLMModels(), useLLMProviders()
+├── components/
+│   ├── ui/                 # Shadcn components (auto-generated)
+│   └── layout/
+│       ├── AppLayout.tsx   # Collapsible sidebar + user menu
+│       └── ProtectedRoute.tsx
+├── features/
+│   ├── auth/               # AuthProvider, LoginPage
+│   ├── workflows/
+│   │   ├── DashboardPage.tsx          # Workflow list table + create/delete
+│   │   ├── WorkflowEditorPage.tsx     # Three-panel editor layout
+│   │   └── components/
+│   │       ├── WorkflowCanvas.tsx     # React Flow canvas with custom nodes
+│   │       ├── NodePalette.tsx        # Click-to-add node types
+│   │       └── NodeDetailsPanel.tsx   # Right sidebar config form
+│   ├── credentials/        # CredentialsPage (table + create dialog)
+│   ├── executions/         # ExecutionsPage, ExecutionDetailPage
+│   └── settings/           # SettingsPage (theme selector)
+├── hooks/
+│   └── useTheme.ts         # Dark mode hook (system/light/dark, persisted to localStorage)
+├── types/models.ts         # TS types mirroring Django schemas
+├── App.tsx                 # Routes
+└── main.tsx                # QueryClient + AuthProvider + Router
+```
+
+### Running the Frontend
+
+```bash
+cd platform/frontend
+npm install
+npm run dev          # Dev server (proxies /api to Django at :8000)
+npm run build        # Production build to dist/ (served by Django)
+```
+
+In development, run Vite alongside Django. Without Vite, run `npm run build` and access via Django directly.
+
+### Frontend Routes
+
+| Route | Page |
+|-------|------|
+| `/login` | Login form |
+| `/` | Workflow dashboard (list) |
+| `/workflows/:slug` | Workflow editor (canvas) |
+| `/credentials` | Credentials management |
+| `/executions` | Execution list |
+| `/executions/:id` | Execution detail + logs |
+| `/settings` | Settings (appearance/theme) |
+
+### Workflow Node Visual Design
+
+Nodes on the canvas use Font Awesome icons and color-coded borders by component type.
+
+**Node handle layout:**
+- **Left handle** (circle): target/input connection
+- **Right handle** (circle): source/output connection
+- **Bottom handles** (diamond): sub-component connections (model, tools, memory, output_parser)
+- **Top handle** (diamond, `ai_model` only): source connection to other nodes
+
+**Trigger nodes** strip the `trigger_` prefix in display (e.g., `trigger_telegram` shows as `telegram`). All trigger nodes share orange (`#f97316`) borders. Node labels strip the `<component_type>_` prefix to show only the hash/suffix.
+
+**AI-type nodes** (`simple_agent`, `planner_agent`, `categorizer`, `router`, `extractor`) have fixed 250px width with a separator line and bottom sub-component pills:
+
+| Node | model | tools | memory | output_parser |
+|------|-------|-------|--------|---------------|
+| simple_agent | yes | yes | yes | no |
+| planner_agent | yes | yes | yes | no |
+| categorizer | yes | no | yes | yes |
+| router | yes | no | yes | yes |
+| extractor | yes | no | yes | yes |
+
+**Sub-component handle colors:**
+- model: `#3b82f6` (blue)
+- tools: `#10b981` (green)
+- memory: `#f59e0b` (amber)
+- output_parser: `#94a3b8` (slate)
+
+**`ai_model` node** has only a top diamond handle (source) — it connects upward to nodes that need a model.
+
 ## Documentation
 
 - `docs/dev_plan_gateway.md` - Gateway architecture plan and roadmap
+- `docs/dev_plan_gui.md` - React GUI implementation plan (completed)

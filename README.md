@@ -168,6 +168,17 @@ python -m app.main
 rq-dashboard  # Opens at http://localhost:9181
 ```
 
+## Testing
+
+### Platform tests (Django)
+
+```bash
+cd platform
+source ../.venv/bin/activate
+export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+python -m pytest tests/ -v
+```
+
 ## Bot Commands
 
 | Command | Description |
@@ -223,6 +234,57 @@ The categorizer also determines when confirmation is needed (buy, delete, send, 
 | `API_ENABLED` | Enable optional REST API | `false` |
 | `API_PORT` | REST API port | `8080` |
 | `SEARXNG_BASE_URL` | SearXNG instance URL for web search | `http://localhost:8888` |
+
+## Platform REST API
+
+The `platform/` directory contains a Django-based workflow management system with a REST API built on django-ninja, served at `/api/v1/`.
+
+Authentication uses Bearer tokens (`Authorization: Bearer <key>`). Obtain a token via `POST /api/v1/auth/token/` with `{username, password}`. All endpoints return JSON. CSRF middleware is disabled in development settings.
+
+### Endpoints
+
+| Resource | Endpoints |
+|----------|-----------|
+| **Auth** | `POST /api/v1/auth/token/` |
+| **Workflows** | `GET/POST /api/v1/workflows/`, `GET/PATCH/DELETE /api/v1/workflows/{slug}/` |
+| **Nodes** | `GET/POST /api/v1/workflows/{slug}/nodes/`, `PATCH/DELETE .../nodes/{node_id}/` |
+| **Edges** | `GET/POST /api/v1/workflows/{slug}/edges/`, `PATCH/DELETE .../edges/{id}/` |
+| **Triggers** | `GET/POST /api/v1/workflows/{slug}/triggers/`, `PATCH/DELETE .../triggers/{id}/` |
+| **Executions** | `GET /api/v1/executions/`, `GET .../executions/{id}/`, `POST .../executions/{id}/cancel/` |
+| **Credentials** | `GET/POST /api/v1/credentials/`, `GET/PATCH/DELETE .../credentials/{id}/` |
+| **LLM Providers** | `GET /api/v1/credentials/llm-providers/` |
+| **LLM Models** | `GET /api/v1/credentials/llm-models/?provider_id=` |
+
+Workflow detail (`GET /api/v1/workflows/{slug}/`) returns nested nodes, edges, and triggers. Workflow deletion is soft-delete. Node creation/update accepts inline `config` for the underlying `ComponentConfig`. Executions can be filtered by `?workflow_slug=` and `?status=`. Credential sensitive fields (api_key, bot_token) are masked on GET.
+
+## React Frontend
+
+The `platform/frontend/` directory contains a React SPA for visual workflow management.
+
+**Stack:** React + Vite + TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query, React Router
+
+### Features
+
+- **Workflow Dashboard** — list, create, delete workflows
+- **Visual Editor** — three-panel layout with node palette, React Flow canvas, and config panel
+- **Node Configuration** — dynamic forms by component type (LLM model/credential selectors for AI nodes, system prompt, extra config JSON)
+- **Trigger Management** — create/delete triggers with type-specific forms
+- **Credentials Management** — CRUD for LLM, Telegram, Git, and Tool credentials with masked sensitive fields
+- **Execution Monitoring** — list with status filters, detail view with node logs, auto-refresh for running executions
+- **Dark Mode** — via Shadcn theme CSS variables
+
+### Running the Frontend
+
+```bash
+cd platform/frontend
+npm install
+npm run dev          # Dev server at http://localhost:5173 (proxies /api to Django)
+npm run build        # Production build to dist/
+```
+
+**Development:** Run both Django (`python manage.py runserver 0.0.0.0:8000`) and Vite (`npm run dev`) simultaneously. Vite proxies `/api` requests to Django at port 8000. Access the app at the Vite dev server URL (e.g. `http://192.168.1.68:5173`).
+
+**Production / without Vite:** Run `npm run build`, then access the app directly through Django (e.g. `http://192.168.1.68:8000`). Django serves the built `dist/` files as static assets and handles SPA routing via a catch-all URL.
 
 ## Project Structure
 
