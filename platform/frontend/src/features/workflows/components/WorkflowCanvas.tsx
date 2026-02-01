@@ -16,12 +16,17 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
   type Node,
   type Edge,
+  type EdgeProps,
   type OnConnect,
   type OnNodesDelete,
   type OnEdgesDelete,
   type NodeTypes,
+  type EdgeTypes,
   type NodeChange,
   applyNodeChanges,
   Handle,
@@ -137,7 +142,43 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   )
 }
 
+function DeletableEdge({
+  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+  style, label, markerEnd, animated,
+}: EdgeProps) {
+  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
+  return (
+    <>
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} className={animated ? "react-flow__edge-animated" : ""} />
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan group"
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: "all",
+          }}
+        >
+          {label && <span className="text-[10px] bg-background px-1 rounded border">{label}</span>}
+          <button
+            className="absolute -top-2 -right-3 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-[10px] leading-none cursor-pointer hover:scale-110"
+            title="Delete edge"
+            onClick={(e) => {
+              e.stopPropagation()
+              // Dispatch a custom event that the canvas listens for
+              window.dispatchEvent(new CustomEvent("delete-edge", { detail: id }))
+            }}
+          >
+            ×
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  )
+}
+
 const nodeTypes: NodeTypes = { workflowNode: WorkflowNodeComponent }
+const edgeTypes: EdgeTypes = { deletable: DeletableEdge }
 
 interface Props {
   slug: string
@@ -167,6 +208,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
     const targetHandle = e.edge_label ? LABEL_TO_HANDLE[e.edge_label] : undefined
     return {
       id: String(e.id),
+      type: "deletable",
       source: e.source_node_id,
       target: e.target_node_id,
       targetHandle,
@@ -219,6 +261,15 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
     }
   }, [deleteEdge])
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const edgeId = (e as CustomEvent).detail
+      deleteEdge.mutate(Number(edgeId))
+    }
+    window.addEventListener("delete-edge", handler)
+    return () => window.removeEventListener("delete-edge", handler)
+  }, [deleteEdge])
+
   return (
     <ReactFlow
       nodes={nodes}
@@ -229,6 +280,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       onNodesDelete={onNodesDelete}
       onEdgesDelete={onEdgesDelete}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       fitView
       deleteKeyCode="Delete"
       className="bg-background"
