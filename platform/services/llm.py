@@ -64,7 +64,6 @@ def create_llm_from_db(
 def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
     from database import SessionLocal
     from models.credential import BaseCredential
-    from models.node import ModelComponentConfig, WorkflowEdge
 
     if db is None:
         db = SessionLocal()
@@ -92,27 +91,11 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
             response_format=cc.response_format,
         )
 
-    # AI nodes: resolve via edge_label='llm'
-    from models.node import WorkflowNode
-    llm_edges = (
-        db.query(WorkflowEdge)
-        .filter(
-            WorkflowEdge.workflow_id == node.workflow_id,
-            WorkflowEdge.source_node_id == node.node_id,
-            WorkflowEdge.edge_label == "llm",
-        )
-        .all()
-    )
-    for edge in llm_edges:
-        target_node = (
-            db.query(WorkflowNode)
-            .filter(WorkflowNode.workflow_id == node.workflow_id, WorkflowNode.node_id == edge.target_node_id)
-            .first()
-        )
-        if not target_node:
-            continue
-        tc = target_node.component_config
-        if tc.component_type == "ai_model" and tc.model_name and tc.llm_credential_id:
+    # AI nodes: resolve via llm_model_config_id FK (set when ai_model edge is created)
+    if cc.llm_model_config_id:
+        from models.node import BaseComponentConfig as BCC
+        tc = db.get(BCC, cc.llm_model_config_id)
+        if tc and tc.component_type == "ai_model" and tc.model_name and tc.llm_credential_id:
             base_cred = db.query(BaseCredential).filter(BaseCredential.id == tc.llm_credential_id).first()
             llm_cred = base_cred.llm_credential
             return create_llm_from_db(

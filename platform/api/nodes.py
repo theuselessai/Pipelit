@@ -22,6 +22,32 @@ from api._helpers import get_workflow, serialize_edge, serialize_node
 router = APIRouter()
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _link_sub_component(
+    db: Session, workflow_id: int, source_node_id: str, target_node_id: str, config_field: str
+):
+    """Set a FK on the target node's config pointing to the source node's config."""
+    src = db.query(WorkflowNode).filter_by(workflow_id=workflow_id, node_id=source_node_id).first()
+    tgt = db.query(WorkflowNode).filter_by(workflow_id=workflow_id, node_id=target_node_id).first()
+    if src and tgt and src.component_config_id and tgt.component_config_id:
+        tgt_cfg = db.get(BaseComponentConfig, tgt.component_config_id)
+        if tgt_cfg:
+            setattr(tgt_cfg, config_field, src.component_config_id)
+
+
+def _unlink_sub_component(
+    db: Session, workflow_id: int, target_node_id: str, config_field: str
+):
+    """Clear a sub-component FK on the target node's config."""
+    tgt = db.query(WorkflowNode).filter_by(workflow_id=workflow_id, node_id=target_node_id).first()
+    if tgt and tgt.component_config_id:
+        tgt_cfg = db.get(BaseComponentConfig, tgt.component_config_id)
+        if tgt_cfg:
+            setattr(tgt_cfg, config_field, None)
+
+
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
 
@@ -197,6 +223,12 @@ def create_edge(
     wf = get_workflow(slug, profile, db)
     edge = WorkflowEdge(workflow_id=wf.id, **payload.model_dump())
     db.add(edge)
+    db.flush()
+
+    # Link sub-component configs when connecting via labeled handles
+    if payload.edge_label == "llm":
+        _link_sub_component(db, wf.id, payload.source_node_id, payload.target_node_id, "llm_model_config_id")
+
     db.commit()
     db.refresh(edge)
     return serialize_edge(edge)
@@ -240,5 +272,10 @@ def delete_edge(
     )
     if not edge:
         raise HTTPException(status_code=404, detail="Edge not found.")
+
+    # Unlink sub-component config when removing a labeled edge
+    if edge.edge_label == "llm":
+        _unlink_sub_component(db, wf.id, edge.target_node_id, "llm_model_config_id")
+
     db.delete(edge)
     db.commit()

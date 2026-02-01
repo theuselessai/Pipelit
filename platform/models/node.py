@@ -50,6 +50,12 @@ class BaseComponentConfig(Base):
     max_retries: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_format: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Sub-component FKs — link ai_model config to agent config
+    llm_model_config_id: Mapped[int | None] = mapped_column(
+        ForeignKey("component_configs.id", ondelete="SET NULL", name="fk_llm_model_config"),
+        nullable=True,
+    )
+
     # STI fields — AIComponentConfig
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
 

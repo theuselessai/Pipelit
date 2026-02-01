@@ -1,7 +1,7 @@
 import { Outlet, NavLink } from "react-router-dom"
 import { useAuth } from "@/features/auth/AuthProvider"
 import { Button } from "@/components/ui/button"
-import { LayoutDashboard, KeyRound, Activity, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, KeyRound, Activity, Settings, LogOut, Workflow } from "lucide-react"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Workflows" },
@@ -16,7 +16,10 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen">
       <aside className="w-56 border-r bg-sidebar text-sidebar-foreground flex flex-col">
-        <div className="p-4 font-semibold text-lg border-b">Workflow Platform</div>
+        <div className="p-4 font-semibold text-lg border-b flex items-center gap-2">
+          <Workflow className="h-5 w-5" />
+          Pipelit
+        </div>
         <nav className="flex-1 p-2 space-y-1">
           {navItems.map((item) => (
             <NavLink

@@ -367,3 +367,66 @@ class TestSetupAPI:
             json={"username": "another", "password": "pass"},
         )
         assert resp.status_code == 409
+
+
+# ── Edge sub-component linking ───────────────────────────────────────────────
+
+
+class TestEdgeSubComponentLinking:
+    def test_llm_edge_links_model_config(self, auth_client, workflow, db):
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        # Create ai_model node
+        model_cc = BaseComponentConfig(component_type="ai_model", model_name="gpt-4o")
+        db.add(model_cc)
+        db.flush()
+        model_node = WorkflowNode(workflow_id=workflow.id, node_id="model1", component_type="ai_model", component_config_id=model_cc.id)
+        db.add(model_node)
+
+        # Create simple_agent node
+        agent_cc = BaseComponentConfig(component_type="simple_agent", system_prompt="test")
+        db.add(agent_cc)
+        db.flush()
+        agent_node = WorkflowNode(workflow_id=workflow.id, node_id="agent1", component_type="simple_agent", component_config_id=agent_cc.id)
+        db.add(agent_node)
+        db.commit()
+
+        # Create edge with llm label
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/edges/",
+            json={"source_node_id": "model1", "target_node_id": "agent1", "edge_label": "llm"},
+        )
+        assert resp.status_code == 201
+
+        # Verify FK was set
+        db.refresh(agent_cc)
+        assert agent_cc.llm_model_config_id == model_cc.id
+
+    def test_llm_edge_delete_unlinks_model_config(self, auth_client, workflow, db):
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        model_cc = BaseComponentConfig(component_type="ai_model", model_name="gpt-4o")
+        db.add(model_cc)
+        db.flush()
+        model_node = WorkflowNode(workflow_id=workflow.id, node_id="model1", component_type="ai_model", component_config_id=model_cc.id)
+        db.add(model_node)
+
+        agent_cc = BaseComponentConfig(component_type="simple_agent", system_prompt="test")
+        db.add(agent_cc)
+        db.flush()
+        agent_node = WorkflowNode(workflow_id=workflow.id, node_id="agent1", component_type="simple_agent", component_config_id=agent_cc.id)
+        db.add(agent_node)
+        db.commit()
+
+        # Create then delete
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/edges/",
+            json={"source_node_id": "model1", "target_node_id": "agent1", "edge_label": "llm"},
+        )
+        edge_id = resp.json()["id"]
+
+        resp = auth_client.delete(f"/api/v1/workflows/{workflow.slug}/edges/{edge_id}/")
+        assert resp.status_code == 204
+
+        db.refresh(agent_cc)
+        assert agent_cc.llm_model_config_id is None

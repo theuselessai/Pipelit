@@ -30,6 +30,8 @@ class ComponentConfigData(BaseModel):
     timeout: int | None = None
     max_retries: int | None = None
     response_format: dict | None = None
+    # Sub-component links
+    llm_model_config_id: int | None = None
     # Trigger fields
     credential_id: int | None = None
     is_active: bool = True

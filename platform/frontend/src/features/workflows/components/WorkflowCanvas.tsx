@@ -162,11 +162,14 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const labelColors: Record<string, string> = { llm: "#3b82f6", tool: "#10b981", memory: "#f59e0b", output_parser: "#8b5cf6" }
+    const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }
     const edgeColor = e.edge_label ? labelColors[e.edge_label] : undefined
+    const targetHandle = e.edge_label ? LABEL_TO_HANDLE[e.edge_label] : undefined
     return {
       id: String(e.id),
       source: e.source_node_id,
       target: e.target_node_id,
+      targetHandle,
       animated: e.edge_type === "conditional",
       label: e.edge_label || undefined,
       style: {
@@ -194,7 +197,9 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const onConnect: OnConnect = useCallback((params) => {
     if (params.source && params.target) {
-      createEdge.mutate({ source_node_id: params.source, target_node_id: params.target })
+      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", memory: "memory", output_parser: "output_parser" }
+      const edge_label = (params.targetHandle && HANDLE_TO_LABEL[params.targetHandle]) || ""
+      createEdge.mutate({ source_node_id: params.source, target_node_id: params.target, edge_label })
     }
   }, [createEdge])
 

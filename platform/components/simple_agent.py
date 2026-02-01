@@ -20,13 +20,10 @@ def simple_agent_factory(node):
 
     tools = _resolve_tools(node)
 
-    max_iterations = extra.get("max_iterations", 10)
-
     agent = create_react_agent(
         llm,
         tools,
         prompt=SystemMessage(content=system_prompt) if system_prompt else None,
-        recursion_limit=max_iterations * 2 + 1,
     )
 
     def simple_agent_node(state: dict) -> dict:

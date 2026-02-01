@@ -48,6 +48,7 @@ def serialize_config(cc: BaseComponentConfig) -> dict:
         "timeout": None,
         "max_retries": None,
         "response_format": None,
+        "llm_model_config_id": cc.llm_model_config_id,
         "credential_id": None,
         "is_active": True,
         "priority": 0,
