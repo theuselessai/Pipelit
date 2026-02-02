@@ -223,7 +223,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const deleteNode = useDeleteNode(slug)
   const deleteEdge = useDeleteEdge(slug)
   const { data: credentials } = useCredentials()
-  const { data: nodeTypes } = useNodeTypes()
+  const { data: nodeTypeRegistry } = useNodeTypes()
 
   // Track node execution status from WebSocket events
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({})
@@ -259,10 +259,10 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypes?.[n.component_type]?.executable },
+      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable },
       selected: n.node_id === selectedNodeId,
     }
-  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeTypes])
+  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeTypeRegistry])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const labelColors: Record<string, string> = { tool: "#10b981", memory: "#f59e0b", output_parser: "#8b5cf6" }
