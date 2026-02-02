@@ -212,36 +212,81 @@ SEARXNG_BASE_URL=http://localhost:8888
 
 ## Platform REST API
 
-The `platform/` directory contains a Django project with a django-ninja REST API at `/api/v1/`.
+The `platform/` directory contains a FastAPI application with SQLAlchemy ORM and Alembic migrations.
 
-### API Structure
+**Stack:** FastAPI, SQLAlchemy 2.0, Alembic, Pydantic, RQ (Redis Queue), Uvicorn
+
+### Platform Structure
 
 ```
-platform/apps/workflows/api/
-├── __init__.py      # NinjaAPI instance + router wiring
-├── auth.py          # Bearer token auth backend
-├── auth_views.py    # POST /auth/token/ endpoint
-├── schemas.py       # Pydantic in/out schemas
-├── workflows.py     # Workflow CRUD router
-├── nodes.py         # Node + Edge CRUD (nested under workflow)
-├── triggers.py      # Trigger CRUD (nested under workflow)
-├── executions.py    # Execution list/detail/cancel
-└── credentials.py   # Credential CRUD + LLM provider/model list
+platform/
+├── main.py              # FastAPI app entry point (routers, CORS, static files)
+├── config.py            # Pydantic Settings (DATABASE_URL, REDIS_URL, etc.)
+├── database.py          # SQLAlchemy engine + SessionLocal + get_db()
+├── auth.py              # Bearer token auth dependency (HTTPBearer → UserProfile)
+├── api/                 # REST endpoint routers
+│   ├── auth.py          # POST /token/, GET /me/, POST /setup/
+│   ├── workflows.py     # Workflow CRUD + GET /node-types/ + POST /validate/
+│   ├── nodes.py         # Node + Edge CRUD (nested under workflow)
+│   ├── executions.py    # Execution list/detail/cancel + chat
+│   ├── credentials.py   # Credential CRUD + test + LLM models
+│   └── _helpers.py      # Response serialization helpers
+├── models/              # SQLAlchemy ORM models
+│   ├── user.py          # UserProfile, APIKey
+│   ├── credential.py    # BaseCredential, LLMProviderCredential, TelegramCredential, etc.
+│   ├── workflow.py      # Workflow, WorkflowCollaborator
+│   ├── node.py          # WorkflowNode, WorkflowEdge, ComponentConfig hierarchy
+│   ├── execution.py     # WorkflowExecution, ExecutionLog, PendingTask
+│   ├── conversation.py  # Conversation
+│   ├── tool.py          # ToolDefinition, WorkflowTool
+│   ├── code.py          # CodeBlock, CodeBlockVersion, CodeBlockTest
+│   └── git.py           # GitRepository, GitCommit, GitSyncTask
+├── schemas/             # Pydantic schemas
+│   ├── node_io.py       # NodeStatus, NodeResult, NodeInput
+│   ├── node_types.py    # DataType, PortDefinition, NodeTypeSpec, NODE_TYPE_REGISTRY
+│   └── node_type_defs.py# Registers all 23 built-in node types
+├── services/            # Business logic
+│   ├── orchestrator.py  # Node execution, state management, WebSocket events
+│   ├── topology.py      # Workflow DAG analysis (BFS reachability)
+│   ├── builder.py       # Compiles Workflow → LangGraph CompiledGraph
+│   ├── executor.py      # WorkflowExecutor + RQ job wrappers
+│   ├── cache.py         # Redis-backed graph caching
+│   ├── delivery.py      # Routes results to Telegram, webhooks, etc.
+│   ├── llm.py           # create_llm_from_db(), resolve_llm_for_node()
+│   └── state.py         # WorkflowState (LangGraph MessagesState)
+├── handlers/            # Event/trigger handlers
+│   ├── __init__.py      # dispatch_event() - unified trigger dispatch
+│   ├── telegram.py      # TelegramTriggerHandler
+│   ├── webhook.py       # Incoming webhook endpoint
+│   └── manual.py        # Manual execution endpoint
+├── components/          # LangGraph node component implementations (20 files)
+├── tasks/               # RQ job wrappers
+├── triggers/            # Trigger resolver
+├── validation/          # EdgeValidator (type compatibility checks)
+├── ws/                  # WebSocket endpoints + broadcast helper
+├── alembic/             # Database migrations
+└── frontend/            # React SPA
+```
+
+### Running the Platform
+
+```bash
+cd platform
+source ../.venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### API Endpoints
 
 All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <key>`).
 
-- **Auth** — `POST /auth/token/` (obtain Bearer token), `GET /auth/me/` (current user)
-- **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`, `POST /workflows/{slug}/validate/`
+- **Auth** — `POST /auth/token/`, `GET /auth/me/`, `GET /auth/setup-status/`, `POST /auth/setup/`
+- **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`, `POST /workflows/{slug}/validate/`, `GET /workflows/node-types/`
 - **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
-- **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{id}/`
-- **Triggers** — `GET/POST /workflows/{slug}/triggers/`, `PATCH/DELETE /workflows/{slug}/triggers/{id}/`
+- **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{edge_id}/`
 - **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`
-- **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`
-- **LLM Providers** — `GET /credentials/llm-providers/`
-- **LLM Models** — `GET /credentials/llm-models/?provider_id=`
+- **Chat** — `POST /workflows/{slug}/chat/`
+- **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`, `POST /credentials/{id}/test/`, `GET /credentials/{id}/models/`
 
 ### Global WebSocket
 
@@ -273,15 +318,13 @@ A single persistent authenticated WebSocket at `GET /ws/?token=<api_key>` replac
 
 ### Platform Model Design
 
-**Credentials** are global — any user on the machine can use any credential. The `user_profile` FK on `BaseCredentials` tracks who created it, not ownership.
+**Credentials** are global — any user on the machine can use any credential. The `user_profile` FK on `BaseCredential` tracks who created it, not ownership. Sensitive fields use `EncryptedString` (Fernet) via `FIELD_ENCRYPTION_KEY`.
 
-**Trigger credentials:** Each `WorkflowTrigger` has an optional `credential` FK to `BaseCredentials`. This is how triggers (Telegram, email, webhooks, etc.) reference their integration credentials. Bot token resolution for delivery goes through `execution.trigger.credential.telegram_credential.bot_token`.
+**LLM resolution:** LLM configuration lives entirely on `ComponentConfig` (per-node). Each agent-type node must have both `llm_model` and `llm_credential` set on its config. There are no workflow-level LLM defaults. Resolution via `services/llm.py`: `resolve_llm_for_node()`.
 
-**LLM resolution:** LLM configuration lives entirely on `ComponentConfig` (per-node). Each agent-type node must have both `llm_model` and `llm_credential` set on its config. There are no workflow-level LLM defaults.
+**Trigger-scoped execution:** When a trigger fires, the builder only compiles nodes reachable downstream from that trigger (BFS over direct edges via `services/topology.py`). Unconnected nodes on the same canvas are ignored. This allows a single workflow to have multiple trigger branches and unused nodes without causing build errors.
 
-**Trigger-scoped execution:** When a trigger fires, the builder only compiles nodes reachable downstream from that trigger (BFS over direct edges). Unconnected nodes on the same canvas are ignored. This allows a single workflow to have multiple trigger branches and unused nodes without causing build errors. The `trigger_node_id` FK on `WorkflowExecution` is passed through the cache and builder.
-
-**Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation, backed by Django `TextChoices` on the model side.
+**Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation.
 
 ### Running Platform Tests
 
@@ -333,7 +376,7 @@ platform/frontend/src/
 │   └── useWebSocket.ts     # useWebSocket() + useSubscription(channel) for global WS
 ├── lib/
 │   └── wsManager.ts        # Singleton WebSocketManager (reconnect, subscribe, cache updates)
-├── types/models.ts         # TS types mirroring Django schemas
+├── types/models.ts         # TS types mirroring API schemas
 ├── App.tsx                 # Routes
 └── main.tsx                # QueryClient + AuthProvider + Router
 ```
@@ -343,11 +386,11 @@ platform/frontend/src/
 ```bash
 cd platform/frontend
 npm install
-npm run dev          # Dev server (proxies /api to Django at :8000)
-npm run build        # Production build to dist/ (served by Django)
+npm run dev          # Dev server (proxies /api to FastAPI at :8000)
+npm run build        # Production build to dist/ (served by FastAPI static mount)
 ```
 
-In development, run Vite alongside Django. Without Vite, run `npm run build` and access via Django directly.
+In development, run Vite alongside FastAPI. Without Vite, run `npm run build` and access via FastAPI directly.
 
 ### Frontend Routes
 
@@ -411,7 +454,7 @@ Standardised schemas for node inputs/outputs, a node type registry with port def
 - Node results wrapped in `NodeResult` with status, data, error_code, metadata
 - `node_results` dict stored in Redis execution state per node
 - `node_status` WebSocket events published with `NodeStatus` enum values
-- `ExecutionLog` extended with `error_code` (VARCHAR(50)) and `metadata` (JSON) columns
+- `ExecutionLog` includes `error_code` and `metadata` fields
 
 **Frontend** (`platform/frontend/src/`):
 - `types/nodeIO.ts` — TypeScript interfaces mirroring Python schemas
