@@ -7,7 +7,7 @@ import {
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
   faFileExport, faRepeat, faGripVertical, faClock, faCodeMerge, faFilter,
   faArrowsRotate, faArrowUpAZ, faGauge, faBolt, faCalendarDays, faHandPointer,
-  faPlay, faBug, faComments, faSpinner, faCircleCheck, faCircleXmark, faCircle,
+  faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
 } from "@fortawesome/free-solid-svg-icons"
 import { faTelegram } from "@fortawesome/free-brands-svg-icons"
 import {
@@ -123,14 +123,14 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
       {!isTrigger && !isSubComponent && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
       {isSubComponent && <Handle type="source" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
       {data.executable !== false && (
-        <div className="absolute -top-2 -right-2 rounded-full bg-card p-0.5">
+        <div className="absolute top-1.5 right-1.5 rounded-sm border w-5 h-5 flex items-center justify-center" style={{ borderColor: isRunning ? NODE_STATUS_COLORS.running : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8" }}>
           {isRunning
-            ? <FontAwesomeIcon icon={faSpinner} className="w-3.5 h-3.5 animate-spin" style={{ color: NODE_STATUS_COLORS.running }} />
+            ? <FontAwesomeIcon icon={faCircleNotch} className="w-2.5 h-2.5 animate-spin" style={{ color: NODE_STATUS_COLORS.running }} />
             : isSuccess
-            ? <FontAwesomeIcon icon={faCircleCheck} className="w-3.5 h-3.5" style={{ color: NODE_STATUS_COLORS.success }} />
+            ? <FontAwesomeIcon icon={faCircleCheck} className="w-2.5 h-2.5" style={{ color: NODE_STATUS_COLORS.success }} />
             : isFailed
-            ? <FontAwesomeIcon icon={faCircleXmark} className="w-3.5 h-3.5" style={{ color: NODE_STATUS_COLORS.failed }} />
-            : <FontAwesomeIcon icon={faCircle} className="w-3.5 h-3.5 opacity-40" style={{ color: "#94a3b8" }} />
+            ? <FontAwesomeIcon icon={faCircleXmark} className="w-2.5 h-2.5" style={{ color: NODE_STATUS_COLORS.failed }} />
+            : <FontAwesomeIcon icon={faMinus} className="w-2.5 h-2.5 opacity-40" style={{ color: "#94a3b8" }} />
           }
         </div>
       )}

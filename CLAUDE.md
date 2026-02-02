@@ -415,7 +415,7 @@ Standardised schemas for node inputs/outputs, a node type registry with port def
 
 **Frontend** (`platform/frontend/src/`):
 - `types/nodeIO.ts` — TypeScript interfaces mirroring Python schemas
-- `WorkflowCanvas.tsx` — Tracks node execution status via WebSocket, applies color-coded borders (blue=running, green=success, red=failed, amber=skipped)
+- `WorkflowCanvas.tsx` — Tracks node execution status via WebSocket, applies color-coded borders and status badges (spinning circle=running, checkmark=success, X=failed, dash=idle). Badges only shown on executable nodes (driven by `executable` flag from `/workflows/node-types/` API).
 - `api/executions.ts` — `useValidateWorkflow(slug)` mutation hook
 - `lib/wsManager.ts` — Handles `node_status` events
 
