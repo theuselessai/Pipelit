@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 ComponentTypeStr = Literal[
-    "categorizer", "router", "extractor", "ai_model", "simple_agent", "planner_agent",
+    "categorizer", "router", "extractor", "ai_model", "agent",
     "tool_node", "aggregator", "human_confirmation", "parallel", "workflow",
     "code", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
     "http_request", "error_handler", "output_parser",

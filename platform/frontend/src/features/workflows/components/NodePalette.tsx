@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
 import {
   MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle,
-  Cpu, Bot, BrainCircuit,
+  Cpu, Bot,
   GitFork, Route, FileOutput,
   Wrench, Globe,
   Repeat, Columns2, Pause, Merge, Filter, Shuffle, ArrowDownNarrowWide, ListEnd,
@@ -20,8 +20,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   trigger_workflow: Workflow,
   trigger_error: AlertTriangle,
   ai_model: Cpu,
-  simple_agent: Bot,
-  planner_agent: BrainCircuit,
+  agent: Bot,
   categorizer: GitFork,
   router: Route,
   extractor: FileOutput,
@@ -45,7 +44,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "Triggers", types: ["trigger_chat", "trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error"] },
-  { label: "AI", types: ["ai_model", "simple_agent", "planner_agent"] },
+  { label: "AI", types: ["ai_model", "agent"] },
   { label: "Routing", types: ["categorizer", "router", "extractor"] },
   { label: "Tools", types: ["tool_node", "http_request"] },
   { label: "Logic", types: ["loop", "parallel", "wait", "merge", "filter", "transform", "sort", "limit"] },

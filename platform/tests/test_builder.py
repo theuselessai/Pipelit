@@ -51,7 +51,7 @@ class TestBuilderSkipsAiModelNodes:
 
     def test_disconnected_ai_model_does_not_break_build(self, db, workflow):
         """A disconnected ai_model (no edges, no config) must be silently skipped."""
-        _add_node(db, workflow, "agent_1", "simple_agent", is_entry_point=True)
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
         _add_node(db, workflow, "orphan_model", "ai_model")
         db.commit()
 
@@ -65,7 +65,7 @@ class TestBuilderSkipsAiModelNodes:
 
     def test_connected_ai_model_excluded_from_graph(self, db, workflow):
         """An ai_model linked via llm edge is still not an execution node."""
-        _add_node(db, workflow, "agent_1", "simple_agent", is_entry_point=True)
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
         _add_node(db, workflow, "model_1", "ai_model")
         _add_edge(db, workflow, "model_1", "agent_1", edge_label="llm")
         db.commit()
@@ -79,7 +79,7 @@ class TestBuilderSkipsAiModelNodes:
 
     def test_multiple_ai_models_all_excluded(self, db, workflow):
         """Multiple ai_model nodes (connected and disconnected) are all excluded."""
-        _add_node(db, workflow, "agent_1", "simple_agent", is_entry_point=True)
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
         _add_node(db, workflow, "model_1", "ai_model")
         _add_node(db, workflow, "model_2", "ai_model")
         _add_edge(db, workflow, "model_1", "agent_1", edge_label="llm")
@@ -95,7 +95,7 @@ class TestBuilderSkipsAiModelNodes:
 
     def test_non_subcomponent_nodes_still_included(self, db, workflow):
         """Regular nodes (e.g. code) must still appear in the graph."""
-        _add_node(db, workflow, "agent_1", "simple_agent", is_entry_point=True)
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
         _add_node(db, workflow, "code_1", "code")
         _add_edge(db, workflow, "agent_1", "code_1")
         db.commit()
@@ -115,7 +115,7 @@ class TestBuilderTriggerScoping:
         """Nodes not connected downstream from the fired trigger are excluded."""
         trigger_a = _add_node(db, workflow, "trigger_a", "trigger_telegram")
         _add_node(db, workflow, "trigger_b", "trigger_webhook")
-        _add_node(db, workflow, "agent_a", "simple_agent")
+        _add_node(db, workflow, "agent_a", "agent")
         _add_node(db, workflow, "agent_b", "categorizer")
         _add_edge(db, workflow, "trigger_a", "agent_a")
         _add_edge(db, workflow, "trigger_b", "agent_b")
@@ -131,7 +131,7 @@ class TestBuilderTriggerScoping:
     def test_unreachable_ai_model_excluded(self, db, workflow):
         """An ai_model not connected to the triggered branch is excluded (no error)."""
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
-        _add_node(db, workflow, "agent_1", "simple_agent")
+        _add_node(db, workflow, "agent_1", "agent")
         _add_node(db, workflow, "orphan_model", "ai_model")
         _add_node(db, workflow, "orphan_agent", "categorizer")
         _add_edge(db, workflow, "trigger_1", "agent_1")
@@ -150,7 +150,7 @@ class TestBuilderTriggerScoping:
     def test_chain_of_nodes_reachable(self, db, workflow):
         """Multi-hop chains downstream of trigger are all included."""
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
-        _add_node(db, workflow, "agent_1", "simple_agent")
+        _add_node(db, workflow, "agent_1", "agent")
         _add_node(db, workflow, "code_1", "code")
         _add_node(db, workflow, "code_2", "code")
         _add_edge(db, workflow, "trigger_1", "agent_1")
@@ -170,7 +170,7 @@ class TestBuilderTriggerScoping:
         """Without trigger_node_id, all nodes are included (backwards-compatible)."""
         _add_node(db, workflow, "trigger_a", "trigger_telegram")
         _add_node(db, workflow, "trigger_b", "trigger_webhook")
-        _add_node(db, workflow, "agent_a", "simple_agent")
+        _add_node(db, workflow, "agent_a", "agent")
         _add_node(db, workflow, "agent_b", "categorizer")
         _add_edge(db, workflow, "trigger_a", "agent_a")
         _add_edge(db, workflow, "trigger_b", "agent_b")

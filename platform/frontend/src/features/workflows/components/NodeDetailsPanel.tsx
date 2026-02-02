@@ -188,7 +188,7 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
   }, [node])
 
   const isLLMNode = node.component_type === "ai_model"
-  const hasSystemPrompt = ["simple_agent", "planner_agent", "categorizer", "router"].includes(node.component_type)
+  const hasSystemPrompt = ["agent", "categorizer", "router"].includes(node.component_type)
   const isTriggerNode = TRIGGER_TYPES.includes(node.component_type)
 
   function handleSave() {

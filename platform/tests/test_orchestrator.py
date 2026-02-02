@@ -104,7 +104,7 @@ class TestSerializeDeserialize:
 class TestBuildTopology:
     def test_linear_topology(self, db, workflow):
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
-        _add_node(db, workflow, "agent_1", "simple_agent")
+        _add_node(db, workflow, "agent_1", "agent")
         _add_node(db, workflow, "code_1", "code")
         _add_edge(db, workflow, "trigger_1", "agent_1")
         _add_edge(db, workflow, "agent_1", "code_1")
@@ -120,8 +120,8 @@ class TestBuildTopology:
 
     def test_fan_out_topology(self, db, workflow):
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
-        _add_node(db, workflow, "agent_a", "simple_agent")
-        _add_node(db, workflow, "agent_b", "simple_agent")
+        _add_node(db, workflow, "agent_a", "agent")
+        _add_node(db, workflow, "agent_b", "agent")
         _add_edge(db, workflow, "trigger_1", "agent_a")
         _add_edge(db, workflow, "trigger_1", "agent_b")
         db.commit()
@@ -135,8 +135,8 @@ class TestBuildTopology:
 
     def test_fan_in_merge_node(self, db, workflow):
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
-        _add_node(db, workflow, "agent_a", "simple_agent")
-        _add_node(db, workflow, "agent_b", "simple_agent")
+        _add_node(db, workflow, "agent_a", "agent")
+        _add_node(db, workflow, "agent_b", "agent")
         _add_node(db, workflow, "merge_1", "merge")
         _add_edge(db, workflow, "trigger_1", "agent_a")
         _add_edge(db, workflow, "trigger_1", "agent_b")
@@ -153,7 +153,7 @@ class TestBuildTopology:
         assert topo.incoming_count.get("agent_b", 0) == 0
 
     def test_ai_model_excluded(self, db, workflow):
-        _add_node(db, workflow, "agent_1", "simple_agent", is_entry_point=True)
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
         _add_node(db, workflow, "model_1", "ai_model")
         _add_edge(db, workflow, "model_1", "agent_1", edge_label="llm")
         db.commit()
@@ -166,8 +166,8 @@ class TestBuildTopology:
     def test_conditional_edges(self, db, workflow):
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
         _add_node(db, workflow, "router_1", "router")
-        _add_node(db, workflow, "agent_a", "simple_agent")
-        _add_node(db, workflow, "agent_b", "simple_agent")
+        _add_node(db, workflow, "agent_a", "agent")
+        _add_node(db, workflow, "agent_b", "agent")
         _add_edge(db, workflow, "trigger_1", "router_1")
         _add_edge(
             db, workflow, "router_1", "",
@@ -186,8 +186,8 @@ class TestBuildTopology:
     def test_trigger_scoping(self, db, workflow):
         trigger_a = _add_node(db, workflow, "trigger_a", "trigger_telegram")
         _add_node(db, workflow, "trigger_b", "trigger_webhook")
-        _add_node(db, workflow, "agent_a", "simple_agent")
-        _add_node(db, workflow, "agent_b", "simple_agent")
+        _add_node(db, workflow, "agent_a", "agent")
+        _add_node(db, workflow, "agent_b", "agent")
         _add_edge(db, workflow, "trigger_a", "agent_a")
         _add_edge(db, workflow, "trigger_b", "agent_b")
         db.commit()
@@ -209,7 +209,7 @@ class TestOrchestratorAdvance:
 
         topo_data = {
             "nodes": {
-                "a": {"component_type": "simple_agent"},
+                "a": {"component_type": "agent"},
                 "b": {"component_type": "code"},
             },
             "edges_by_source": {
@@ -238,8 +238,8 @@ class TestOrchestratorAdvance:
         topo_data = {
             "nodes": {
                 "router": {"component_type": "router"},
-                "a": {"component_type": "simple_agent"},
-                "b": {"component_type": "simple_agent"},
+                "a": {"component_type": "agent"},
+                "b": {"component_type": "agent"},
             },
             "edges_by_source": {
                 "router": [{
@@ -270,9 +270,9 @@ class TestOrchestratorAdvance:
 
         topo_data = {
             "nodes": {
-                "src": {"component_type": "simple_agent"},
-                "a": {"component_type": "simple_agent"},
-                "b": {"component_type": "simple_agent"},
+                "src": {"component_type": "agent"},
+                "a": {"component_type": "agent"},
+                "b": {"component_type": "agent"},
             },
             "edges_by_source": {
                 "src": [
@@ -299,7 +299,7 @@ class TestOrchestratorAdvance:
 
         topo_data = {
             "nodes": {
-                "a": {"component_type": "simple_agent"},
+                "a": {"component_type": "agent"},
                 "merge_1": {"component_type": "merge"},
             },
             "edges_by_source": {
@@ -332,7 +332,7 @@ class TestOrchestratorAdvance:
         from services.orchestrator import _advance
 
         topo_data = {
-            "nodes": {"a": {"component_type": "simple_agent"}},
+            "nodes": {"a": {"component_type": "agent"}},
             "edges_by_source": {},
             "incoming_count": {"a": 0},
         }

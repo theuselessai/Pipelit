@@ -1,4 +1,4 @@
-"""Simple agent component — LangGraph react agent with tools (renamed from react_agent)."""
+"""Agent component — LangGraph react agent with tools."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from components import register
 from services.llm import resolve_llm_for_node
 
 
-@register("simple_agent")
-def simple_agent_factory(node):
-    """Build a simple_agent graph node."""
+@register("agent")
+def agent_factory(node):
+    """Build an agent graph node."""
     llm = resolve_llm_for_node(node)
     concrete = node.component_config.concrete
     system_prompt = getattr(concrete, "system_prompt", "")
@@ -26,7 +26,7 @@ def simple_agent_factory(node):
         prompt=SystemMessage(content=system_prompt) if system_prompt else None,
     )
 
-    def simple_agent_node(state: dict) -> dict:
+    def agent_node(state: dict) -> dict:
         messages = list(state.get("messages", []))
         result = agent.invoke({"messages": messages})
         out_messages = result.get("messages", [])
@@ -42,7 +42,7 @@ def simple_agent_factory(node):
             "node_outputs": {node_id: final_content},
         }
 
-    return simple_agent_node
+    return agent_node
 
 
 def _resolve_tools(node) -> list:

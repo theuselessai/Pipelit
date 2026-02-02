@@ -102,11 +102,7 @@ class ModelComponentConfig(BaseComponentConfig):
 
 class AIComponentConfig(BaseComponentConfig):
     """Base for AI nodes — uses system_prompt. Multiple identities registered below."""
-    __mapper_args__ = {"polymorphic_identity": "simple_agent"}
-
-
-class _PlannerAgentConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "planner_agent"}
+    __mapper_args__ = {"polymorphic_identity": "agent"}
 
 
 class _CategorizerConfig(BaseComponentConfig):
@@ -221,8 +217,7 @@ class _TriggerChatConfig(BaseComponentConfig):
 # Mapping from component_type string to the config class to use for creation
 COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "ai_model": ModelComponentConfig,
-    "simple_agent": AIComponentConfig,
-    "planner_agent": AIComponentConfig,
+    "agent": AIComponentConfig,
     "categorizer": AIComponentConfig,
     "router": AIComponentConfig,
     "extractor": AIComponentConfig,

@@ -3,7 +3,7 @@ import { useTheme } from "@/hooks/useTheme"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
 import {
-  faMicrochip, faRobot, faDiagramProject, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart, faBrain,
+  faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart, faBrain,
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
   faFileExport, faRepeat, faGripVertical, faClock, faCodeMerge, faFilter,
   faArrowsRotate, faArrowUpAZ, faGauge, faBolt, faCalendarDays, faHandPointer,
@@ -54,8 +54,7 @@ const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
 
 const COMPONENT_COLORS: Record<string, string> = {
   ai_model: "#3b82f6",
-  simple_agent: "#8b5cf6",
-  planner_agent: "#8b5cf6",
+  agent: "#8b5cf6",
   categorizer: "#8b5cf6",
   router: "#8b5cf6",
   extractor: "#8b5cf6",
@@ -76,7 +75,7 @@ const COMPONENT_COLORS: Record<string, string> = {
 }
 
 const COMPONENT_ICONS: Record<string, IconDefinition> = {
-  ai_model: faMicrochip, simple_agent: faRobot, planner_agent: faDiagramProject,
+  ai_model: faMicrochip, agent: faRobot,
   categorizer: faTags, router: faCodeBranch, extractor: faMagnifyingGlassChart, tool_node: faWrench, workflow: faSitemap,
   code: faCode, http_request: faGlobe, error_handler: faTriangleExclamation,
   human_confirmation: faUserCheck, aggregator: faLayerGroup, output_parser: faFileExport,
@@ -99,12 +98,12 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const statusColor = data.executionStatus ? NODE_STATUS_COLORS[data.executionStatus] : undefined
   const color = statusColor || getColor(data.componentType)
   const isTrigger = data.componentType.startsWith("trigger_")
-  const isFixedWidth = ["router", "categorizer", "planner_agent", "simple_agent", "extractor"].includes(data.componentType)
+  const isFixedWidth = ["router", "categorizer", "agent", "extractor"].includes(data.componentType)
   const isSubComponent = ["ai_model", "tool_node", "output_parser"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
-  const hasModel = ["simple_agent", "planner_agent", "categorizer", "router", "extractor"].includes(data.componentType)
-  const hasTools = ["simple_agent", "planner_agent"].includes(data.componentType)
-  const hasMemory = ["simple_agent", "planner_agent", "categorizer", "router", "extractor"].includes(data.componentType)
+  const hasModel = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
+  const hasTools = ["agent"].includes(data.componentType)
+  const hasMemory = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasOutputParser = ["categorizer", "router", "extractor"].includes(data.componentType)
   const displayType = isAiModel
     ? formatDisplayName(data.providerType || "ai_model")

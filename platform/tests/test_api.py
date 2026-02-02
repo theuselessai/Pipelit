@@ -218,7 +218,7 @@ class TestNodeAPI:
             f"/api/v1/workflows/{workflow.slug}/nodes/",
             json={
                 "node_id": "agent1",
-                "component_type": "simple_agent",
+                "component_type": "agent",
                 "is_entry_point": True,
                 "config": {"system_prompt": "Be helpful", "extra_config": {}},
             },
@@ -383,11 +383,11 @@ class TestEdgeSubComponentLinking:
         model_node = WorkflowNode(workflow_id=workflow.id, node_id="model1", component_type="ai_model", component_config_id=model_cc.id)
         db.add(model_node)
 
-        # Create simple_agent node
-        agent_cc = BaseComponentConfig(component_type="simple_agent", system_prompt="test")
+        # Create agent node
+        agent_cc = BaseComponentConfig(component_type="agent", system_prompt="test")
         db.add(agent_cc)
         db.flush()
-        agent_node = WorkflowNode(workflow_id=workflow.id, node_id="agent1", component_type="simple_agent", component_config_id=agent_cc.id)
+        agent_node = WorkflowNode(workflow_id=workflow.id, node_id="agent1", component_type="agent", component_config_id=agent_cc.id)
         db.add(agent_node)
         db.commit()
 
@@ -411,10 +411,10 @@ class TestEdgeSubComponentLinking:
         model_node = WorkflowNode(workflow_id=workflow.id, node_id="model1", component_type="ai_model", component_config_id=model_cc.id)
         db.add(model_node)
 
-        agent_cc = BaseComponentConfig(component_type="simple_agent", system_prompt="test")
+        agent_cc = BaseComponentConfig(component_type="agent", system_prompt="test")
         db.add(agent_cc)
         db.flush()
-        agent_node = WorkflowNode(workflow_id=workflow.id, node_id="agent1", component_type="simple_agent", component_config_id=agent_cc.id)
+        agent_node = WorkflowNode(workflow_id=workflow.id, node_id="agent1", component_type="agent", component_config_id=agent_cc.id)
         db.add(agent_node)
         db.commit()
 

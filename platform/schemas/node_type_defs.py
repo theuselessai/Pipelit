@@ -68,28 +68,14 @@ register_node_type(NodeTypeSpec(
 # ── AI Agents ─────────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
-    component_type="simple_agent",
-    display_name="Simple Agent",
+    component_type="agent",
+    display_name="Agent",
     description="LangGraph react agent with tools",
     category="ai",
     requires_model=True, requires_tools=True, requires_memory=True,
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[
         PortDefinition(name="messages", data_type=DataType.MESSAGES),
-        PortDefinition(name="output", data_type=DataType.STRING),
-    ],
-))
-
-register_node_type(NodeTypeSpec(
-    component_type="planner_agent",
-    display_name="Planner Agent",
-    description="Multi-step planning agent",
-    category="ai",
-    requires_model=True, requires_tools=True, requires_memory=True,
-    inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
-    outputs=[
-        PortDefinition(name="messages", data_type=DataType.MESSAGES),
-        PortDefinition(name="plan", data_type=DataType.ARRAY),
         PortDefinition(name="output", data_type=DataType.STRING),
     ],
 ))

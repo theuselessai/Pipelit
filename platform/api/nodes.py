@@ -80,7 +80,7 @@ def create_node(
     }
 
     # AI config fields
-    if component_type in ("simple_agent", "planner_agent", "categorizer", "router", "extractor"):
+    if component_type in ("agent", "categorizer", "router", "extractor"):
         kwargs["system_prompt"] = config_data.get("system_prompt", "")
 
     # Model config fields
