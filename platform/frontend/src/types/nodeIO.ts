@@ -40,6 +40,7 @@ export interface NodeTypeSpec {
   requires_tools: boolean
   requires_memory: boolean
   requires_output_parser: boolean
+  executable: boolean
   config_schema: Record<string, unknown>
 }
 

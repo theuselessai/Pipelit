@@ -17,6 +17,13 @@ from ws.broadcast import broadcast
 router = APIRouter()
 
 
+@router.get("/node-types/")
+def list_node_types():
+    from schemas import node_type_defs  # noqa: F401 — triggers registration
+    from schemas.node_types import NODE_TYPE_REGISTRY
+    return {ct: spec.model_dump() for ct, spec in NODE_TYPE_REGISTRY.items()}
+
+
 @router.get("/", response_model=list[WorkflowOut])
 def list_workflows(
     db: Session = Depends(get_db),

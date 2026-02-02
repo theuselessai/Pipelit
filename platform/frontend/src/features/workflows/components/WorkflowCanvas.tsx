@@ -7,7 +7,7 @@ import {
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
   faFileExport, faRepeat, faGripVertical, faClock, faCodeMerge, faFilter,
   faArrowsRotate, faArrowUpAZ, faGauge, faBolt, faCalendarDays, faHandPointer,
-  faPlay, faBug, faComments,
+  faPlay, faBug, faComments, faSpinner, faCircleCheck, faCircleXmark, faCircle,
 } from "@fortawesome/free-solid-svg-icons"
 import { faTelegram } from "@fortawesome/free-brands-svg-icons"
 import {
@@ -41,6 +41,7 @@ import type { NodeStatus } from "@/types/nodeIO"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials } from "@/api/credentials"
+import { useNodeTypes } from "@/api/workflows"
 import { wsManager } from "@/lib/wsManager"
 
 const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
@@ -94,7 +95,7 @@ function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus }; selected?: boolean }) {
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean }; selected?: boolean }) {
   const statusColor = data.executionStatus ? NODE_STATUS_COLORS[data.executionStatus] : undefined
   const color = statusColor || getColor(data.componentType)
   const isTrigger = data.componentType.startsWith("trigger_")
@@ -111,13 +112,28 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const displayLabel = data.label.startsWith(data.componentType + "_")
     ? data.label.slice(data.componentType.length + 1)
     : data.label
+  const isRunning = data.executionStatus === "running"
+  const isSuccess = data.executionStatus === "success"
+  const isFailed = data.executionStatus === "failed"
   return (
     <div
-      className={`px-3 py-2 rounded-lg border-2 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
+      className={`relative px-3 py-2 rounded-lg border-2 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
       style={{ borderColor: color }}
     >
       {!isTrigger && !isSubComponent && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
       {isSubComponent && <Handle type="source" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
+      {data.executable !== false && (
+        <div className="absolute -top-2 -right-2 rounded-full bg-card p-0.5">
+          {isRunning
+            ? <FontAwesomeIcon icon={faSpinner} className="w-3.5 h-3.5 animate-spin" style={{ color: NODE_STATUS_COLORS.running }} />
+            : isSuccess
+            ? <FontAwesomeIcon icon={faCircleCheck} className="w-3.5 h-3.5" style={{ color: NODE_STATUS_COLORS.success }} />
+            : isFailed
+            ? <FontAwesomeIcon icon={faCircleXmark} className="w-3.5 h-3.5" style={{ color: NODE_STATUS_COLORS.failed }} />
+            : <FontAwesomeIcon icon={faCircle} className="w-3.5 h-3.5 opacity-40" style={{ color: "#94a3b8" }} />
+          }
+        </div>
+      )}
       <div className="flex items-center gap-2">
         {COMPONENT_ICONS[data.componentType] && (
           <FontAwesomeIcon icon={COMPONENT_ICONS[data.componentType]} className="w-5 h-5 shrink-0" style={{ color }} />
@@ -207,6 +223,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const deleteNode = useDeleteNode(slug)
   const deleteEdge = useDeleteEdge(slug)
   const { data: credentials } = useCredentials()
+  const { data: nodeTypes } = useNodeTypes()
 
   // Track node execution status from WebSocket events
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({})
@@ -221,10 +238,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
           setNodeStatuses((prev) => ({ ...prev, [nodeId]: status }))
         }
       }
-      // Clear statuses on execution completion
-      if (msg.type === "execution_completed" || msg.type === "execution_failed") {
-        setNodeStatuses({})
-      }
+      // Don't clear — keep last run results visible
     })
     return () => { wsManager.unregisterHandler(handlerId) }
   }, [slug])
@@ -245,10 +259,10 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id] },
+      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypes?.[n.component_type]?.executable },
       selected: n.node_id === selectedNodeId,
     }
-  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses])
+  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeTypes])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const labelColors: Record<string, string> = { tool: "#10b981", memory: "#f59e0b", output_parser: "#8b5cf6" }

@@ -1,5 +1,6 @@
 """Register all built-in node type definitions."""
 
+from services.topology import SUB_COMPONENT_TYPES
 from schemas.node_types import DataType, NodeTypeSpec, PortDefinition, register_node_type
 
 # ── Triggers ──────────────────────────────────────────────────────────────────
@@ -219,3 +220,11 @@ register_node_type(NodeTypeSpec(
     inputs=[PortDefinition(name="items", data_type=DataType.ARRAY)],
     outputs=[PortDefinition(name="aggregated", data_type=DataType.ANY)],
 ))
+
+# ── Mark non-executable types (matches topology.py skip logic) ────────────────
+
+from schemas.node_types import NODE_TYPE_REGISTRY
+
+for _ct, _spec in NODE_TYPE_REGISTRY.items():
+    if _ct.startswith("trigger_") or _ct in SUB_COMPONENT_TYPES:
+        _spec.executable = False
