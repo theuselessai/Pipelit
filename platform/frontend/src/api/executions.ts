@@ -18,3 +18,7 @@ export function useCancelExecution() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (id: string) => apiFetch<void>(`/executions/${id}/cancel/`, { method: "POST" }), onSuccess: () => qc.invalidateQueries({ queryKey: ["executions"] }) })
 }
+
+export function useValidateWorkflow(slug: string) {
+  return useMutation({ mutationFn: () => apiFetch<{ valid: boolean; errors: string[] }>(`/workflows/${slug}/validate/`, { method: "POST" }) })
+}

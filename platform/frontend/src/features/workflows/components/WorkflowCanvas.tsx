@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTheme } from "@/hooks/useTheme"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
@@ -37,9 +37,19 @@ import {
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import type { WorkflowDetail, ComponentType, EdgeLabel } from "@/types/models"
+import type { NodeStatus } from "@/types/nodeIO"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials } from "@/api/credentials"
+import { wsManager } from "@/lib/wsManager"
+
+const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
+  pending: "#94a3b8",
+  running: "#3b82f6",
+  success: "#10b981",
+  failed: "#ef4444",
+  skipped: "#f59e0b",
+}
 
 const COMPONENT_COLORS: Record<string, string> = {
   ai_model: "#3b82f6",
@@ -84,8 +94,9 @@ function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string }; selected?: boolean }) {
-  const color = getColor(data.componentType)
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus }; selected?: boolean }) {
+  const statusColor = data.executionStatus ? NODE_STATUS_COLORS[data.executionStatus] : undefined
+  const color = statusColor || getColor(data.componentType)
   const isTrigger = data.componentType.startsWith("trigger_")
   const isFixedWidth = ["router", "categorizer", "planner_agent", "simple_agent", "extractor"].includes(data.componentType)
   const isSubComponent = ["ai_model", "tool_node", "output_parser"].includes(data.componentType)
@@ -197,6 +208,27 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const deleteEdge = useDeleteEdge(slug)
   const { data: credentials } = useCredentials()
 
+  // Track node execution status from WebSocket events
+  const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({})
+
+  useEffect(() => {
+    const handlerId = `canvas-node-status-${slug}`
+    wsManager.registerHandler(handlerId, (msg) => {
+      if (msg.type === "node_status" && msg.data) {
+        const nodeId = msg.data.node_id as string
+        const status = msg.data.status as NodeStatus
+        if (nodeId && status) {
+          setNodeStatuses((prev) => ({ ...prev, [nodeId]: status }))
+        }
+      }
+      // Clear statuses on execution completion
+      if (msg.type === "execution_completed" || msg.type === "execution_failed") {
+        setNodeStatuses({})
+      }
+    })
+    return () => { wsManager.unregisterHandler(handlerId) }
+  }, [slug])
+
   const credentialMap = useMemo(() => {
     const map: Record<number, string> = {}
     for (const c of credentials ?? []) {
@@ -213,10 +245,10 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType },
+      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id] },
       selected: n.node_id === selectedNodeId,
     }
-  }), [workflow.nodes, selectedNodeId, credentialMap])
+  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const labelColors: Record<string, string> = { tool: "#10b981", memory: "#f59e0b", output_parser: "#8b5cf6" }

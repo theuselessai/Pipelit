@@ -163,6 +163,10 @@ class WebSocketManager {
         })
         break
       }
+      case "node_status": {
+        // Node status updates dispatched to handlers only (no query cache update needed)
+        break
+      }
       case "execution_completed":
       case "execution_failed":
       case "execution_interrupted": {

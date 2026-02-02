@@ -63,6 +63,8 @@ class ExecutionLog(Base):
     input: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     output: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
+    error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    log_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True, default=dict)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

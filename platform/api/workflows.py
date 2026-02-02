@@ -79,6 +79,19 @@ def update_workflow(
     return result
 
 
+@router.post("/{slug}/validate/")
+def validate_workflow(
+    slug: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    wf = get_workflow(slug, profile, db)
+    from validation.edges import EdgeValidator
+    errors = EdgeValidator.validate_workflow_edges(wf.id, db)
+    errors += EdgeValidator.validate_required_inputs(wf.id, db)
+    return {"valid": len(errors) == 0, "errors": errors}
+
+
 @router.delete("/{slug}/", status_code=204)
 def delete_workflow(
     slug: str,

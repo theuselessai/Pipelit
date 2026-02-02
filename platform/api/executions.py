@@ -62,6 +62,8 @@ def get_execution(
             "input": log.input,
             "output": log.output,
             "error": log.error,
+            "error_code": log.error_code,
+            "metadata": log.log_metadata,
             "duration_ms": log.duration_ms,
             "timestamp": log.timestamp,
         }

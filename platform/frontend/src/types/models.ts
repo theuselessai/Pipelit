@@ -24,7 +24,7 @@ export interface EdgeUpdate { source_node_id?: string; target_node_id?: string; 
 
 // Execution
 export interface Execution { execution_id: string; workflow_slug: string; status: ExecutionStatus; error_message: string; started_at: string | null; completed_at: string | null }
-export interface ExecutionLog { id: number; node_id: string; status: string; input: unknown; output: unknown; error: string; duration_ms: number; timestamp: string }
+export interface ExecutionLog { id: number; node_id: string; status: string; input: unknown; output: unknown; error: string; error_code: string | null; metadata: Record<string, unknown> | null; duration_ms: number; timestamp: string }
 export interface ExecutionDetail extends Execution { final_output: unknown; trigger_payload: unknown; logs: ExecutionLog[] }
 
 // Credential

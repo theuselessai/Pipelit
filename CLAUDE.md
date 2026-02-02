@@ -234,7 +234,7 @@ platform/apps/workflows/api/
 All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <key>`).
 
 - **Auth** — `POST /auth/token/` (obtain Bearer token), `GET /auth/me/` (current user)
-- **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`
+- **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`, `POST /workflows/{slug}/validate/`
 - **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
 - **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{id}/`
 - **Triggers** — `GET/POST /workflows/{slug}/triggers/`, `PATCH/DELETE /workflows/{slug}/triggers/{id}/`
@@ -261,6 +261,7 @@ A single persistent authenticated WebSocket at `GET /ws/?token=<api_key>` replac
 - `node_created`, `node_updated`, `node_deleted` — from node API mutations
 - `edge_created`, `edge_updated`, `edge_deleted` — from edge API mutations
 - `workflow_updated` — from workflow API mutations
+- `node_status` — per-node execution status (`pending`, `running`, `success`, `failed`, `skipped`) from orchestrator
 - `execution_completed`, `execution_failed`, `execution_interrupted` — from orchestrator via Redis
 
 **Frontend:**
@@ -389,6 +390,34 @@ Nodes on the canvas use Font Awesome icons and color-coded borders by component 
 - output_parser: `#94a3b8` (slate)
 
 **`ai_model` node** has only a top diamond handle (source) — it connects upward to nodes that need a model.
+
+### Node I/O Standardisation
+
+Standardised schemas for node inputs/outputs, a node type registry with port definitions, edge validation, and real-time node status events.
+
+**Core schemas** (`platform/schemas/`):
+- `node_io.py` — `NodeStatus` enum, `NodeError`, `NodeResult` (with `success()`/`failed()`/`skipped()` factories), `NodeInput`
+- `node_types.py` — `DataType` enum, `PortDefinition`, `NodeTypeSpec`, `NODE_TYPE_REGISTRY` dict
+- `node_type_defs.py` — Registers all 23 built-in node types with their port definitions
+
+**Edge validation** (`platform/validation/edges.py`):
+- `EdgeValidator.validate_edge()` — checks type compatibility between source outputs and target inputs
+- `EdgeValidator.validate_workflow_edges()` — validates all edges in a workflow
+- `EdgeValidator.validate_required_inputs()` — checks nodes have required sub-component connections (e.g., model)
+- Edge creation API (`POST /workflows/{slug}/edges/`) returns 422 on type mismatch
+- `POST /workflows/{slug}/validate/` runs full workflow validation
+
+**Orchestrator integration** (`platform/services/orchestrator.py`):
+- Node results wrapped in `NodeResult` with status, data, error_code, metadata
+- `node_results` dict stored in Redis execution state per node
+- `node_status` WebSocket events published with `NodeStatus` enum values
+- `ExecutionLog` extended with `error_code` (VARCHAR(50)) and `metadata` (JSON) columns
+
+**Frontend** (`platform/frontend/src/`):
+- `types/nodeIO.ts` — TypeScript interfaces mirroring Python schemas
+- `WorkflowCanvas.tsx` — Tracks node execution status via WebSocket, applies color-coded borders (blue=running, green=success, red=failed, amber=skipped)
+- `api/executions.ts` — `useValidateWorkflow(slug)` mutation hook
+- `lib/wsManager.ts` — Handles `node_status` events
 
 ## Documentation
 

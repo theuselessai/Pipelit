@@ -228,6 +228,22 @@ def create_edge(
     profile: UserProfile = Depends(get_current_user),
 ):
     wf = get_workflow(slug, profile, db)
+
+    # Validate edge type compatibility
+    if payload.source_node_id and payload.target_node_id:
+        src_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.source_node_id).first()
+        tgt_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.target_node_id).first()
+        if src_node and tgt_node:
+            from validation.edges import EdgeValidator
+            label_to_handle = {"llm": "model", "tool": "tools", "memory": "memory", "output_parser": "output_parser"}
+            target_handle = label_to_handle.get(payload.edge_label) if payload.edge_label else None
+            errors = EdgeValidator.validate_edge(
+                src_node.component_type, tgt_node.component_type,
+                target_handle=target_handle,
+            )
+            if errors:
+                raise HTTPException(status_code=422, detail={"validation_errors": errors})
+
     edge = WorkflowEdge(workflow_id=wf.id, **payload.model_dump())
     db.add(edge)
     db.flush()

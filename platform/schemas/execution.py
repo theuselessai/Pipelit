@@ -24,6 +24,8 @@ class ExecutionLogOut(BaseModel):
     input: Any | None = None
     output: Any | None = None
     error: str = ""
+    error_code: str | None = None
+    metadata: dict | None = None
     duration_ms: int = 0
     timestamp: datetime
 

@@ -219,8 +219,9 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         state = load_state(execution_id)
         state["current_node"] = node_id
 
+        from schemas.node_io import NodeStatus
         slug = topo_data.get("workflow_slug", "")
-        _publish_event(execution_id, "node_started", {"node_id": node_id}, workflow_slug=slug)
+        _publish_event(execution_id, "node_status", {"node_id": node_id, "status": NodeStatus.RUNNING.value}, workflow_slug=slug)
 
         # Load node from DB and get component factory
         db_node = db.get(WorkflowNode, node_info["db_id"])
@@ -231,13 +232,32 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         factory = get_component_factory(node_info["component_type"])
         node_fn = factory(db_node)
 
+        from schemas.node_io import NodeResult, NodeStatus
+
+        started_at = datetime.now(timezone.utc)
         start_time = time.monotonic()
         try:
             result = node_fn(state)
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)
-            _write_log(db, execution_id, node_id, "failed", duration_ms=duration_ms, error=str(exc))
-            _publish_event(execution_id, "node_failed", {"node_id": node_id, "error": str(exc)[:500]}, workflow_slug=slug)
+            exc_type = type(exc).__name__
+            node_result = NodeResult.failed(
+                error_code=exc_type, message=str(exc), node_id=node_id,
+                recoverable=retry_count < MAX_NODE_RETRIES,
+            )
+            node_result.started_at = started_at
+            node_result.completed_at = datetime.now(timezone.utc)
+
+            _write_log(
+                db, execution_id, node_id, "failed",
+                duration_ms=duration_ms, error=str(exc),
+                error_code=exc_type,
+                metadata=node_result.metadata,
+            )
+            _publish_event(execution_id, "node_status", {
+                "node_id": node_id, "status": NodeStatus.FAILED.value,
+                "error": str(exc)[:500], "error_code": exc_type,
+            }, workflow_slug=slug)
 
             # Retry logic
             if retry_count < MAX_NODE_RETRIES:
@@ -263,15 +283,36 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             return
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
+        completed_at = datetime.now(timezone.utc)
+
+        # Wrap raw result in NodeResult
+        result_data = _safe_json(result) or {}
+        node_result = NodeResult.success(
+            data=result_data,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
 
         # Merge result into state
         if result and isinstance(result, dict):
             state = merge_state_update(state, result)
 
+        # Store NodeResult in state under node_results
+        node_results = state.get("node_results", {})
+        node_results[node_id] = node_result.model_dump(mode="json")
+        state["node_results"] = node_results
+
         save_state(execution_id, state)
 
-        _write_log(db, execution_id, node_id, "completed", duration_ms=duration_ms, output=_safe_json(result))
-        _publish_event(execution_id, "node_completed", {"node_id": node_id, "duration_ms": duration_ms}, workflow_slug=slug)
+        _write_log(
+            db, execution_id, node_id, "completed",
+            duration_ms=duration_ms, output=result_data,
+            metadata=node_result.metadata,
+        )
+        _publish_event(execution_id, "node_status", {
+            "node_id": node_id, "status": NodeStatus.SUCCESS.value,
+            "duration_ms": duration_ms,
+        }, workflow_slug=slug)
 
         # Mark node completed
         r = _redis()
@@ -520,6 +561,8 @@ def _write_log(
     duration_ms: int = 0,
     output: dict | None = None,
     error: str = "",
+    error_code: str | None = None,
+    metadata: dict | None = None,
 ) -> None:
     from models.execution import ExecutionLog
 
@@ -529,6 +572,8 @@ def _write_log(
         status=status,
         output=output,
         error=error[:2000] if error else "",
+        error_code=error_code,
+        log_metadata=metadata or {},
         duration_ms=duration_ms,
     )
     db.add(log)
