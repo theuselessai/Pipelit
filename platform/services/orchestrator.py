@@ -56,6 +56,10 @@ def _completed_key(execution_id: str) -> str:
     return f"execution:{execution_id}:completed"
 
 
+def _episode_key(execution_id: str) -> str:
+    return f"execution:{execution_id}:episode_id"
+
+
 def load_state(execution_id: str) -> dict:
     r = _redis()
     raw = r.get(_state_key(execution_id))
@@ -159,6 +163,21 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
 
         # Publish execution_started event so frontend can reset node statuses
         _publish_event(execution_id, "execution_started", {"workflow_id": workflow.id}, workflow_slug=workflow.slug)
+
+        # Start memory episode for this execution
+        trigger_type = "manual"
+        if execution.trigger_node_id:
+            from models.node import WorkflowNode
+            trigger_node = db.get(WorkflowNode, execution.trigger_node_id)
+            if trigger_node:
+                trigger_type = trigger_node.component_type.replace("trigger_", "")
+        _start_episode(
+            execution_id=execution_id,
+            workflow_id=workflow.id,
+            trigger_type=trigger_type,
+            trigger_payload=execution.trigger_payload,
+            db=db,
+        )
 
         topo = build_topology(workflow, db, trigger_node_id=execution.trigger_node_id)
         _save_topology(execution_id, topo)
@@ -282,6 +301,13 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             execution.completed_at = datetime.now(timezone.utc)
             db.commit()
             _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=slug)
+            _complete_episode(
+                execution_id=execution_id,
+                success=False,
+                final_output=None,
+                error_code=exc_type,
+                error_message=f"Node {node_id}: {str(exc)[:500]}",
+            )
             _cleanup_redis(execution_id)
             return
 
@@ -340,6 +366,13 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             pass
         _ws_slug = topo_data.get("workflow_slug", "") if "topo_data" in locals() else None
         _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=_ws_slug)
+        _complete_episode(
+            execution_id=execution_id,
+            success=False,
+            final_output=None,
+            error_code=type(exc).__name__,
+            error_message=str(exc)[:500],
+        )
     finally:
         db.close()
 
@@ -493,6 +526,13 @@ def _finalize(execution_id: str, db: Session) -> None:
     slug = _get_workflow_slug(execution_id, db)
     _publish_event(execution_id, "execution_completed", {"output": execution.final_output}, workflow_slug=slug)
 
+    # Complete memory episode
+    _complete_episode(
+        execution_id=execution_id,
+        success=True,
+        final_output=execution.final_output,
+    )
+
     from services.delivery import output_delivery
     output_delivery.deliver(execution, db)
 
@@ -636,6 +676,114 @@ def _cleanup_redis(execution_id: str) -> None:
     keys = r.keys(f"execution:{execution_id}:*")
     if keys:
         r.delete(*keys)
+
+
+# ── Episode logging helpers ───────────────────────────────────────────────────
+
+
+def _start_episode(
+    execution_id: str,
+    workflow_id: int,
+    trigger_type: str,
+    trigger_payload: dict | None,
+    db: Session,
+) -> str | None:
+    """Start a memory episode for this execution."""
+    try:
+        from services.memory import MemoryService
+
+        memory = MemoryService(db)
+
+        # Extract user ID from trigger payload if possible
+        user_id = None
+        if trigger_payload:
+            if "message" in trigger_payload and "from" in trigger_payload.get("message", {}):
+                from_user = trigger_payload["message"]["from"]
+                user_id = f"telegram:{from_user.get('id', '')}"
+            elif trigger_payload.get("user_id"):
+                user_id = trigger_payload["user_id"]
+
+        episode = memory.log_episode(
+            agent_id=f"workflow:{workflow_id}",
+            trigger_type=trigger_type,
+            trigger_input=trigger_payload,
+            user_id=user_id,
+            session_id=execution_id,
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+        )
+
+        # Store episode ID in Redis for later completion
+        r = _redis()
+        r.set(_episode_key(execution_id), episode.id, ex=STATE_TTL)
+
+        logger.debug("Started memory episode %s for execution %s", episode.id, execution_id)
+        return episode.id
+
+    except Exception as e:
+        logger.warning("Failed to start memory episode: %s", e)
+        return None
+
+
+def _complete_episode(
+    execution_id: str,
+    success: bool,
+    final_output: dict | None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    """Complete the memory episode for this execution."""
+    try:
+        r = _redis()
+        episode_id = r.get(_episode_key(execution_id))
+        if not episode_id:
+            return
+
+        from database import SessionLocal
+        from services.memory import MemoryService
+
+        db = SessionLocal()
+        try:
+            memory = MemoryService(db)
+
+            # Get execution state for conversation and actions
+            state = load_state(execution_id)
+            conversation = []
+            messages = state.get("messages", [])
+            for msg in messages:
+                if hasattr(msg, "type") and hasattr(msg, "content"):
+                    conversation.append({"role": msg.type, "content": msg.content})
+                elif isinstance(msg, dict):
+                    conversation.append(msg)
+
+            # Extract actions from node_results
+            actions = []
+            node_results = state.get("node_results", {})
+            for node_id, result in node_results.items():
+                if isinstance(result, dict):
+                    actions.append({
+                        "node_id": node_id,
+                        "status": result.get("status", "unknown"),
+                        "duration_ms": result.get("duration_ms"),
+                    })
+
+            memory.complete_episode(
+                episode_id=episode_id,
+                success=success,
+                final_output=final_output,
+                conversation=conversation,
+                actions_taken=actions,
+                error_code=error_code,
+                error_message=error_message,
+            )
+
+            logger.debug("Completed memory episode %s (success=%s)", episode_id, success)
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.warning("Failed to complete memory episode: %s", e)
 
 
 # ── RQ entry points (module-level for pickling) ───────────────────────────────

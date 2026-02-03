@@ -169,6 +169,147 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="parsed", data_type=DataType.OBJECT)],
 ))
 
+# ── Memory ───────────────────────────────────────────────────────────────────
+
+register_node_type(NodeTypeSpec(
+    component_type="memory_read",
+    display_name="Memory Read",
+    description="Retrieve information from agent memory (facts, episodes, or procedures)",
+    category="memory",
+    inputs=[
+        PortDefinition(name="key", data_type=DataType.STRING, description="Specific key to look up (exact match)"),
+        PortDefinition(name="query", data_type=DataType.STRING, description="Search query (text matching)"),
+    ],
+    outputs=[
+        PortDefinition(name="result", data_type=DataType.ANY, description="Retrieved memory content"),
+        PortDefinition(name="found", data_type=DataType.BOOLEAN, description="Whether anything was found"),
+        PortDefinition(name="count", data_type=DataType.NUMBER, description="Number of results found"),
+    ],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "memory_type": {
+                "type": "string",
+                "enum": ["facts", "episodes", "procedures", "all"],
+                "default": "facts",
+                "description": "Type of memory to search",
+            },
+            "limit": {
+                "type": "integer",
+                "default": 10,
+                "minimum": 1,
+                "maximum": 100,
+                "description": "Maximum results to return",
+            },
+            "min_confidence": {
+                "type": "number",
+                "default": 0.5,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Minimum confidence for facts",
+            },
+            "include_user_scope": {
+                "type": "boolean",
+                "default": True,
+                "description": "Include user-scoped memories",
+            },
+        },
+    },
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="memory_write",
+    display_name="Memory Write",
+    description="Store information in agent memory",
+    category="memory",
+    inputs=[
+        PortDefinition(name="key", data_type=DataType.STRING, required=True, description="Key to store under"),
+        PortDefinition(name="value", data_type=DataType.ANY, required=True, description="Value to store"),
+    ],
+    outputs=[
+        PortDefinition(name="success", data_type=DataType.BOOLEAN, description="Whether write succeeded"),
+        PortDefinition(name="action", data_type=DataType.STRING, description="Action taken: created, updated, or skipped"),
+    ],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "fact_type": {
+                "type": "string",
+                "enum": ["user_preference", "world_knowledge", "self_knowledge", "correction", "relationship"],
+                "default": "world_knowledge",
+                "description": "Type of fact being stored",
+            },
+            "scope": {
+                "type": "string",
+                "enum": ["global", "agent", "user", "session"],
+                "default": "agent",
+                "description": "Scope of the fact",
+            },
+            "overwrite": {
+                "type": "boolean",
+                "default": True,
+                "description": "Overwrite if key exists",
+            },
+        },
+    },
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="identify_user",
+    display_name="Identify User",
+    description="Identify who is talking and load their context",
+    category="memory",
+    inputs=[
+        PortDefinition(name="trigger_input", data_type=DataType.OBJECT, required=True, description="Raw trigger payload"),
+        PortDefinition(name="channel", data_type=DataType.STRING, required=True, description="Channel type (telegram, webhook, etc.)"),
+    ],
+    outputs=[
+        PortDefinition(name="user_id", data_type=DataType.STRING, description="Canonical user ID"),
+        PortDefinition(name="user_context", data_type=DataType.OBJECT, description="User facts, preferences, history"),
+        PortDefinition(name="is_new_user", data_type=DataType.BOOLEAN, description="Whether this is a first-time user"),
+    ],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="code_execute",
+    display_name="Code Execute",
+    description="Execute Python or Bash code in a sandboxed environment",
+    category="action",
+    inputs=[
+        PortDefinition(name="code", data_type=DataType.STRING, required=True, description="Code to execute"),
+        PortDefinition(name="language", data_type=DataType.STRING, description="Language: python or bash"),
+    ],
+    outputs=[
+        PortDefinition(name="stdout", data_type=DataType.STRING, description="Standard output"),
+        PortDefinition(name="stderr", data_type=DataType.STRING, description="Standard error"),
+        PortDefinition(name="exit_code", data_type=DataType.NUMBER, description="Process exit code (0 = success)"),
+        PortDefinition(name="result", data_type=DataType.ANY, description="Parsed result (if code outputs JSON on last line)"),
+    ],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "language": {
+                "type": "string",
+                "enum": ["python", "bash"],
+                "default": "python",
+                "description": "Programming language",
+            },
+            "timeout_seconds": {
+                "type": "integer",
+                "default": 30,
+                "minimum": 1,
+                "maximum": 300,
+                "description": "Maximum execution time",
+            },
+            "sandbox": {
+                "type": "boolean",
+                "default": True,
+                "description": "Enable security restrictions",
+            },
+        },
+    },
+))
+
 # ── Logic / Flow ──────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
