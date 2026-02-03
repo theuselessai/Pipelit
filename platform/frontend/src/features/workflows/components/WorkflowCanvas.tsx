@@ -101,10 +101,11 @@ function getColor(type: string) {
 }
 
 function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean }; selected?: boolean }) {
-  const statusColor = data.executionStatus ? NODE_STATUS_COLORS[data.executionStatus] : undefined
-  const color = statusColor || getColor(data.componentType)
+  const iconColor = getColor(data.componentType)
+  const isRunning = data.executionStatus === "running"
   const isTrigger = data.componentType.startsWith("trigger_")
   const isFixedWidth = ["router", "categorizer", "agent", "extractor"].includes(data.componentType)
+  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime"].includes(data.componentType)
   const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
@@ -117,34 +118,39 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const displayLabel = data.label.startsWith(data.componentType + "_")
     ? data.label.slice(data.componentType.length + 1)
     : data.label
-  const isRunning = data.executionStatus === "running"
   const isSuccess = data.executionStatus === "success"
   const isFailed = data.executionStatus === "failed"
   return (
     <div
-      className={`relative px-3 py-2 rounded-lg border-2 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
-      style={{ borderColor: color }}
+      className={`relative px-3 py-2 rounded-lg border-2 border-muted-foreground/50 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
     >
       {!isTrigger && !isSubComponent && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
       {isSubComponent && <Handle type="source" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
       {data.executable !== false && (
-        <div className="absolute top-1.5 right-1.5 rounded-sm border w-5 h-5 flex items-center justify-center" style={{ borderColor: isRunning ? NODE_STATUS_COLORS.running : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8" }}>
+        <div
+          className={`absolute rounded-sm border flex items-center justify-center ${isTool ? "bottom-[5px] right-[5px]" : "top-1.5 right-1.5"}`}
+          style={{
+            borderColor: isRunning ? NODE_STATUS_COLORS.running : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8",
+            width: isTool ? 14 : 20,
+            height: isTool ? 14 : 20,
+          }}
+        >
           {isRunning
-            ? <FontAwesomeIcon icon={faCircleNotch} className="w-2.5 h-2.5 animate-spin" style={{ color: NODE_STATUS_COLORS.running }} />
+            ? <FontAwesomeIcon icon={faCircleNotch} className="animate-spin" style={{ color: NODE_STATUS_COLORS.running, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
             : isSuccess
-            ? <FontAwesomeIcon icon={faCircleCheck} className="w-2.5 h-2.5" style={{ color: NODE_STATUS_COLORS.success }} />
+            ? <FontAwesomeIcon icon={faCircleCheck} style={{ color: NODE_STATUS_COLORS.success, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
             : isFailed
-            ? <FontAwesomeIcon icon={faCircleXmark} className="w-2.5 h-2.5" style={{ color: NODE_STATUS_COLORS.failed }} />
-            : <FontAwesomeIcon icon={faMinus} className="w-2.5 h-2.5 opacity-40" style={{ color: "#94a3b8" }} />
+            ? <FontAwesomeIcon icon={faCircleXmark} style={{ color: NODE_STATUS_COLORS.failed, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+            : <FontAwesomeIcon icon={faMinus} className="opacity-40" style={{ color: "#94a3b8", width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
           }
         </div>
       )}
       <div className="flex items-center gap-2">
         {COMPONENT_ICONS[data.componentType] && (
-          <FontAwesomeIcon icon={COMPONENT_ICONS[data.componentType]} className="w-5 h-5 shrink-0" style={{ color }} />
+          <FontAwesomeIcon icon={COMPONENT_ICONS[data.componentType]} className="w-5 h-5 shrink-0" style={{ color: iconColor }} />
         )}
         <div>
-          <div className="text-xs font-medium text-muted-foreground" style={{ color }}>{displayType}</div>
+          <div className="text-xs font-medium text-muted-foreground">{displayType}</div>
           <div className="text-sm font-semibold">{isAiModel ? (data.modelName || "undefined") : displayLabel}</div>
         </div>
       </div>
@@ -236,14 +242,16 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   useEffect(() => {
     const handlerId = `canvas-node-status-${slug}`
     wsManager.registerHandler(handlerId, (msg) => {
-      if (msg.type === "node_status" && msg.data) {
+      if (msg.type === "execution_started") {
+        // Reset all node statuses when a new execution starts
+        setNodeStatuses({})
+      } else if (msg.type === "node_status" && msg.data) {
         const nodeId = msg.data.node_id as string
         const status = msg.data.status as NodeStatus
         if (nodeId && status) {
           setNodeStatuses((prev) => ({ ...prev, [nodeId]: status }))
         }
       }
-      // Don't clear — keep last run results visible
     })
     return () => { wsManager.unregisterHandler(handlerId) }
   }, [slug])
@@ -270,9 +278,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeTypeRegistry])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
-    const labelColors: Record<string, string> = { tool: "#10b981", memory: "#f59e0b", output_parser: "#8b5cf6" }
     const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }
-    const edgeColor = e.edge_label ? labelColors[e.edge_label] : undefined
     const targetHandle = e.edge_label ? LABEL_TO_HANDLE[e.edge_label] : undefined
     return {
       id: String(e.id),
@@ -284,7 +290,6 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       label: e.edge_label || undefined,
       style: {
         strokeDasharray: e.edge_type === "conditional" ? "5,5" : undefined,
-        stroke: edgeColor,
       },
     }
   }), [workflow.edges])

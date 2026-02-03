@@ -227,10 +227,14 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="aggregated", data_type=DataType.ANY)],
 ))
 
-# ── Mark non-executable types (matches topology.py skip logic) ────────────────
+# ── Mark non-executable types ─────────────────────────────────────────────────
+# Triggers don't execute (they initiate), ai_model and output_parser are config-only.
+# Tools (run_command, http_request, etc.) ARE executable - they run when agents invoke them.
 
 from schemas.node_types import NODE_TYPE_REGISTRY
 
+NON_EXECUTABLE_TYPES = {"ai_model", "output_parser"}
+
 for _ct, _spec in NODE_TYPE_REGISTRY.items():
-    if _ct.startswith("trigger_") or _ct in SUB_COMPONENT_TYPES:
+    if _ct.startswith("trigger_") or _ct in NON_EXECUTABLE_TYPES:
         _spec.executable = False

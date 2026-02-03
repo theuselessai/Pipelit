@@ -67,6 +67,7 @@ def _resolve_tools(node) -> list:
                 )
                 .all()
             )
+            logger.info("Agent %s: found %d tool edges", node.node_id, len(tool_edges))
             for edge in tool_edges:
                 tool_db_node = (
                     db.query(WorkflowNode)
@@ -79,6 +80,7 @@ def _resolve_tools(node) -> list:
                 if tool_db_node:
                     factory = get_component_factory(tool_db_node.component_type)
                     lc_tool = factory(tool_db_node)
+                    logger.info("Agent %s: wrapping tool %s (%s)", node.node_id, tool_db_node.node_id, tool_db_node.component_type)
                     tools.append(_wrap_tool_with_events(lc_tool, tool_db_node.node_id, node))
         finally:
             db.close()
@@ -90,51 +92,53 @@ def _resolve_tools(node) -> list:
 
 def _wrap_tool_with_events(lc_tool, tool_node_id, agent_node):
     """Wrap a LangChain tool to publish node_status WS events."""
-    original_fn = lc_tool.func
+    from functools import wraps
 
+    original_fn = lc_tool.func
+    # Cache workflow_id for use when tool is invoked later
+    workflow_id = agent_node.workflow_id
+    agent_node_id = agent_node.node_id
+
+    @wraps(original_fn)
     def wrapped(*args, **kwargs):
-        _publish_tool_status(tool_node_id, "running", agent_node)
+        logger.info("Tool %s invoked, publishing running status", tool_node_id)
+        _publish_tool_status(tool_node_id, "running", workflow_id, agent_node_id)
         try:
             result = original_fn(*args, **kwargs)
-            _publish_tool_status(tool_node_id, "success", agent_node)
+            logger.info("Tool %s completed successfully", tool_node_id)
+            _publish_tool_status(tool_node_id, "success", workflow_id, agent_node_id)
             return result
-        except Exception:
-            _publish_tool_status(tool_node_id, "failed", agent_node)
+        except Exception as e:
+            logger.info("Tool %s failed: %s", tool_node_id, e)
+            _publish_tool_status(tool_node_id, "failed", workflow_id, agent_node_id)
             raise
 
     lc_tool.func = wrapped
     return lc_tool
 
 
-def _publish_tool_status(tool_node_id: str, status: str, agent_node):
+def _publish_tool_status(tool_node_id: str, status: str, workflow_id: int, agent_node_id: str):
     """Publish node_status event for a tool node via Redis."""
     try:
-        import json
-        import time
-        import redis
+        from ws.broadcast import broadcast
 
-        from config import settings
-
-        r = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, decode_responses=True)
-        payload = {
-            "type": "node_status",
-            "data": {"node_id": tool_node_id, "status": status},
-            "timestamp": time.time(),
-        }
-        # Publish to workflow channel
+        # Get workflow slug
         from models.node import WorkflowNode
         from database import SessionLocal
+
         db = SessionLocal()
         try:
             wf_node = db.query(WorkflowNode).filter_by(
-                workflow_id=agent_node.workflow_id,
-                node_id=agent_node.node_id,
+                workflow_id=workflow_id,
+                node_id=agent_node_id,
             ).first()
             if wf_node and wf_node.workflow:
                 slug = wf_node.workflow.slug
-                payload["channel"] = f"workflow:{slug}"
-                r.publish(f"workflow:{slug}", json.dumps(payload))
+                logger.info("Broadcasting tool status: node=%s status=%s workflow=%s", tool_node_id, status, slug)
+                broadcast(f"workflow:{slug}", "node_status", {"node_id": tool_node_id, "status": status})
+            else:
+                logger.warning("Could not find workflow for agent node %s", agent_node_id)
         finally:
             db.close()
     except Exception:
-        pass
+        logger.exception("Failed to publish tool status for node %s", tool_node_id)

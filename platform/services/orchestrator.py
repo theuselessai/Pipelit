@@ -157,6 +157,9 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
         execution.started_at = datetime.now(timezone.utc)
         db.commit()
 
+        # Publish execution_started event so frontend can reset node statuses
+        _publish_event(execution_id, "execution_started", {"workflow_id": workflow.id}, workflow_slug=workflow.slug)
+
         topo = build_topology(workflow, db, trigger_node_id=execution.trigger_node_id)
         _save_topology(execution_id, topo)
 
