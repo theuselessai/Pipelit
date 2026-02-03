@@ -1,5 +1,5 @@
 // Component types
-export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "tool_node" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "http_request" | "error_handler" | "output_parser" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
+export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "error_handler" | "output_parser" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
 export type EdgeType = "direct" | "conditional"
 export type EdgeLabel = "" | "llm" | "tool" | "memory" | "output_parser"
 export type CredentialType = "git" | "llm" | "telegram" | "tool"

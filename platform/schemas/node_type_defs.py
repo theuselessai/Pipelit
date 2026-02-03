@@ -123,11 +123,42 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="tool_node",
-    display_name="Tool",
+    component_type="run_command",
+    display_name="Run Command",
     category="sub_component",
-    inputs=[PortDefinition(name="input", data_type=DataType.ANY)],
-    outputs=[PortDefinition(name="result", data_type=DataType.ANY)],
+    inputs=[PortDefinition(name="command", data_type=DataType.STRING)],
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="http_request",
+    display_name="HTTP Request",
+    category="sub_component",
+    inputs=[PortDefinition(name="url", data_type=DataType.STRING, required=True)],
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="web_search",
+    display_name="Web Search",
+    category="sub_component",
+    inputs=[PortDefinition(name="query", data_type=DataType.STRING, required=True)],
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="calculator",
+    display_name="Calculator",
+    category="sub_component",
+    inputs=[PortDefinition(name="expression", data_type=DataType.STRING)],
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="datetime",
+    display_name="Date & Time",
+    category="sub_component",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
 ))
 
 register_node_type(NodeTypeSpec(
@@ -146,17 +177,6 @@ register_node_type(NodeTypeSpec(
     category="logic",
     inputs=[PortDefinition(name="input", data_type=DataType.ANY)],
     outputs=[PortDefinition(name="output", data_type=DataType.ANY)],
-))
-
-register_node_type(NodeTypeSpec(
-    component_type="http_request",
-    display_name="HTTP Request",
-    category="logic",
-    inputs=[PortDefinition(name="url", data_type=DataType.STRING, required=True)],
-    outputs=[
-        PortDefinition(name="status_code", data_type=DataType.NUMBER),
-        PortDefinition(name="body", data_type=DataType.ANY),
-    ],
 ))
 
 register_node_type(NodeTypeSpec(

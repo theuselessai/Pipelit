@@ -7,9 +7,10 @@ from pydantic import BaseModel
 
 ComponentTypeStr = Literal[
     "categorizer", "router", "extractor", "ai_model", "agent",
-    "tool_node", "aggregator", "human_confirmation", "parallel", "workflow",
+    "run_command", "http_request", "web_search", "calculator", "datetime",
+    "aggregator", "human_confirmation", "parallel", "workflow",
     "code", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
-    "http_request", "error_handler", "output_parser",
+    "error_handler", "output_parser",
     "trigger_telegram", "trigger_webhook", "trigger_schedule",
     "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat",
 ]

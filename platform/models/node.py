@@ -160,12 +160,24 @@ class _ErrorHandlerConfig(BaseComponentConfig):
 
 
 class ToolComponentConfig(BaseComponentConfig):
-    """Config for tool_node and http_request."""
-    __mapper_args__ = {"polymorphic_identity": "tool_node"}
+    """Config for tool-type sub-components."""
+    __mapper_args__ = {"polymorphic_identity": "run_command"}
 
 
 class _HttpRequestConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "http_request"}
+
+
+class _WebSearchConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "web_search"}
+
+
+class _CalculatorConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "calculator"}
+
+
+class _DatetimeConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "datetime"}
 
 
 class OtherComponentConfig(BaseComponentConfig):
@@ -231,8 +243,11 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "wait": CodeComponentConfig,
     "parallel": CodeComponentConfig,
     "error_handler": CodeComponentConfig,
-    "tool_node": ToolComponentConfig,
+    "run_command": ToolComponentConfig,
     "http_request": ToolComponentConfig,
+    "web_search": ToolComponentConfig,
+    "calculator": ToolComponentConfig,
+    "datetime": ToolComponentConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-SUB_COMPONENT_TYPES = {"ai_model"}
+SUB_COMPONENT_TYPES = {"ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser"}
 
 
 @dataclass

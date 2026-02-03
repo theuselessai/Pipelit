@@ -8,6 +8,7 @@ import {
   faFileExport, faRepeat, faGripVertical, faClock, faCodeMerge, faFilter,
   faArrowsRotate, faArrowUpAZ, faGauge, faBolt, faCalendarDays, faHandPointer,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
+  faTerminal, faMagnifyingGlass, faCalculator,
 } from "@fortawesome/free-solid-svg-icons"
 import { faTelegram } from "@fortawesome/free-brands-svg-icons"
 import {
@@ -58,10 +59,13 @@ const COMPONENT_COLORS: Record<string, string> = {
   categorizer: "#8b5cf6",
   router: "#8b5cf6",
   extractor: "#8b5cf6",
-  tool_node: "#10b981",
+  run_command: "#10b981",
+  http_request: "#10b981",
+  web_search: "#10b981",
+  calculator: "#10b981",
+  datetime: "#10b981",
   workflow: "#6366f1",
   code: "#64748b",
-  http_request: "#06b6d4",
   error_handler: "#ef4444",
   human_confirmation: "#ec4899",
   trigger_telegram: "#f97316",
@@ -76,8 +80,10 @@ const COMPONENT_COLORS: Record<string, string> = {
 
 const COMPONENT_ICONS: Record<string, IconDefinition> = {
   ai_model: faMicrochip, agent: faRobot,
-  categorizer: faTags, router: faCodeBranch, extractor: faMagnifyingGlassChart, tool_node: faWrench, workflow: faSitemap,
-  code: faCode, http_request: faGlobe, error_handler: faTriangleExclamation,
+  categorizer: faTags, router: faCodeBranch, extractor: faMagnifyingGlassChart,
+  run_command: faTerminal, http_request: faGlobe, web_search: faMagnifyingGlass, calculator: faCalculator, datetime: faClock,
+  workflow: faSitemap,
+  code: faCode, error_handler: faTriangleExclamation,
   human_confirmation: faUserCheck, aggregator: faLayerGroup, output_parser: faFileExport,
   loop: faRepeat, parallel: faGripVertical, wait: faClock, merge: faCodeMerge,
   filter: faFilter, transform: faArrowsRotate, sort: faArrowUpAZ, limit: faGauge,
@@ -99,7 +105,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const color = statusColor || getColor(data.componentType)
   const isTrigger = data.componentType.startsWith("trigger_")
   const isFixedWidth = ["router", "categorizer", "agent", "extractor"].includes(data.componentType)
-  const isSubComponent = ["ai_model", "tool_node", "output_parser"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent"].includes(data.componentType)

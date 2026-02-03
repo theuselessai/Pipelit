@@ -433,6 +433,18 @@ Nodes on the canvas use Font Awesome icons and color-coded borders by component 
 
 **`ai_model` node** has only a top diamond handle (source) — it connects upward to nodes that need a model.
 
+**Tool nodes** are sub-components that provide LangChain tools to agents:
+
+| Tool Type | Description | Config (`extra_config`) |
+|-----------|-------------|-------------------------|
+| `run_command` | Execute shell commands | — |
+| `http_request` | Make HTTP requests | `method`, `headers`, `timeout` |
+| `web_search` | Search via SearXNG | `searxng_url` (required) |
+| `calculator` | Evaluate math expressions | — |
+| `datetime` | Get current date/time | `timezone` (optional) |
+
+Tool nodes connect to agents via the **tools** handle (diamond, green). At build time, the agent queries `edge_label="tool"` edges, loads each connected tool node's factory, and registers the resulting LangChain `@tool` functions for LLM function calling. When the agent invokes a tool, WebSocket `node_status` events are published so the tool node shows running/success/failed badges on the canvas.
+
 ### Node I/O Standardisation
 
 Standardised schemas for node inputs/outputs, a node type registry with port definitions, edge validation, and real-time node status events.
@@ -440,7 +452,7 @@ Standardised schemas for node inputs/outputs, a node type registry with port def
 **Core schemas** (`platform/schemas/`):
 - `node_io.py` — `NodeStatus` enum, `NodeError`, `NodeResult` (with `success()`/`failed()`/`skipped()` factories), `NodeInput`
 - `node_types.py` — `DataType` enum, `PortDefinition`, `NodeTypeSpec`, `NODE_TYPE_REGISTRY` dict
-- `node_type_defs.py` — Registers all 23 built-in node types with their port definitions
+- `node_type_defs.py` — Registers all built-in node types with their port definitions
 
 **Edge validation** (`platform/validation/edges.py`):
 - `EdgeValidator.validate_edge()` — checks type compatibility between source outputs and target inputs

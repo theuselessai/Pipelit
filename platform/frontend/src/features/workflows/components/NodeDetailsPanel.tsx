@@ -344,6 +344,24 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
         </div>
       )}
 
+      {node.component_type === "http_request" && (
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p>Configure via Extra Config: method, headers, timeout</p>
+        </div>
+      )}
+
+      {node.component_type === "web_search" && (
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p>Configure via Extra Config: searxng_url</p>
+        </div>
+      )}
+
+      {node.component_type === "datetime" && (
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p>Configure via Extra Config: timezone (optional)</p>
+        </div>
+      )}
+
       {!isTriggerNode && (
         <div className="space-y-2">
           <Label className="text-xs">Extra Config (JSON)</Label>

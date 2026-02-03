@@ -30,17 +30,20 @@ def get_component_factory(component_type: str):
 # Import all component modules to trigger @register decorators
 from components import (  # noqa: E402, F401
     ai_model,
+    calculator,
     categorizer,
     code,
     control_flow,
     data_ops,
+    datetime_tool,
     http_request,
     human_confirmation,
     output_parser,
     parallel,
     agent,
     router,
+    run_command,
     subworkflow,
-    tool_node,
     trigger,
+    web_search,
 )
