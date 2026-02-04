@@ -197,6 +197,22 @@ class _OutputParserConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "output_parser"}
 
 
+class _MemoryReadConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "memory_read"}
+
+
+class _MemoryWriteConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "memory_write"}
+
+
+class _IdentifyUserConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "identify_user"}
+
+
+class _CodeExecuteConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "code_execute"}
+
+
 class TriggerComponentConfig(BaseComponentConfig):
     """Config for trigger nodes."""
     __mapper_args__ = {"polymorphic_identity": "trigger_telegram"}
@@ -252,6 +268,10 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,
     "output_parser": OtherComponentConfig,
+    "memory_read": OtherComponentConfig,
+    "memory_write": OtherComponentConfig,
+    "identify_user": OtherComponentConfig,
+    "code_execute": OtherComponentConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_webhook": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,

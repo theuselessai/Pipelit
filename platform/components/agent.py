@@ -49,7 +49,7 @@ def agent_factory(node):
 
 
 def _resolve_tools(node) -> list:
-    """Resolve LangChain tools from edge_label='tool' edges connected to this agent."""
+    """Resolve LangChain tools from edge_label='tool' or 'memory' edges connected to this agent."""
     tools = []
     try:
         from database import SessionLocal
@@ -63,7 +63,7 @@ def _resolve_tools(node) -> list:
                 .filter(
                     WorkflowEdge.workflow_id == node.workflow_id,
                     WorkflowEdge.target_node_id == node.node_id,
-                    WorkflowEdge.edge_label == "tool",
+                    WorkflowEdge.edge_label.in_(["tool", "memory"]),
                 )
                 .all()
             )

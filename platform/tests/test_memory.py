@@ -530,14 +530,14 @@ class TestMemoryReadComponent:
     def test_memory_read_by_key(self, db):
         from components.memory_read import memory_read_factory
 
-        # Setup: create a fact
+        # Setup: create a fact in global scope
         memory = MemoryService(db)
         memory.set_fact(
             key="test.fact",
             value="test_value",
             fact_type="world_knowledge",
-            scope="agent",
-            agent_id="workflow:test",
+            scope="global",
+            agent_id="global",
         )
 
         # Create mock node
@@ -547,16 +547,11 @@ class TestMemoryReadComponent:
 
         # Patch SessionLocal to return our test db
         with patch("components.memory_read.SessionLocal", return_value=db):
-            fn = memory_read_factory(node)
-            result = fn({
-                "trigger": {"memory_key": "test.fact"},
-                "execution_id": "test-123",
-                "user_context": {},
-                "node_outputs": {},
-            })
+            recall_tool = memory_read_factory(node)
+            result = recall_tool.invoke({"key": "test.fact"})
 
-        assert result["node_outputs"]["memory_read_1"]["found"] is True
-        assert result["node_outputs"]["memory_read_1"]["result"] == "test_value"
+        assert "test.fact" in result
+        assert "test_value" in result
 
     def test_memory_read_not_found(self, db):
         from components.memory_read import memory_read_factory
@@ -566,16 +561,10 @@ class TestMemoryReadComponent:
         node.component_config.extra_config = {}
 
         with patch("components.memory_read.SessionLocal", return_value=db):
-            fn = memory_read_factory(node)
-            result = fn({
-                "trigger": {"memory_key": "nonexistent.key"},
-                "execution_id": "test-123",
-                "user_context": {},
-                "node_outputs": {},
-            })
+            recall_tool = memory_read_factory(node)
+            result = recall_tool.invoke({"key": "nonexistent.key"})
 
-        assert result["node_outputs"]["memory_read_1"]["found"] is False
-        assert result["node_outputs"]["memory_read_1"]["count"] == 0
+        assert "No memory found" in result
 
 
 class TestMemoryWriteComponent:
@@ -586,24 +575,19 @@ class TestMemoryWriteComponent:
         node.node_id = "memory_write_1"
         node.component_config.extra_config = {
             "fact_type": "world_knowledge",
-            "scope": "agent",
         }
 
         with patch("components.memory_write.SessionLocal", return_value=db):
-            fn = memory_write_factory(node)
-            result = fn({
-                "trigger": {"key": "new.fact", "value": "new_value"},
-                "execution_id": "test-123",
-                "user_context": {},
-                "node_outputs": {},
-            })
+            remember_tool = memory_write_factory(node)
+            result = remember_tool.invoke({"key": "new.fact", "value": "new_value"})
 
-        assert result["node_outputs"]["memory_write_1"]["success"] is True
-        assert result["node_outputs"]["memory_write_1"]["action"] == "created"
+        assert "Remembered" in result
+        assert "new.fact" in result
+        assert "new_value" in result
 
-        # Verify fact was created
+        # Verify fact was created in global scope
         memory = MemoryService(db)
-        value = memory.get_fact(key="new.fact", agent_id="workflow:test")
+        value = memory.get_fact(key="new.fact", agent_id="global")
         assert value == "new_value"
 
     def test_memory_write_missing_key(self, db):
@@ -614,16 +598,10 @@ class TestMemoryWriteComponent:
         node.component_config.extra_config = {}
 
         with patch("components.memory_write.SessionLocal", return_value=db):
-            fn = memory_write_factory(node)
-            result = fn({
-                "trigger": {"value": "some_value"},
-                "execution_id": "test-123",
-                "user_context": {},
-                "node_outputs": {},
-            })
+            remember_tool = memory_write_factory(node)
+            result = remember_tool.invoke({"key": "", "value": "some_value"})
 
-        assert result["node_outputs"]["memory_write_1"]["success"] is False
-        assert "error" in result["node_outputs"]["memory_write_1"]
+        assert "Error" in result
 
 
 class TestIdentifyUserComponent:
@@ -692,15 +670,11 @@ class TestCodeExecuteComponent:
             "sandbox": True,
         }
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {"code": "print(2 + 2)"},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": "print(2 + 2)"})
 
-        assert result["node_outputs"]["code_1"]["exit_code"] == 0
-        assert "4" in result["node_outputs"]["code_1"]["stdout"]
+        assert "exit_code: 0" in result
+        assert "4" in result
 
     def test_execute_python_with_error(self):
         from components.code_execute import code_execute_factory
@@ -713,15 +687,11 @@ class TestCodeExecuteComponent:
             "sandbox": True,
         }
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {"code": "raise ValueError('test error')"},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": "raise ValueError('test error')"})
 
-        assert result["node_outputs"]["code_1"]["exit_code"] != 0
-        assert "ValueError" in result["node_outputs"]["code_1"]["stderr"]
+        assert "exit_code: 0" not in result or "exit_code: 1" in result
+        assert "ValueError" in result
 
     def test_execute_bash_success(self):
         from components.code_execute import code_execute_factory
@@ -734,15 +704,11 @@ class TestCodeExecuteComponent:
             "sandbox": True,
         }
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {"code": "echo 'hello world'"},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": "echo 'hello world'"})
 
-        assert result["node_outputs"]["code_1"]["exit_code"] == 0
-        assert "hello world" in result["node_outputs"]["code_1"]["stdout"]
+        assert "exit_code: 0" in result
+        assert "hello world" in result
 
     def test_security_violation_python(self):
         from components.code_execute import code_execute_factory
@@ -754,14 +720,10 @@ class TestCodeExecuteComponent:
             "sandbox": True,
         }
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {"code": "import subprocess; subprocess.run(['ls'])"},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": "import subprocess; subprocess.run(['ls'])"})
 
-        assert result["node_outputs"]["code_1"]["error"] == "SECURITY_VIOLATION"
+        assert "Security violation" in result
 
     def test_security_violation_bash(self):
         from components.code_execute import code_execute_factory
@@ -773,14 +735,10 @@ class TestCodeExecuteComponent:
             "sandbox": True,
         }
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {"code": "rm -rf /"},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": "rm -rf /"})
 
-        assert result["node_outputs"]["code_1"]["error"] == "SECURITY_VIOLATION"
+        assert "Security violation" in result
 
     def test_empty_code(self):
         from components.code_execute import code_execute_factory
@@ -789,14 +747,10 @@ class TestCodeExecuteComponent:
         node.node_id = "code_1"
         node.component_config.extra_config = {}
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": ""})
 
-        assert result["node_outputs"]["code_1"]["error"] == "EMPTY_CODE"
+        assert "Error" in result
 
     def test_unsupported_language(self):
         from components.code_execute import code_execute_factory
@@ -805,11 +759,7 @@ class TestCodeExecuteComponent:
         node.node_id = "code_1"
         node.component_config.extra_config = {}
 
-        fn = code_execute_factory(node)
-        result = fn({
-            "trigger": {"code": "console.log('hi')", "language": "javascript"},
-            "execution_id": "test-123",
-            "node_outputs": {},
-        })
+        code_tool = code_execute_factory(node)
+        result = code_tool.invoke({"code": "console.log('hi')", "language": "javascript"})
 
-        assert result["node_outputs"]["code_1"]["error"] == "UNSUPPORTED_LANGUAGE"
+        assert "not supported" in result

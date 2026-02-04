@@ -1,15 +1,15 @@
-"""Code Execute component — execute Python or Bash code in a sandboxed environment."""
+"""Code Execute component — LangChain tool that executes Python or Bash code."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import re
 import subprocess
 import tempfile
-from pathlib import Path
+
+from langchain_core.tools import tool
 
 from components import register
 
@@ -169,69 +169,29 @@ def execute_bash_sync(
 
 @register("code_execute")
 def code_execute_factory(node):
-    """Return a graph node function that executes code."""
+    """Return a LangChain @tool that executes code."""
     extra = node.component_config.extra_config or {}
-    node_id = node.node_id
 
     default_language = extra.get("language", "python")
     timeout_seconds = extra.get("timeout_seconds", 30)
     sandbox = extra.get("sandbox", True)
 
-    def code_execute_node(state: dict) -> dict:
-        # Get inputs from state
-        node_outputs = state.get("node_outputs", {})
-        trigger = state.get("trigger", {})
-
-        # Look for code and language in node_outputs from connected nodes
-        code = None
-        language = None
-
-        for out in node_outputs.values():
-            if isinstance(out, dict):
-                if "code" in out and code is None:
-                    code = out["code"]
-                if "language" in out and language is None:
-                    language = out["language"]
-
-        # Also check trigger for direct inputs
-        if code is None:
-            code = trigger.get("code")
-        if language is None:
-            language = trigger.get("language") or default_language
+    @tool
+    def code_execute(code: str, language: str = "") -> str:
+        """Execute Python or Bash code. Returns stdout, stderr, and exit code."""
+        resolved_language = language or default_language
 
         if not code or not code.strip():
-            return {
-                "node_outputs": {
-                    node_id: {
-                        "stdout": "",
-                        "stderr": "No code provided to execute",
-                        "exit_code": -1,
-                        "result": None,
-                        "error": "EMPTY_CODE",
-                    }
-                }
-            }
+            return "Error: No code provided to execute"
 
-        if language not in ("python", "bash"):
-            return {
-                "node_outputs": {
-                    node_id: {
-                        "stdout": "",
-                        "stderr": f"Language '{language}' not supported. Use 'python' or 'bash'.",
-                        "exit_code": -1,
-                        "result": None,
-                        "error": "UNSUPPORTED_LANGUAGE",
-                    }
-                }
-            }
+        if resolved_language not in ("python", "bash"):
+            return f"Error: Language '{resolved_language}' not supported. Use 'python' or 'bash'."
 
         try:
-            # Security check
             if sandbox:
-                check_security(code, language)
+                check_security(code, resolved_language)
 
-            # Execute
-            if language == "python":
+            if resolved_language == "python":
                 stdout, stderr, exit_code, result = execute_python_sync(
                     code, timeout_seconds, sandbox
                 )
@@ -240,43 +200,22 @@ def code_execute_factory(node):
                     code, timeout_seconds, sandbox
                 )
 
-            output = {
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": exit_code,
-                "result": result,
-            }
+            parts = []
+            if stdout:
+                parts.append(f"stdout:\n{stdout}")
+            if stderr:
+                parts.append(f"stderr:\n{stderr}")
+            parts.append(f"exit_code: {exit_code}")
+            if result is not None:
+                parts.append(f"result: {json.dumps(result)}")
 
-            if exit_code != 0:
-                output["error"] = "EXECUTION_ERROR"
-
-            return {"node_outputs": {node_id: output}}
+            return "\n".join(parts)
 
         except SecurityError as e:
-            return {
-                "node_outputs": {
-                    node_id: {
-                        "stdout": "",
-                        "stderr": str(e),
-                        "exit_code": -1,
-                        "result": None,
-                        "error": "SECURITY_VIOLATION",
-                    }
-                }
-            }
+            return f"Security violation: {e}"
 
         except Exception as e:
             logger.exception("Code execution error")
-            return {
-                "node_outputs": {
-                    node_id: {
-                        "stdout": "",
-                        "stderr": str(e),
-                        "exit_code": -1,
-                        "result": None,
-                        "error": "EXECUTION_FAILED",
-                    }
-                }
-            }
+            return f"Execution error: {e}"
 
-    return code_execute_node
+    return code_execute

@@ -300,7 +300,7 @@ class MemoryService:
         if not episode:
             return
 
-        conversation = episode.conversation or []
+        conversation = list(episode.conversation or [])
         conversation.append({"role": role, "content": content})
         episode.conversation = conversation
         self.db.commit()

@@ -8,6 +8,7 @@ import {
   Terminal, Globe, Search, Calculator,
   Repeat, Columns2, Pause, Merge, Filter, Shuffle, ArrowDownNarrowWide, ListEnd,
   Code, UserCheck, Layers, ShieldAlert, FileText,
+  Database, DatabaseZap, UserSearch, SquareTerminal,
   type LucideIcon,
 } from "lucide-react"
 
@@ -43,13 +44,18 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   aggregator: Layers,
   error_handler: ShieldAlert,
   output_parser: FileText,
+  memory_read: Database,
+  memory_write: DatabaseZap,
+  identify_user: UserSearch,
+  code_execute: SquareTerminal,
 }
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "Triggers", types: ["trigger_chat", "trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error"] },
   { label: "AI", types: ["ai_model", "agent"] },
   { label: "Routing", types: ["categorizer", "router", "extractor"] },
-  { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime"] },
+  { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
+  { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute"] },
   { label: "Logic", types: ["loop", "parallel", "wait", "merge", "filter", "transform", "sort", "limit"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "aggregator", "error_handler", "output_parser"] },
 ]
