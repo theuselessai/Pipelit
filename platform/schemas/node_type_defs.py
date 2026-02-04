@@ -78,6 +78,16 @@ register_node_type(NodeTypeSpec(
         PortDefinition(name="messages", data_type=DataType.MESSAGES),
         PortDefinition(name="output", data_type=DataType.STRING),
     ],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "conversation_memory": {
+                "type": "boolean",
+                "default": False,
+                "description": "Enable conversation memory across executions",
+            },
+        },
+    },
 ))
 
 register_node_type(NodeTypeSpec(

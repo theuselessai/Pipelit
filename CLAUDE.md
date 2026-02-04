@@ -324,6 +324,8 @@ A single persistent authenticated WebSocket at `GET /ws/?token=<api_key>` replac
 
 **Trigger-scoped execution:** When a trigger fires, the builder only compiles nodes reachable downstream from that trigger (BFS over direct edges via `services/topology.py`). Unconnected nodes on the same canvas are ignored. This allows a single workflow to have multiple trigger branches and unused nodes without causing build errors.
 
+**Agent conversation memory:** Agent nodes support optional `conversation_memory` (boolean in `extra_config`). When enabled, a `SqliteSaver` checkpointer (`platform/checkpoints.db`, lazy singleton) persists conversation history across executions. Thread ID is constructed from `user_profile_id`, `telegram_chat_id`, and `workflow_id` so the same user talking to the same workflow gets continuity. The system prompt is delivered via both `create_react_agent(prompt=SystemMessage(...))` (for the `system` role) and a `HumanMessage` fallback with a stable ID (for providers like Venice.ai that ignore the system role). The stable ID prevents duplication across checkpointer invocations via LangGraph's `add_messages` reducer. Toggle is exposed in the frontend's NodeDetailsPanel as "Conversation Memory" switch (agent nodes only).
+
 **Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation.
 
 ### Running Platform Tests

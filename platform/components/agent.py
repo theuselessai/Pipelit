@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import threading
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 from components import register
@@ -12,26 +14,89 @@ from services.llm import resolve_llm_for_node
 
 logger = logging.getLogger(__name__)
 
+# Lazy singleton for SqliteSaver checkpointer
+_checkpointer = None
+_checkpointer_lock = threading.Lock()
+
+
+def _get_checkpointer():
+    global _checkpointer
+    if _checkpointer is None:
+        with _checkpointer_lock:
+            if _checkpointer is None:
+                import sqlite3
+                from langgraph.checkpoint.sqlite import SqliteSaver
+
+                db_path = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)),
+                    "checkpoints.db",
+                )
+                conn = sqlite3.connect(db_path, check_same_thread=False)
+                _checkpointer = SqliteSaver(conn)
+                _checkpointer.setup()
+                logger.info("Initialized SqliteSaver checkpointer at %s", db_path)
+    return _checkpointer
+
 
 @register("agent")
 def agent_factory(node):
     """Build an agent graph node."""
     llm = resolve_llm_for_node(node)
     concrete = node.component_config.concrete
-    system_prompt = getattr(concrete, "system_prompt", "")
+    system_prompt = getattr(concrete, "system_prompt", None) or ""
+    extra = getattr(concrete, "extra_config", None) or {}
     node_id = node.node_id
+    workflow_id = node.workflow_id
+    conversation_memory = extra.get("conversation_memory", False)
+
+    logger.warning(
+        "Agent %s: system_prompt=%r, conversation_memory=%s, extra_config=%r",
+        node_id, system_prompt[:80] if system_prompt else None, conversation_memory, extra,
+    )
 
     tools = _resolve_tools(node)
 
-    agent = create_react_agent(
-        llm,
-        tools,
+    agent_kwargs = dict(
+        model=llm,
+        tools=tools,
+        # SystemMessage applied as pre-LLM transform (not stored in checkpoint)
         prompt=SystemMessage(content=system_prompt) if system_prompt else None,
+    )
+    if conversation_memory:
+        agent_kwargs["checkpointer"] = _get_checkpointer()
+
+    agent = create_react_agent(**agent_kwargs)
+
+    # HumanMessage fallback for providers that ignore the system role (e.g. Venice.ai).
+    # Stable id prevents duplication across checkpointer invocations.
+    _prompt_fallback = (
+        HumanMessage(
+            content=f"[System instructions — follow these for the entire conversation]\n{system_prompt}",
+            id="system_prompt_fallback",
+        )
+        if system_prompt
+        else None
     )
 
     def agent_node(state: dict) -> dict:
         messages = list(state.get("messages", []))
-        result = agent.invoke({"messages": messages})
+        if _prompt_fallback:
+            messages = [_prompt_fallback] + messages
+        logger.warning("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))
+
+        config = None
+        if conversation_memory:
+            user_ctx = state.get("user_context", {})
+            user_id = user_ctx.get("user_profile_id", "anon")
+            chat_id = user_ctx.get("telegram_chat_id", "")
+            thread_id = (
+                f"{user_id}:{chat_id}:{workflow_id}"
+                if chat_id
+                else f"{user_id}:{workflow_id}"
+            )
+            config = {"configurable": {"thread_id": thread_id}}
+
+        result = agent.invoke({"messages": messages}, config=config)
         out_messages = result.get("messages", [])
 
         final_content = ""

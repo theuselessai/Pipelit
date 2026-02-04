@@ -158,6 +158,7 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
   const [isEntryPoint, setIsEntryPoint] = useState(node.is_entry_point)
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
+  const [conversationMemory, setConversationMemory] = useState(node.config.extra_config?.conversation_memory ?? false)
 
   // Trigger fields
   const [triggerCredentialId, setTriggerCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
@@ -185,15 +186,20 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
     setTriggerIsActive(node.config.is_active ?? true)
     setTriggerPriority(node.config.priority?.toString() ?? "0")
     setTriggerConfig(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
+    setConversationMemory(node.config.extra_config?.conversation_memory ?? false)
   }, [node])
 
   const isLLMNode = node.component_type === "ai_model"
+  const isAgentNode = node.component_type === "agent"
   const hasSystemPrompt = ["agent", "categorizer", "router"].includes(node.component_type)
   const isTriggerNode = TRIGGER_TYPES.includes(node.component_type)
 
   function handleSave() {
-    let parsedExtra = {}
+    let parsedExtra: Record<string, unknown> = {}
     try { parsedExtra = JSON.parse(extraConfig) } catch { /* keep empty */ }
+    if (isAgentNode) {
+      parsedExtra = { ...parsedExtra, conversation_memory: conversationMemory }
+    }
     let parsedTriggerConfig = {}
     try { parsedTriggerConfig = JSON.parse(triggerConfig) } catch { /* keep empty */ }
     updateNode.mutate({
@@ -342,6 +348,19 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
           <Label className="text-xs">System Prompt</Label>
           <Textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={6} className="text-xs" />
         </div>
+      )}
+
+      {isAgentNode && (
+        <>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-xs">Conversation Memory</Label>
+              <p className="text-xs text-muted-foreground">Remember prior conversations across executions</p>
+            </div>
+            <Switch checked={conversationMemory} onCheckedChange={setConversationMemory} />
+          </div>
+        </>
       )}
 
       {node.component_type === "http_request" && (
