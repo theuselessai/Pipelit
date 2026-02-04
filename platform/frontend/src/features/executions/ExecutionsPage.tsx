@@ -21,8 +21,8 @@ const STATUSES: ExecutionStatus[] = ["pending", "running", "interrupted", "compl
 
 export default function ExecutionsPage() {
   const navigate = useNavigate()
-  const [statusFilter, setStatusFilter] = useState<string>("")
-  const { data: executions, isLoading } = useExecutions({ status: statusFilter || undefined })
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const { data: executions, isLoading } = useExecutions({ status: statusFilter === "all" ? undefined : statusFilter })
 
   if (isLoading) {
     return <div className="p-6"><div className="h-8 w-48 bg-muted animate-pulse rounded mb-6" /><div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-12 bg-muted animate-pulse rounded" />)}</div></div>
@@ -35,7 +35,7 @@ export default function ExecutionsPage() {
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All</SelectItem>
+            <SelectItem value="all">All</SelectItem>
             {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>

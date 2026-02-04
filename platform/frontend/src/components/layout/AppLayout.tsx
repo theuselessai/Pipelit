@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   KeyRound,
   Activity,
+  Brain,
   LogOut,
   Workflow,
   ChevronLeft,
@@ -26,6 +27,7 @@ const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Workflows" },
   { to: "/credentials", icon: KeyRound, label: "Credentials" },
   { to: "/executions", icon: Activity, label: "Executions" },
+  { to: "/memories", icon: Brain, label: "Memories" },
 ]
 
 export default function AppLayout() {

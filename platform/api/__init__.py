@@ -7,6 +7,7 @@ from api.workflows import router as workflows_router
 from api.nodes import router as nodes_router
 from api.executions import router as executions_router
 from api.credentials import router as credentials_router
+from api.memory import router as memory_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -15,3 +16,4 @@ api_router.include_router(workflows_router, prefix="/workflows", tags=["workflow
 api_router.include_router(nodes_router, prefix="/workflows", tags=["nodes", "edges"])
 api_router.include_router(executions_router, prefix="/executions", tags=["executions"])
 api_router.include_router(credentials_router, prefix="/credentials", tags=["credentials"])
+api_router.include_router(memory_router, prefix="/memories", tags=["memories"])
