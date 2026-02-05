@@ -8,7 +8,7 @@ import {
   faFileExport, faRepeat, faGripVertical, faClock, faCodeMerge, faFilter,
   faArrowsRotate, faArrowUpAZ, faGauge, faBolt, faCalendarDays, faHandPointer,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
-  faTerminal, faMagnifyingGlass, faCalculator,
+  faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard, faLaptopCode,
 } from "@fortawesome/free-solid-svg-icons"
 import { faTelegram } from "@fortawesome/free-brands-svg-icons"
@@ -65,6 +65,9 @@ const COMPONENT_COLORS: Record<string, string> = {
   web_search: "#10b981",
   calculator: "#10b981",
   datetime: "#10b981",
+  create_agent_user: "#14b8a6",
+  platform_api: "#14b8a6",
+  whoami: "#14b8a6",
   workflow: "#6366f1",
   code: "#64748b",
   code_execute: "#10b981",
@@ -87,6 +90,7 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   ai_model: faMicrochip, agent: faRobot,
   categorizer: faTags, router: faCodeBranch, extractor: faMagnifyingGlassChart,
   run_command: faTerminal, http_request: faGlobe, web_search: faMagnifyingGlass, calculator: faCalculator, datetime: faClock,
+  create_agent_user: faUserPlus, platform_api: faPlug, whoami: faFingerprint,
   workflow: faSitemap,
   code: faCode, code_execute: faLaptopCode, error_handler: faTriangleExclamation,
   memory_read: faDatabase, memory_write: faFloppyDisk, identify_user: faIdCard,
@@ -111,8 +115,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isRunning = data.executionStatus === "running"
   const isTrigger = data.componentType.startsWith("trigger_")
   const isFixedWidth = ["router", "categorizer", "agent", "extractor"].includes(data.componentType)
-  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute"].includes(data.componentType)
-  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute"].includes(data.componentType)
+  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent"].includes(data.componentType)

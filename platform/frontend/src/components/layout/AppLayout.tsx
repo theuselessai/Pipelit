@@ -15,6 +15,7 @@ import {
   KeyRound,
   Activity,
   Brain,
+  Bot,
   LogOut,
   Workflow,
   ChevronLeft,
@@ -28,6 +29,7 @@ const navItems = [
   { to: "/credentials", icon: KeyRound, label: "Credentials" },
   { to: "/executions", icon: Activity, label: "Executions" },
   { to: "/memories", icon: Brain, label: "Memories" },
+  { to: "/agent-users", icon: Bot, label: "Agent Users" },
 ]
 
 export default function AppLayout() {

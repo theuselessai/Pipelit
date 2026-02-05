@@ -172,6 +172,50 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="create_agent_user",
+    display_name="Create Agent User",
+    description="Create API credentials for agent use",
+    category="agent",
+    outputs=[PortDefinition(name="credentials", data_type=DataType.STRING, description="JSON with username, api_key, api_base_url")],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "api_base_url": {
+                "type": "string",
+                "default": "http://localhost:8000/api/v1",
+                "description": "Base URL for API access",
+            },
+        },
+    },
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="platform_api",
+    display_name="Platform API",
+    description="Make authenticated requests to the platform API",
+    category="agent",
+    outputs=[PortDefinition(name="response", data_type=DataType.STRING, description="JSON response from API")],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "api_base_url": {
+                "type": "string",
+                "default": "http://localhost:8000",
+                "description": "Base URL for API",
+            },
+        },
+    },
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="whoami",
+    display_name="Who Am I",
+    description="Get self-awareness - workflow, node ID, and how to modify yourself",
+    category="agent",
+    outputs=[PortDefinition(name="identity", data_type=DataType.STRING, description="JSON with identity and self-modification instructions")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",

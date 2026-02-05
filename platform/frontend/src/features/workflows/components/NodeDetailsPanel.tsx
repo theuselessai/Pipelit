@@ -242,7 +242,7 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
   const [isEntryPoint, setIsEntryPoint] = useState(node.is_entry_point)
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
-  const [conversationMemory, setConversationMemory] = useState(node.config.extra_config?.conversation_memory ?? false)
+  const [conversationMemory, setConversationMemory] = useState<boolean>(Boolean(node.config.extra_config?.conversation_memory))
 
   // System prompt modal state
   const [promptModalOpen, setPromptModalOpen] = useState(false)
@@ -274,7 +274,7 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
     setTriggerIsActive(node.config.is_active ?? true)
     setTriggerPriority(node.config.priority?.toString() ?? "0")
     setTriggerConfig(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
-    setConversationMemory(node.config.extra_config?.conversation_memory ?? false)
+    setConversationMemory(Boolean(node.config.extra_config?.conversation_memory))
   }, [node])
 
   const isLLMNode = node.component_type === "ai_model"

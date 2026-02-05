@@ -252,13 +252,27 @@ def test_credential(
             if resp.status_code >= 400:
                 return {"ok": False, "error": resp.text[:500]}
         else:
+            # Test with a minimal chat completion to verify API key works
             base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
-            resp = httpx.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {llm.api_key}"},
+            resp = httpx.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {llm.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-3.5-turbo",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
                 timeout=15,
             )
+            if resp.status_code == 401:
+                return {"ok": False, "error": "Authentication failed - invalid API key"}
             if resp.status_code >= 400:
+                # Model not found is OK - means auth worked
+                if resp.status_code == 404 or "model" in resp.text.lower():
+                    return {"ok": True}
                 return {"ok": False, "error": resp.text[:500]}
         return {"ok": True}
     except Exception as exc:

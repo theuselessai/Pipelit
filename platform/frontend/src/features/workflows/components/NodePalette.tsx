@@ -8,7 +8,7 @@ import {
   Terminal, Globe, Search, Calculator,
   Repeat, Columns2, Pause, Merge, Filter, Shuffle, ArrowDownNarrowWide, ListEnd,
   Code, UserCheck, Layers, ShieldAlert, FileText,
-  Database, DatabaseZap, UserSearch, SquareTerminal,
+  Database, DatabaseZap, UserSearch, SquareTerminal, UserPlus, Plug, Fingerprint,
   type LucideIcon,
 } from "lucide-react"
 
@@ -30,6 +30,9 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   web_search: Search,
   calculator: Calculator,
   datetime: Clock,
+  create_agent_user: UserPlus,
+  platform_api: Plug,
+  whoami: Fingerprint,
   loop: Repeat,
   parallel: Columns2,
   wait: Pause,
@@ -55,6 +58,7 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "AI", types: ["ai_model", "agent"] },
   { label: "Routing", types: ["categorizer", "router", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
+  { label: "Agent", types: ["whoami", "create_agent_user", "platform_api"] },
   { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute"] },
   { label: "Logic", types: ["loop", "parallel", "wait", "merge", "filter", "transform", "sort", "limit"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "aggregator", "error_handler", "output_parser"] },

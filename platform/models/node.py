@@ -180,6 +180,18 @@ class _DatetimeConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "datetime"}
 
 
+class _CreateAgentUserConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "create_agent_user"}
+
+
+class _PlatformApiConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "platform_api"}
+
+
+class _WhoamiConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "whoami"}
+
+
 class OtherComponentConfig(BaseComponentConfig):
     """Config for human_confirmation, aggregator, workflow, output_parser."""
     __mapper_args__ = {"polymorphic_identity": "human_confirmation"}
@@ -264,6 +276,9 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "web_search": ToolComponentConfig,
     "calculator": ToolComponentConfig,
     "datetime": ToolComponentConfig,
+    "create_agent_user": ToolComponentConfig,
+    "platform_api": ToolComponentConfig,
+    "whoami": ToolComponentConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

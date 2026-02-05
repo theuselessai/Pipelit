@@ -1,5 +1,5 @@
 // Component types
-export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
+export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "create_agent_user" | "platform_api" | "whoami" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
 export type EdgeType = "direct" | "conditional"
 export type EdgeLabel = "" | "llm" | "tool" | "memory" | "output_parser"
 export type CredentialType = "git" | "llm" | "telegram" | "tool"
@@ -45,3 +45,6 @@ export interface MemoryFact { id: string; scope: string; agent_id: string | null
 export interface MemoryEpisode { id: string; agent_id: string; user_id: string | null; trigger_type: string; success: boolean; error_code: string | null; summary: string | null; started_at: string; ended_at: string | null; duration_ms: number | null; created_at: string }
 export interface MemoryProcedure { id: string; agent_id: string; name: string; description: string; procedure_type: string; times_used: number; times_succeeded: number; times_failed: number; success_rate: number; is_active: boolean; created_at: string }
 export interface MemoryUser { id: string; canonical_id: string; display_name: string | null; telegram_id: string | null; email: string | null; total_conversations: number; last_seen_at: string; created_at: string }
+
+// Agent Users
+export interface AgentUser { id: number; username: string; purpose: string; api_key_preview: string; created_at: string; created_by: string | null }

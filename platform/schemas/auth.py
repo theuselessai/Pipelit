@@ -1,5 +1,7 @@
 """Auth schemas."""
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -23,3 +25,12 @@ class SetupStatusResponse(BaseModel):
 
 class MeResponse(BaseModel):
     username: str
+
+
+class AgentUserResponse(BaseModel):
+    id: int
+    username: str
+    purpose: str
+    api_key_preview: str
+    created_at: datetime
+    created_by: str | None

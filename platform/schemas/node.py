@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 ComponentTypeStr = Literal[
     "categorizer", "router", "extractor", "ai_model", "agent",
-    "run_command", "http_request", "web_search", "calculator", "datetime",
+    "run_command", "http_request", "web_search", "calculator", "datetime", "create_agent_user", "platform_api", "whoami",
     "aggregator", "human_confirmation", "parallel", "workflow",
     "code", "code_execute", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
     "error_handler", "output_parser",
