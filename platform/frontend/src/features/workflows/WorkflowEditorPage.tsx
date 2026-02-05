@@ -10,6 +10,7 @@ export default function WorkflowEditorPage() {
   const { slug } = useParams<{ slug: string }>()
   const { data: workflow, isLoading } = useWorkflow(slug!)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [chatNodeId, setChatNodeId] = useState<string | null>(null)
   useSubscription(slug ? `workflow:${slug}` : null)
 
   if (isLoading || !workflow) {
@@ -17,6 +18,19 @@ export default function WorkflowEditorPage() {
   }
 
   const selectedNode = workflow.nodes.find((n) => n.node_id === selectedNodeId)
+  const chatNode = workflow.nodes.find((n) => n.node_id === chatNodeId)
+
+  // Handle double-click - open chat panel for trigger_chat nodes
+  const handleNodeDoubleClick = (nodeId: string) => {
+    const node = workflow.nodes.find((n) => n.node_id === nodeId)
+    if (node?.component_type === "trigger_chat") {
+      setChatNodeId(nodeId)
+    }
+  }
+
+  // Determine which node to show in details panel
+  // For trigger_chat, only show when double-clicked (chatNodeId), not when selected
+  const detailsNode = chatNode || selectedNode
 
   return (
     <div className="flex h-full">
@@ -32,13 +46,21 @@ export default function WorkflowEditorPage() {
           workflow={workflow}
           selectedNodeId={selectedNodeId}
           onSelectNode={setSelectedNodeId}
+          onNodeDoubleClick={handleNodeDoubleClick}
         />
       </div>
 
       {/* Right: Details */}
-      {selectedNode && (
+      {detailsNode && (
         <div className="w-80 border-l overflow-auto">
-          <NodeDetailsPanel slug={slug!} node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+          <NodeDetailsPanel
+            slug={slug!}
+            node={detailsNode}
+            onClose={() => {
+              if (chatNodeId) setChatNodeId(null)
+              else setSelectedNodeId(null)
+            }}
+          />
         </div>
       )}
     </div>

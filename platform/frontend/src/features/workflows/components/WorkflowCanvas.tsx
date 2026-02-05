@@ -235,9 +235,10 @@ interface Props {
   workflow: WorkflowDetail
   selectedNodeId: string | null
   onSelectNode: (id: string | null) => void
+  onNodeDoubleClick?: (nodeId: string) => void
 }
 
-export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelectNode }: Props) {
+export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelectNode, onNodeDoubleClick }: Props) {
   const { resolvedTheme } = useTheme()
   const createEdge = useCreateEdge(slug)
   const updateNode = useUpdateNode(slug)
@@ -312,13 +313,20 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds))
-    // Handle selection
+    // Handle selection - skip trigger_chat (opens on double-click)
     for (const change of changes) {
       if (change.type === "select" && change.selected) {
-        onSelectNode(change.id)
+        const node = workflow.nodes.find((n) => n.node_id === change.id)
+        if (node?.component_type !== "trigger_chat") {
+          onSelectNode(change.id)
+        }
       }
     }
-  }, [setNodes, onSelectNode])
+  }, [setNodes, onSelectNode, workflow.nodes])
+
+  const handleNodeDoubleClick = useCallback((_: unknown, node: Node) => {
+    onNodeDoubleClick?.(node.id)
+  }, [onNodeDoubleClick])
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     setEdges((eds) => applyEdgeChanges(changes, eds))
@@ -359,6 +367,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       onNodeDragStop={onNodeDragStop}
       onNodesDelete={onNodesDelete}
       onEdgesDelete={onEdgesDelete}
+      onNodeDoubleClick={handleNodeDoubleClick}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
