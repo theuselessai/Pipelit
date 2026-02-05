@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -159,6 +160,127 @@ def send_chat_message(
         status="pending",
         response="",
     )
+
+
+class ChatHistoryMessageOut(BaseModel):
+    role: str
+    text: str
+    timestamp: str | None = None
+
+
+class ChatHistoryOut(BaseModel):
+    messages: list[ChatHistoryMessageOut]
+    thread_id: str
+    has_more: bool = False
+
+
+@chat_router.get("/{slug}/chat/history")
+def get_chat_history(
+    slug: str,
+    limit: int = 10,
+    before: str | None = None,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    """Load chat history from LangGraph checkpoints.
+
+    Args:
+        slug: Workflow slug
+        limit: Max messages to return (default 10)
+        before: ISO datetime string - only return messages before this time
+    """
+    from datetime import datetime
+
+    workflow = db.query(Workflow).filter(Workflow.slug == slug, Workflow.deleted_at.is_(None)).first()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+
+    # Construct thread_id (same logic as agent.py)
+    # For chat triggers, there's no telegram_chat_id
+    thread_id = f"{profile.id}:{workflow.id}"
+
+    # Get checkpoint
+    from components.agent import _get_checkpointer
+
+    checkpointer = _get_checkpointer()
+    config = {"configurable": {"thread_id": thread_id}}
+
+    try:
+        checkpoint_tuple = checkpointer.get_tuple(config)
+    except Exception:
+        return ChatHistoryOut(messages=[], thread_id=thread_id, has_more=False)
+
+    if not checkpoint_tuple or not checkpoint_tuple.checkpoint:
+        return ChatHistoryOut(messages=[], thread_id=thread_id, has_more=False)
+
+    # Extract messages from checkpoint
+    state = checkpoint_tuple.checkpoint.get("channel_values", {})
+    messages = state.get("messages", [])
+
+    # Parse before datetime if provided
+    before_dt = None
+    if before:
+        try:
+            before_dt = datetime.fromisoformat(before.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+
+    # Convert to frontend format with timestamps
+    all_messages = []
+    for msg in messages:
+        if hasattr(msg, "type") and hasattr(msg, "content"):
+            # Skip system prompt fallback message
+            if getattr(msg, "id", None) == "system_prompt_fallback":
+                continue
+
+            # Extract timestamp from additional_kwargs if available
+            timestamp = None
+            if hasattr(msg, "additional_kwargs"):
+                ts = msg.additional_kwargs.get("timestamp")
+                if ts:
+                    timestamp = ts
+            # Fallback: use response_metadata.created for AI messages
+            if not timestamp and hasattr(msg, "response_metadata"):
+                created = msg.response_metadata.get("created")
+                if created:
+                    # Convert Unix timestamp to ISO
+                    timestamp = datetime.fromtimestamp(created).isoformat()
+
+            if msg.type == "human":
+                all_messages.append(ChatHistoryMessageOut(
+                    role="user",
+                    text=msg.content,
+                    timestamp=timestamp,
+                ))
+            elif msg.type == "ai":
+                # Skip empty AI messages (often tool calls)
+                if msg.content:
+                    all_messages.append(ChatHistoryMessageOut(
+                        role="assistant",
+                        text=msg.content,
+                        timestamp=timestamp,
+                    ))
+
+    # Filter by before datetime if provided
+    if before_dt:
+        filtered = []
+        for msg in all_messages:
+            if msg.timestamp:
+                try:
+                    msg_dt = datetime.fromisoformat(msg.timestamp.replace("Z", "+00:00"))
+                    if msg_dt < before_dt:
+                        filtered.append(msg)
+                except ValueError:
+                    filtered.append(msg)
+            else:
+                filtered.append(msg)
+        all_messages = filtered
+
+    # Return last N messages
+    has_more = len(all_messages) > limit
+    result = all_messages[-limit:] if limit > 0 else all_messages
+
+    return ChatHistoryOut(messages=result, thread_id=thread_id, has_more=has_more)
 
 
 def _serialize_execution(execution: WorkflowExecution, db: Session) -> dict:

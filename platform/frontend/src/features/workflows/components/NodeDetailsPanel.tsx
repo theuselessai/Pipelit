@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
-import { useSendChatMessage } from "@/api/chat"
+import { useSendChatMessage, useChatHistory } from "@/api/chat"
 import { wsManager } from "@/lib/wsManager"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { X, Trash2, Send, Loader2 } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon } from "lucide-react"
+import { format } from "date-fns"
 import type { WorkflowNode, ChatMessage } from "@/types/models"
 
 interface Props {
@@ -21,12 +25,50 @@ interface Props {
 
 const TRIGGER_TYPES = ["trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat"]
 
+function formatTimestamp(ts: string | undefined): string {
+  if (!ts) return ""
+  try {
+    const date = new Date(ts)
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  } catch {
+    return ""
+  }
+}
+
 function ChatPanel({ slug, node, onClose }: Props) {
   const deleteNode = useDeleteNode(slug)
   const sendMessage = useSendChatMessage(slug, node.node_id)
+  const [beforeDate, setBeforeDate] = useState<Date | undefined>(undefined)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+
+  // Convert date to ISO string for API (end of day)
+  const beforeDateISO = beforeDate
+    ? (() => {
+        const combined = new Date(beforeDate)
+        combined.setHours(23, 59, 59)
+        return combined.toISOString()
+      })()
+    : undefined
+
+  const { data: historyData, refetch: refetchHistory } = useChatHistory(slug, {
+    limit: 10,
+    before: beforeDateISO,
+  })
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Load history on mount or when refetched
+  useEffect(() => {
+    if (historyData?.messages) {
+      setMessages(historyData.messages)
+    }
+  }, [historyData])
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
@@ -52,14 +94,14 @@ function ChatPanel({ slug, node, onClose }: Props) {
             (output.output as string) ||
             (output.node_outputs ? Object.values(output.node_outputs as Record<string, unknown>).map(String).join("\n\n") : null) ||
             JSON.stringify(output)
-          setMessages((prev) => [...prev, { role: "assistant", text }])
+          setMessages((prev) => [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }])
         } else {
-          setMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)" }])
+          setMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)", timestamp: new Date().toISOString() }])
         }
       } else if (msg.type === "execution_failed") {
         pendingExecRef.current = null
         setWaiting(false)
-        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}` }])
+        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}`, timestamp: new Date().toISOString() }])
       }
     })
     return () => wsManager.unregisterHandler(handlerId)
@@ -69,7 +111,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
     const text = input.trim()
     if (!text || sendMessage.isPending || waiting) return
     setInput("")
-    setMessages((prev) => [...prev, { role: "user", text }])
+    setMessages((prev) => [...prev, { role: "user", text, timestamp: new Date().toISOString() }])
     sendMessage.mutate(text, {
       onSuccess: (data) => {
         setWaiting(true)
@@ -79,57 +121,99 @@ function ChatPanel({ slug, node, onClose }: Props) {
           if (pendingExecRef.current === data.execution_id) {
             pendingExecRef.current = null
             setWaiting(false)
-            setMessages((prev) => [...prev, { role: "assistant", text: "Error: Execution timed out" }])
+            setMessages((prev) => [...prev, { role: "assistant", text: "Error: Execution timed out", timestamp: new Date().toISOString() }])
           }
         }, 120_000)
       },
       onError: (err) => {
-        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}` }])
+        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }])
       },
     })
   }, [input, sendMessage, waiting])
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 flex items-center justify-between border-b">
-        <div>
-          <h3 className="font-semibold">{node.node_id}</h3>
-          <div className="text-xs text-muted-foreground">Chat Trigger</div>
-        </div>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => { deleteNode.mutate(node.node_id); onClose() }}><Trash2 className="h-4 w-4" /></Button>
-          <Button variant="ghost" size="sm" onClick={onClose}><X className="h-4 w-4" /></Button>
-        </div>
-      </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.length === 0 && <div className="text-xs text-muted-foreground text-center py-8">Send a message to test this workflow</div>}
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-              {msg.text}
+    <Dialog open={true} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="max-w-[90vw] w-[900px] h-[80vh] flex flex-col p-0" showCloseButton={false}>
+        <DialogHeader className="p-4 border-b flex-row items-center justify-between space-y-0">
+          <div>
+            <DialogTitle>{node.node_id}</DialogTitle>
+            <div className="text-xs text-muted-foreground mt-1">Chat Trigger</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" title={beforeDate ? format(beforeDate, "MMM d, yyyy") : "Filter by date"}>
+                  <CalendarIcon className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={beforeDate}
+                  onSelect={(date) => {
+                    setBeforeDate(date)
+                    setCalendarOpen(false)
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            {beforeDate && (
+              <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setBeforeDate(undefined)} title="Clear date filter">
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => refetchHistory()} title="Reload history">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { deleteNode.mutate(node.node_id); onClose() }}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </DialogHeader>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+          {historyData?.has_more && (
+            <div className="text-xs text-muted-foreground text-center py-2">
+              Showing last 10 messages. Use the date picker to view older messages.
             </div>
-          </div>
-        ))}
-        {(sendMessage.isPending || waiting) && (
-          <div className="flex justify-start">
-            <div className="bg-muted rounded-lg px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
-          </div>
-        )}
-      </div>
-      <div className="p-4 border-t flex gap-2">
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          placeholder="Type a message..."
-          className="text-sm"
-          disabled={sendMessage.isPending || waiting}
-        />
-        <Button size="sm" onClick={handleSend} disabled={sendMessage.isPending || waiting || !input.trim()}>
-          <Send className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
+          )}
+          {messages.length === 0 && <div className="text-xs text-muted-foreground text-center py-8">Send a message to test this workflow</div>}
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+              <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                {msg.text}
+              </div>
+              {msg.timestamp && (
+                <div className="text-[10px] text-muted-foreground mt-0.5 px-1">
+                  {formatTimestamp(msg.timestamp)}
+                </div>
+              )}
+            </div>
+          ))}
+          {(sendMessage.isPending || waiting) && (
+            <div className="flex justify-start">
+              <div className="bg-muted rounded-lg px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+            placeholder="Type a message..."
+            className="text-sm"
+            disabled={sendMessage.isPending || waiting}
+          />
+          <Button size="sm" onClick={handleSend} disabled={sendMessage.isPending || waiting || !input.trim()}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -159,6 +243,10 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
   const [conversationMemory, setConversationMemory] = useState(node.config.extra_config?.conversation_memory ?? false)
+
+  // System prompt modal state
+  const [promptModalOpen, setPromptModalOpen] = useState(false)
+  const [promptDraft, setPromptDraft] = useState("")
 
   // Trigger fields
   const [triggerCredentialId, setTriggerCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
@@ -345,8 +433,37 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
 
       {hasSystemPrompt && (
         <div className="space-y-2">
-          <Label className="text-xs">System Prompt</Label>
-          <Textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={6} className="text-xs" />
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">System Prompt</Label>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2"
+              onClick={() => { setPromptDraft(systemPrompt ?? ""); setPromptModalOpen(true) }}
+            >
+              <Expand className="h-3 w-3 mr-1" />
+              <span className="text-xs">Expand</span>
+            </Button>
+          </div>
+          <Textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} className="text-xs h-24 resize-none" />
+
+          <Dialog open={promptModalOpen} onOpenChange={setPromptModalOpen}>
+            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Edit System Prompt</DialogTitle>
+              </DialogHeader>
+              <Textarea
+                className="flex-1 font-mono text-sm resize-none"
+                value={promptDraft}
+                onChange={(e) => setPromptDraft(e.target.value)}
+                placeholder="Enter system prompt instructions..."
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPromptModalOpen(false)}>Cancel</Button>
+                <Button onClick={() => { setSystemPrompt(promptDraft); setPromptModalOpen(false) }}>Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 

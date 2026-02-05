@@ -34,7 +34,7 @@ export interface CredentialUpdate { name?: string; detail?: Record<string, unkno
 
 // Credential test/models
 // Chat
-export interface ChatMessage { role: "user" | "assistant"; text: string }
+export interface ChatMessage { role: "user" | "assistant"; text: string; timestamp?: string }
 export interface ChatResponse { execution_id: string; status: string; response: string }
 
 export interface CredentialTestResult { ok: boolean; error: string }

@@ -96,8 +96,17 @@ def agent_factory(node):
             )
             config = {"configurable": {"thread_id": thread_id}}
 
+        from datetime import datetime
+
         result = agent.invoke({"messages": messages}, config=config)
         out_messages = result.get("messages", [])
+
+        # Add timestamps to AI messages that don't have one
+        now = datetime.utcnow().isoformat() + "Z"
+        for msg in out_messages:
+            if hasattr(msg, "type") and msg.type == "ai":
+                if hasattr(msg, "additional_kwargs") and "timestamp" not in msg.additional_kwargs:
+                    msg.additional_kwargs["timestamp"] = now
 
         final_content = ""
         for msg in reversed(out_messages):

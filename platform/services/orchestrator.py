@@ -569,13 +569,18 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
 
 
 def _build_initial_state(execution) -> dict:
+    from datetime import datetime
+
     from langchain_core.messages import HumanMessage
 
     payload = execution.trigger_payload or {}
     messages = []
     text = payload.get("text", "")
     if text:
-        messages.append(HumanMessage(content=text))
+        messages.append(HumanMessage(
+            content=text,
+            additional_kwargs={"timestamp": datetime.utcnow().isoformat() + "Z"},
+        ))
     return {
         "messages": messages,
         "trigger": payload,
