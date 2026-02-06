@@ -60,6 +60,10 @@ def _episode_key(execution_id: str) -> str:
     return f"execution:{execution_id}:episode_id"
 
 
+def _inflight_key(execution_id: str) -> str:
+    return f"execution:{execution_id}:inflight"
+
+
 def load_state(execution_id: str) -> dict:
     r = _redis()
     raw = r.get(_state_key(execution_id))
@@ -185,14 +189,17 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
         initial_state = _build_initial_state(execution)
         save_state(execution_id, initial_state)
 
-        # Initialize completed-nodes set
+        # Initialize completed-nodes set and inflight counter
         r = _redis()
         r.delete(_completed_key(execution_id))
+        r.delete(_inflight_key(execution_id))
 
         slug = workflow.slug
         from tasks import execute_node_job as _enqueue_node
         q = _queue()
         for node_id in topo.entry_node_ids:
+            r.incr(_inflight_key(execution_id))
+            r.expire(_inflight_key(execution_id), STATE_TTL)
             _publish_event(execution_id, "node_enqueued", {"node_id": node_id}, workflow_slug=slug)
             q.enqueue(_enqueue_node, execution_id, node_id)
 
@@ -434,13 +441,15 @@ def _advance(
     db: Session,
 ) -> None:
     """Enqueue successor nodes after a node completes."""
+    r = _redis()
     edges = topo_data["edges_by_source"].get(completed_node_id, [])
     if not edges:
-        _maybe_finalize(execution_id, topo_data, db)
+        remaining = r.decr(_inflight_key(execution_id))
+        if remaining <= 0:
+            _finalize(execution_id, db)
         return
 
     q = _queue()
-    r = _redis()
 
     # Separate direct and conditional edges
     conditional = [e for e in edges if e["edge_type"] == "conditional"]
@@ -466,6 +475,7 @@ def _advance(
             if target and target != "__end__":
                 targets_to_enqueue.append(target)
 
+    enqueued_count = 0
     for target_id in targets_to_enqueue:
         target_info = topo_data["nodes"].get(target_id)
         if not target_info:
@@ -483,12 +493,16 @@ def _advance(
                 continue
             # All parents done — fall through to enqueue
 
+        r.incr(_inflight_key(execution_id))
+        enqueued_count += 1
         _publish_event(execution_id, "node_enqueued", {"node_id": target_id}, workflow_slug=topo_data.get("workflow_slug", ""))
         from tasks import execute_node_job as _enqueue_node
         q.enqueue(_enqueue_node, execution_id, target_id)
 
-    if not targets_to_enqueue:
-        _maybe_finalize(execution_id, topo_data, db)
+    # Decrement inflight for the completed node and check if execution is done
+    remaining = r.decr(_inflight_key(execution_id))
+    if remaining <= 0:
+        _finalize(execution_id, db)
 
 
 def _maybe_finalize(execution_id: str, topo_data: dict, db: Session) -> None:
@@ -632,10 +646,15 @@ def _extract_output(state: dict) -> dict | None:
     output = state.get("output")
     if output is not None:
         return {"output": output}
+    # Prefer last AI message (conversational response) over node_outputs
+    messages = state.get("messages", [])
+    if messages:
+        for msg in reversed(messages):
+            if hasattr(msg, "type") and msg.type == "ai" and hasattr(msg, "content") and msg.content:
+                return {"message": msg.content}
     node_outputs = state.get("node_outputs", {})
     if node_outputs:
         return {"node_outputs": node_outputs}
-    messages = state.get("messages", [])
     if messages:
         last = messages[-1]
         return {"message": last.content if hasattr(last, "content") else str(last)}

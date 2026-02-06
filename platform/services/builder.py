@@ -14,17 +14,23 @@ from services.state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
-SUB_COMPONENT_TYPES = {"ai_model"}
+SUB_COMPONENT_TYPES = {"ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"}
 
 
 def _reachable_node_ids(
     start_node_id: str,
     all_edges: list[WorkflowEdge],
 ) -> set[str]:
-    """BFS from start_node_id following direct edges, returning all reachable node_ids."""
+    """BFS from start_node_id following direct and conditional edges, returning all reachable node_ids."""
     adjacency: dict[str, list[str]] = {}
     for e in all_edges:
-        adjacency.setdefault(e.source_node_id, []).append(e.target_node_id)
+        if e.target_node_id:
+            adjacency.setdefault(e.source_node_id, []).append(e.target_node_id)
+        # Also follow conditional edge targets from condition_mapping
+        if e.edge_type == "conditional" and e.condition_mapping:
+            for target_id in e.condition_mapping.values():
+                if target_id and target_id != "__end__":
+                    adjacency.setdefault(e.source_node_id, []).append(target_id)
 
     visited: set[str] = set()
     queue = deque([start_node_id])

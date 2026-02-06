@@ -94,10 +94,19 @@ class EdgeValidator:
 
         for edge in edges:
             src = node_map.get(edge.source_node_id)
-            tgt = node_map.get(edge.target_node_id)
             if not src:
                 errors.append(f"Edge references unknown source node '{edge.source_node_id}'")
                 continue
+
+            # Conditional edges use condition_mapping for targets, not target_node_id
+            if edge.edge_type == "conditional":
+                mapping = edge.condition_mapping or {}
+                for route_val, target_id in mapping.items():
+                    if target_id and target_id != "__end__" and target_id not in node_map:
+                        errors.append(f"Conditional edge from '{edge.source_node_id}' maps '{route_val}' to unknown node '{target_id}'")
+                continue
+
+            tgt = node_map.get(edge.target_node_id)
             if not tgt:
                 errors.append(f"Edge references unknown target node '{edge.target_node_id}'")
                 continue

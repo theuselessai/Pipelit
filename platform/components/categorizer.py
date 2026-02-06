@@ -50,7 +50,6 @@ def categorizer_factory(node):
         # Parse category from response
         category = _parse_category(content, category_names)
         return {
-            "messages": [response],
             "route": category,
             "node_outputs": {node_id: {"category": category, "raw": content}},
         }

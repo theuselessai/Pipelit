@@ -182,8 +182,8 @@ register_node_type(NodeTypeSpec(
         "properties": {
             "api_base_url": {
                 "type": "string",
-                "default": "http://localhost:8000/api/v1",
-                "description": "Base URL for API access",
+                "default": "http://localhost:8000",
+                "description": "Base URL for API (paths start with /api/v1/...)",
             },
         },
     },

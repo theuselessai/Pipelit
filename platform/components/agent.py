@@ -80,6 +80,20 @@ def agent_factory(node):
 
     def agent_node(state: dict) -> dict:
         messages = list(state.get("messages", []))
+
+        # If this agent has no tools, strip tool-related messages from upstream
+        # agents to avoid confusing the LLM with foreign tool calls/responses.
+        if not tools:
+            from langchain_core.messages import ToolMessage as _ToolMessage
+            cleaned = []
+            for msg in messages:
+                if isinstance(msg, _ToolMessage):
+                    continue
+                if hasattr(msg, "type") and msg.type == "ai" and getattr(msg, "tool_calls", None):
+                    continue
+                cleaned.append(msg)
+            messages = cleaned
+
         if _prompt_fallback:
             messages = [_prompt_fallback] + messages
         logger.warning("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))

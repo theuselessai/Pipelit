@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "aichat-platform": {
+      "command": "/home/aka/programs/aichat_telegram_bot/.venv/bin/python",
+      "args": ["platform/mcp_server.py"],
+      "env": {
+        "PLATFORM_BASE_URL": "http://localhost:8000"
+      }
+    }
+  }
+}

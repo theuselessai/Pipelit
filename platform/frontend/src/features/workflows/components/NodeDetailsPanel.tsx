@@ -116,14 +116,6 @@ function ChatPanel({ slug, node, onClose }: Props) {
       onSuccess: (data) => {
         setWaiting(true)
         pendingExecRef.current = data.execution_id
-        // Timeout fallback
-        setTimeout(() => {
-          if (pendingExecRef.current === data.execution_id) {
-            pendingExecRef.current = null
-            setWaiting(false)
-            setMessages((prev) => [...prev, { role: "assistant", text: "Error: Execution timed out", timestamp: new Date().toISOString() }])
-          }
-        }, 120_000)
       },
       onError: (err) => {
         setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }])

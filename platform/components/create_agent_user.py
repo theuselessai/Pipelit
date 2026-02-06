@@ -12,6 +12,8 @@ from langchain_core.tools import tool
 from components import register
 from database import SessionLocal
 from models.user import APIKey, UserProfile
+from models.node import WorkflowEdge, WorkflowNode
+from models.workflow import Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -20,34 +22,63 @@ logger = logging.getLogger(__name__)
 def create_agent_user_factory(node):
     """Return a LangChain @tool that creates an agent user for API access."""
     extra = node.component_config.extra_config or {}
-    api_base_url = extra.get("api_base_url", "http://localhost:8000/api/v1")
+    api_base_url = extra.get("api_base_url", "http://localhost:8000")
+
+    # Capture tool's node info to find the parent agent
+    tool_workflow_id = node.workflow_id
+    tool_node_id = node.node_id
 
     @tool
-    def create_agent_user(username: str = "", purpose: str = "") -> str:
-        """Create an agent user and return credentials for API access.
+    def create_agent_user(purpose: str = "") -> str:
+        """Get or create API credentials for this agent.
+
+        Safe to call every time you need API access — returns existing
+        credentials if they already exist, or creates new ones.
 
         Args:
-            username: Optional username for the new user. If not provided, auto-generates one.
-            purpose: Optional description of what this user will be used for.
+            purpose: Optional description of what the credentials are for.
 
         Returns:
             JSON string with username, api_key, and api_base_url.
         """
         db = SessionLocal()
         try:
-            # Auto-generate username if not provided
-            if not username:
-                username = f"agent_{uuid.uuid4().hex[:8]}"
+            # Find the parent agent node via edge lookup
+            edge = (
+                db.query(WorkflowEdge)
+                .filter(
+                    WorkflowEdge.workflow_id == tool_workflow_id,
+                    WorkflowEdge.source_node_id == tool_node_id,
+                    WorkflowEdge.edge_label == "tool",
+                )
+                .first()
+            )
 
-            # Check if username already exists
+            if edge:
+                agent_node_id = edge.target_node_id
+                workflow = db.query(Workflow).filter(Workflow.id == tool_workflow_id).first()
+                workflow_slug = workflow.slug if workflow else str(tool_workflow_id)
+            else:
+                agent_node_id = tool_node_id
+                workflow_slug = str(tool_workflow_id)
+
+            # Deterministic username from agent identity
+            username = f"agent_{workflow_slug}_{agent_node_id}"
+
+            # Return existing credentials if already provisioned
             existing = db.query(UserProfile).filter(UserProfile.username == username).first()
-            if existing:
+            if existing and existing.api_key:
+                logger.info("Returning existing agent user: %s", username)
                 return json.dumps({
-                    "error": f"Username '{username}' already exists",
-                    "success": False,
+                    "success": True,
+                    "username": username,
+                    "api_key": existing.api_key.key,
+                    "api_base_url": api_base_url,
+                    "purpose": existing.first_name,
+                    "already_existed": True,
                 })
 
-            # Create the agent user with a random password hash (agents don't login via password)
+            # Create new agent user
             random_hash = secrets.token_hex(32)
             user = UserProfile(
                 username=username,
@@ -58,22 +89,20 @@ def create_agent_user_factory(node):
             db.add(user)
             db.flush()
 
-            # Create API key
             api_key = APIKey(user_id=user.id, key=str(uuid.uuid4()))
             db.add(api_key)
             db.commit()
             db.refresh(api_key)
 
-            result = {
+            logger.info("Created agent user: %s", username)
+            return json.dumps({
                 "success": True,
                 "username": username,
                 "api_key": api_key.key,
                 "api_base_url": api_base_url,
                 "purpose": purpose,
-            }
-
-            logger.info("Created agent user: %s", username)
-            return json.dumps(result)
+                "already_existed": False,
+            })
 
         except Exception as e:
             db.rollback()
