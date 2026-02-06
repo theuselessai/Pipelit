@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
-import { useSendChatMessage, useChatHistory } from "@/api/chat"
+import { useSendChatMessage, useChatHistory, useDeleteChatHistory } from "@/api/chat"
 import { wsManager } from "@/lib/wsManager"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,20 +10,72 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon } from "lucide-react"
+import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus } from "lucide-react"
 import { format } from "date-fns"
-import type { WorkflowNode, ChatMessage } from "@/types/models"
+import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule } from "@/types/models"
 
 interface Props {
   slug: string
   node: WorkflowNode
+  workflow?: WorkflowDetail
   onClose: () => void
 }
 
 const TRIGGER_TYPES = ["trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat"]
+
+const OPERATOR_OPTIONS = [
+  { group: "Universal", options: [
+    { value: "exists", label: "Exists" },
+    { value: "does_not_exist", label: "Does not exist" },
+    { value: "is_empty", label: "Is empty" },
+    { value: "is_not_empty", label: "Is not empty" },
+  ]},
+  { group: "String", options: [
+    { value: "equals", label: "Equals" },
+    { value: "not_equals", label: "Not equals" },
+    { value: "contains", label: "Contains" },
+    { value: "not_contains", label: "Not contains" },
+    { value: "starts_with", label: "Starts with" },
+    { value: "not_starts_with", label: "Not starts with" },
+    { value: "ends_with", label: "Ends with" },
+    { value: "not_ends_with", label: "Not ends with" },
+    { value: "matches_regex", label: "Matches regex" },
+    { value: "not_matches_regex", label: "Not matches regex" },
+  ]},
+  { group: "Number", options: [
+    { value: "gt", label: "Greater than" },
+    { value: "lt", label: "Less than" },
+    { value: "gte", label: "Greater or equal" },
+    { value: "lte", label: "Less or equal" },
+  ]},
+  { group: "Datetime", options: [
+    { value: "after", label: "After" },
+    { value: "before", label: "Before" },
+    { value: "after_or_equal", label: "After or equal" },
+    { value: "before_or_equal", label: "Before or equal" },
+  ]},
+  { group: "Boolean", options: [
+    { value: "is_true", label: "Is true" },
+    { value: "is_false", label: "Is false" },
+  ]},
+  { group: "Array", options: [
+    { value: "length_eq", label: "Length equals" },
+    { value: "length_neq", label: "Length not equals" },
+    { value: "length_gt", label: "Length greater than" },
+    { value: "length_lt", label: "Length less than" },
+    { value: "length_gte", label: "Length greater or equal" },
+    { value: "length_lte", label: "Length less or equal" },
+  ]},
+]
+
+const UNARY_OPERATORS = new Set(["exists", "does_not_exist", "is_empty", "is_not_empty", "is_true", "is_false"])
+
+function generateRuleId(): string {
+  return "r_" + Math.random().toString(36).slice(2, 8)
+}
 
 function formatTimestamp(ts: string | undefined): string {
   if (!ts) return ""
@@ -41,10 +93,11 @@ function formatTimestamp(ts: string | undefined): string {
 }
 
 function ChatPanel({ slug, node, onClose }: Props) {
-  const deleteNode = useDeleteNode(slug)
   const sendMessage = useSendChatMessage(slug, node.node_id)
+  const deleteChatHistory = useDeleteChatHistory(slug)
   const [beforeDate, setBeforeDate] = useState<Date | undefined>(undefined)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Convert date to ISO string for API (end of day)
   const beforeDateISO = beforeDate
@@ -92,7 +145,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
           const text =
             (output.message as string) ||
             (output.output as string) ||
-            (output.node_outputs ? Object.values(output.node_outputs as Record<string, unknown>).map(String).join("\n\n") : null) ||
+            (output.node_outputs ? Object.entries(output.node_outputs as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join("\n\n") : null) ||
             JSON.stringify(output)
           setMessages((prev) => [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }])
         } else {
@@ -122,6 +175,16 @@ function ChatPanel({ slug, node, onClose }: Props) {
       },
     })
   }, [input, sendMessage, waiting])
+
+  function handleDeleteHistory() {
+    deleteChatHistory.mutate(undefined, {
+      onSuccess: () => {
+        setMessages([])
+        setConfirmDelete(false)
+        refetchHistory()
+      },
+    })
+  }
 
   return (
     <Dialog open={true} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -158,7 +221,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
             <Button variant="ghost" size="sm" onClick={() => refetchHistory()} title="Reload history">
               <RotateCcw className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { deleteNode.mutate(node.node_id); onClose() }}>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} title="Clear chat history">
               <Trash2 className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={onClose}>
@@ -205,22 +268,51 @@ function ChatPanel({ slug, node, onClose }: Props) {
           </Button>
         </div>
       </DialogContent>
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Clear Chat History</DialogTitle></DialogHeader>
+          <p>Are you sure you want to clear all chat history for this workflow? This cannot be undone.</p>
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+            <Button variant="destructive" onClick={handleDeleteHistory} disabled={deleteChatHistory.isPending}>
+              {deleteChatHistory.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Clear History
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }
 
-export default function NodeDetailsPanel({ slug, node, onClose }: Props) {
+export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Props) {
   if (node.component_type === "trigger_chat") {
     return <ChatPanel slug={slug} node={node} onClose={onClose} />
   }
-  return <NodeConfigPanel slug={slug} node={node} onClose={onClose} />
+  return <NodeConfigPanel slug={slug} node={node} workflow={workflow} onClose={onClose} />
 }
 
-function NodeConfigPanel({ slug, node, onClose }: Props) {
+/** Parse a full field path like "node_outputs.cat_1.category" into { sourceNodeId, outputField }. */
+function parseFieldPath(field: string): { sourceNodeId: string; outputField: string } {
+  if (!field || !field.startsWith("node_outputs.")) return { sourceNodeId: "", outputField: field }
+  const rest = field.slice("node_outputs.".length) // "cat_1.category"
+  const dotIdx = rest.indexOf(".")
+  if (dotIdx === -1) return { sourceNodeId: rest, outputField: "" }
+  return { sourceNodeId: rest.slice(0, dotIdx), outputField: rest.slice(dotIdx + 1) }
+}
+
+function buildFieldPath(sourceNodeId: string, outputField: string): string {
+  if (!sourceNodeId) return outputField
+  return `node_outputs.${sourceNodeId}${outputField ? "." + outputField : ""}`
+}
+
+function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const updateNode = useUpdateNode(slug)
   const deleteNode = useDeleteNode(slug)
   const { data: credentials } = useCredentials()
-  const llmCredentials = credentials?.filter((c) => c.credential_type === "llm") ?? []
+  const allCredentials = credentials?.items ?? []
+  const llmCredentials = allCredentials.filter((c) => c.credential_type === "llm")
 
   const [systemPrompt, setSystemPrompt] = useState(node.config.system_prompt)
   const [extraConfig, setExtraConfig] = useState(JSON.stringify(node.config.extra_config, null, 2))
@@ -235,6 +327,26 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
   const [conversationMemory, setConversationMemory] = useState<boolean>(Boolean(node.config.extra_config?.conversation_memory))
+
+  // Code editor state
+  const [codeSnippet, setCodeSnippet] = useState<string>((node.config.extra_config?.code as string) ?? "")
+  const [codeLanguage, setCodeLanguage] = useState<string>((node.config.extra_config?.language as string) ?? "python")
+  const [codeModalOpen, setCodeModalOpen] = useState(false)
+  const [codeDraft, setCodeDraft] = useState("")
+
+  // Categorizer categories state
+  const [categories, setCategories] = useState<{ name: string; description: string }[]>(
+    () => (node.config.extra_config?.categories as { name: string; description: string }[]) ?? []
+  )
+
+  // Switch rules state
+  const [switchRules, setSwitchRules] = useState<SwitchRule[]>(() => (node.config.extra_config?.rules as SwitchRule[]) ?? [])
+  const [enableFallback, setEnableFallback] = useState<boolean>(Boolean(node.config.extra_config?.enable_fallback))
+
+  // Compute upstream source nodes for switch (direct data edges targeting this node, excluding sub-component edges)
+  const upstreamNodes = workflow?.edges
+    .filter((e) => e.target_node_id === node.node_id && !e.edge_label && e.edge_type === "direct")
+    .map((e) => e.source_node_id) ?? []
 
   // System prompt modal state
   const [promptModalOpen, setPromptModalOpen] = useState(false)
@@ -267,6 +379,11 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
     setTriggerPriority(node.config.priority?.toString() ?? "0")
     setTriggerConfig(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
     setConversationMemory(Boolean(node.config.extra_config?.conversation_memory))
+    setCodeSnippet((node.config.extra_config?.code as string) ?? "")
+    setCodeLanguage((node.config.extra_config?.language as string) ?? "python")
+    setCategories((node.config.extra_config?.categories as { name: string; description: string }[]) ?? [])
+    setSwitchRules((node.config.extra_config?.rules as SwitchRule[]) ?? [])
+    setEnableFallback(Boolean(node.config.extra_config?.enable_fallback))
   }, [node])
 
   const isLLMNode = node.component_type === "ai_model"
@@ -279,6 +396,17 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
     try { parsedExtra = JSON.parse(extraConfig) } catch { /* keep empty */ }
     if (isAgentNode) {
       parsedExtra = { ...parsedExtra, conversation_memory: conversationMemory }
+    }
+    if (node.component_type === "code") {
+      parsedExtra = { ...parsedExtra, code: codeSnippet, language: codeLanguage }
+    }
+    if (node.component_type === "categorizer") {
+      parsedExtra = { ...parsedExtra, categories }
+    }
+    if (node.component_type === "switch") {
+      parsedExtra = { ...parsedExtra, rules: switchRules, enable_fallback: enableFallback }
+      delete parsedExtra.condition_field
+      delete parsedExtra.condition_expression
     }
     let parsedTriggerConfig = {}
     try { parsedTriggerConfig = JSON.parse(triggerConfig) } catch { /* keep empty */ }
@@ -347,7 +475,7 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
               <SelectTrigger><SelectValue placeholder="Select credential (optional)" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">None</SelectItem>
-                {credentials?.map((c) => (
+                {allCredentials.map((c) => (
                   <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -459,6 +587,62 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
         </div>
       )}
 
+      {node.component_type === "categorizer" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">Categories</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => setCategories((prev) => [...prev, { name: "", description: "" }])}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add Category
+              </Button>
+            </div>
+            {categories.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">No categories defined. The LLM output will not be validated.</p>
+            )}
+            {categories.map((cat, idx) => (
+              <div key={idx} className="border rounded-md p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Category {idx + 1}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0"
+                    onClick={() => setCategories((prev) => prev.filter((_, i) => i !== idx))}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Name</Label>
+                  <Input
+                    value={cat.name}
+                    onChange={(e) => setCategories((prev) => prev.map((c, i) => i === idx ? { ...c, name: e.target.value } : c))}
+                    className="text-xs h-7 font-mono"
+                    placeholder="e.g. CHINESE"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Description</Label>
+                  <Input
+                    value={cat.description}
+                    onChange={(e) => setCategories((prev) => prev.map((c, i) => i === idx ? { ...c, description: e.target.value } : c))}
+                    className="text-xs h-7"
+                    placeholder="e.g. Chinese cuisine"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {isAgentNode && (
         <>
           <Separator />
@@ -468,6 +652,180 @@ function NodeConfigPanel({ slug, node, onClose }: Props) {
               <p className="text-xs text-muted-foreground">Remember prior conversations across executions</p>
             </div>
             <Switch checked={conversationMemory} onCheckedChange={setConversationMemory} />
+          </div>
+        </>
+      )}
+
+      {node.component_type === "code" && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <Label className="text-xs">Language</Label>
+            <Select value={codeLanguage} onValueChange={setCodeLanguage}>
+              <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="python">Python</SelectItem>
+                <SelectItem value="javascript">JavaScript</SelectItem>
+                <SelectItem value="bash">Bash</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Code</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => { setCodeDraft(codeSnippet); setCodeModalOpen(true) }}
+              >
+                <Expand className="h-3 w-3 mr-1" />
+                <span className="text-xs">Expand</span>
+              </Button>
+            </div>
+            <Textarea
+              value={codeSnippet}
+              onChange={(e) => setCodeSnippet(e.target.value)}
+              className="text-xs h-32 font-mono resize-none"
+              placeholder="# Write your code here..."
+            />
+          </div>
+
+          <Dialog open={codeModalOpen} onOpenChange={setCodeModalOpen}>
+            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Edit Code — {codeLanguage}</DialogTitle>
+              </DialogHeader>
+              <Textarea
+                className="flex-1 font-mono text-sm resize-none"
+                value={codeDraft}
+                onChange={(e) => setCodeDraft(e.target.value)}
+                placeholder="# Write your code here..."
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCodeModalOpen(false)}>Cancel</Button>
+                <Button onClick={() => { setCodeSnippet(codeDraft); setCodeModalOpen(false) }}>Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+
+      {node.component_type === "switch" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">Routing Rules</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => {
+                  const defaultField = upstreamNodes.length === 1 ? buildFieldPath(upstreamNodes[0], "") : ""
+                  setSwitchRules((prev) => [...prev, { id: generateRuleId(), field: defaultField, operator: "equals", value: "", label: "" }])
+                }}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add Rule
+              </Button>
+            </div>
+            {switchRules.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">No rules defined. Add a rule to create routing branches.</p>
+            )}
+            {switchRules.map((rule, idx) => (
+              <div key={rule.id} className="border rounded-md p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Rule {idx + 1}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0"
+                    onClick={() => setSwitchRules((prev) => prev.filter((r) => r.id !== rule.id))}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Label</Label>
+                  <Input
+                    value={rule.label}
+                    onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, label: e.target.value } : r))}
+                    className="text-xs h-7"
+                    placeholder="e.g. Good"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Source Node</Label>
+                  {upstreamNodes.length > 0 ? (
+                    <Select
+                      value={parseFieldPath(rule.field).sourceNodeId || (upstreamNodes.length === 1 ? upstreamNodes[0] : "")}
+                      onValueChange={(v) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(v, parseFieldPath(r.field).outputField) } : r))}
+                    >
+                      <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
+                      <SelectContent>
+                        {upstreamNodes.map((nid) => (
+                          <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={parseFieldPath(rule.field).sourceNodeId}
+                      onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(e.target.value, parseFieldPath(r.field).outputField) } : r))}
+                      className="text-xs h-7 font-mono"
+                      placeholder="node_id"
+                    />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Output Field</Label>
+                  <Input
+                    value={parseFieldPath(rule.field).outputField}
+                    onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(parseFieldPath(r.field).sourceNodeId, e.target.value) } : r))}
+                    className="text-xs h-7 font-mono"
+                    placeholder="e.g. category"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Operator</Label>
+                  <Select
+                    value={rule.operator}
+                    onValueChange={(v) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, operator: v } : r))}
+                  >
+                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {OPERATOR_OPTIONS.map((group) => (
+                        <div key={group.group}>
+                          <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground">{group.group}</div>
+                          {group.options.map((op) => (
+                            <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>
+                          ))}
+                        </div>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!UNARY_OPERATORS.has(rule.operator) && (
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Value</Label>
+                    <Input
+                      value={rule.value}
+                      onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, value: e.target.value } : r))}
+                      className="text-xs h-7"
+                      placeholder="comparison value"
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+            <div className="flex items-center justify-between pt-1">
+              <div>
+                <Label className="text-xs">Fallback Route</Label>
+                <p className="text-[10px] text-muted-foreground">Route to "other" when no rules match</p>
+              </div>
+              <Switch checked={enableFallback} onCheckedChange={setEnableFallback} />
+            </div>
           </div>
         </>
       )}

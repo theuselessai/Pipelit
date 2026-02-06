@@ -38,7 +38,7 @@ import {
   Position,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import type { WorkflowDetail, ComponentType, EdgeLabel } from "@/types/models"
+import type { WorkflowDetail, ComponentType, EdgeLabel, SwitchRule } from "@/types/models"
 import type { NodeStatus } from "@/types/nodeIO"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
@@ -68,6 +68,7 @@ const COMPONENT_COLORS: Record<string, string> = {
   create_agent_user: "#14b8a6",
   platform_api: "#14b8a6",
   whoami: "#14b8a6",
+  switch: "#6366f1",
   workflow: "#6366f1",
   code: "#64748b",
   code_execute: "#10b981",
@@ -88,7 +89,7 @@ const COMPONENT_COLORS: Record<string, string> = {
 
 const COMPONENT_ICONS: Record<string, IconDefinition> = {
   ai_model: faMicrochip, agent: faRobot,
-  categorizer: faTags, router: faCodeBranch, extractor: faMagnifyingGlassChart,
+  categorizer: faTags, router: faCodeBranch, switch: faCodeBranch, extractor: faMagnifyingGlassChart,
   run_command: faTerminal, http_request: faGlobe, web_search: faMagnifyingGlass, calculator: faCalculator, datetime: faClock,
   create_agent_user: faUserPlus, platform_api: faPlug, whoami: faFingerprint,
   workflow: faSitemap,
@@ -110,11 +111,11 @@ function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean }; selected?: boolean }) {
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean }; selected?: boolean }) {
   const iconColor = getColor(data.componentType)
   const isRunning = data.executionStatus === "running"
   const isTrigger = data.componentType.startsWith("trigger_")
-  const isFixedWidth = ["router", "categorizer", "agent", "extractor"].includes(data.componentType)
+  const isFixedWidth = ["router", "categorizer", "agent", "extractor", "switch"].includes(data.componentType)
   const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"].includes(data.componentType)
   const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
@@ -130,7 +131,9 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
     : data.label
   const isSuccess = data.executionStatus === "success"
   const isFailed = data.executionStatus === "failed"
-  const isRouter = ["categorizer", "router"].includes(data.componentType)
+  const isSwitch = data.componentType === "switch"
+  const switchHandles = isSwitch ? (data.rules ?? []) : []
+  const showFallbackHandle = isSwitch && data.enableFallback
   return (
     <div
       className={`relative px-3 py-2 rounded-lg border-2 border-muted-foreground/50 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
@@ -156,7 +159,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
               : <FontAwesomeIcon icon={faMinus} className="opacity-40" style={{ color: "#94a3b8", width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
             }
           </div>
-          {isRouter && (
+          {isSwitch && (
             <FontAwesomeIcon icon={faCodeBranch} className="text-muted-foreground/70" style={{ width: 8, height: 8, margin: "6px 0" }} title="Conditional routing" />
           )}
         </div>
@@ -171,8 +174,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
         </div>
       </div>
       {data.isEntryPoint && <div className="text-[10px] text-primary mt-1">Entry Point</div>}
-      {isFixedWidth && <hr className="border-muted-foreground/30 my-1" />}
-      {isFixedWidth && (
+      {isFixedWidth && !isSwitch && <hr className="border-muted-foreground/30 my-1" />}
+      {isFixedWidth && !isSwitch && (
         <div className="flex mt-1">
           {hasModel && (
             <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#3b82f6", borderColor: "#3b82f6", borderWidth: 1, borderStyle: "solid" }} title="model">
@@ -202,7 +205,26 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           </div>
         </div>
       )}
-      {!isSubComponent && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
+      {isSwitch && (switchHandles.length > 0 || showFallbackHandle) && (
+        <>
+          <hr className="border-muted-foreground/30 my-1" />
+          <div className="flex flex-col gap-1">
+            {switchHandles.map((rule) => (
+              <div key={rule.id} className="relative flex items-center justify-end pr-4">
+                <span className="text-[10px] text-muted-foreground truncate">{rule.label || rule.id}</span>
+                <Handle type="source" position={Position.Right} id={rule.id} className="!bg-indigo-400 !w-2 !h-2" />
+              </div>
+            ))}
+            {showFallbackHandle && (
+              <div className="relative flex items-center justify-end pr-4">
+                <span className="text-[10px] text-muted-foreground italic">other</span>
+                <Handle type="source" position={Position.Right} id="__other__" className="!bg-muted-foreground !w-2 !h-2" />
+              </div>
+            )}
+          </div>
+        </>
+      )}
+      {!isSubComponent && !(isSwitch && (switchHandles.length > 0 || showFallbackHandle)) && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
     </div>
   )
 }
@@ -275,7 +297,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const credentialMap = useMemo(() => {
     const map: Record<number, string> = {}
-    for (const c of credentials ?? []) {
+    for (const c of credentials?.items ?? []) {
       if (c.credential_type === "llm") {
         map[c.id] = c.name
       }
@@ -289,7 +311,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable },
+      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false },
       selected: n.node_id === selectedNodeId,
     }
   }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeTypeRegistry])
@@ -297,7 +319,22 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }
     const targetHandle = e.edge_label ? LABEL_TO_HANDLE[e.edge_label] : undefined
-    const sourceHandle = e.edge_label ? "sub-source" : undefined
+    const sourceHandle = e.edge_label ? "sub-source"
+      : (e.edge_type === "conditional" && e.condition_value) ? e.condition_value
+      : undefined
+    // For conditional edge labels, find the rule label from the source switch node
+    let condLabel: string | undefined
+    if (e.edge_type === "conditional" && e.condition_value) {
+      const srcNode = workflow.nodes.find((n) => n.node_id === e.source_node_id)
+      if (srcNode?.component_type === "switch") {
+        const rules = (srcNode.config?.extra_config?.rules as SwitchRule[]) ?? []
+        const rule = rules.find((r) => r.id === e.condition_value)
+        condLabel = rule?.label || e.condition_value
+      } else {
+        condLabel = e.condition_value
+      }
+    }
+    const edgeLabel = e.edge_label || condLabel
     return {
       id: String(e.id),
       type: "deletable",
@@ -306,7 +343,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       sourceHandle,
       targetHandle,
       animated: !e.edge_label,
-      label: e.edge_label || undefined,
+      label: edgeLabel,
       style: {
         strokeDasharray: !e.edge_label ? "5,5" : undefined,
       },
@@ -344,9 +381,37 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
     if (params.source && params.target) {
       const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", memory: "memory", output_parser: "output_parser" }
       const edge_label = (params.targetHandle && HANDLE_TO_LABEL[params.targetHandle]) || ""
-      createEdge.mutate({ source_node_id: params.source, target_node_id: params.target, edge_label })
+
+      // Check if source is a switch node
+      const sourceNode = workflow.nodes.find((n) => n.node_id === params.source)
+      if (sourceNode?.component_type === "switch" && !edge_label) {
+        // If dragged from a specific rule handle, auto-create conditional edge
+        const ruleId = params.sourceHandle
+        if (ruleId) {
+          createEdge.mutate({
+            source_node_id: params.source,
+            target_node_id: params.target,
+            edge_type: "conditional",
+            edge_label,
+            condition_value: ruleId,
+          })
+        } else {
+          // No rules configured yet — fall back to manual prompt
+          const conditionValue = prompt("Enter condition value for this route (e.g. 'chat', 'research'):")
+          if (!conditionValue) return
+          createEdge.mutate({
+            source_node_id: params.source,
+            target_node_id: params.target,
+            edge_type: "conditional",
+            edge_label,
+            condition_value: conditionValue,
+          })
+        }
+      } else {
+        createEdge.mutate({ source_node_id: params.source, target_node_id: params.target, edge_label })
+      }
     }
-  }, [createEdge])
+  }, [createEdge, workflow.nodes])
 
   const onNodeDragStop = useCallback((_: unknown, node: Node) => {
     updateNode.mutate({ nodeId: node.id, data: { position_x: Math.round(node.position.x), position_y: Math.round(node.position.y) } })

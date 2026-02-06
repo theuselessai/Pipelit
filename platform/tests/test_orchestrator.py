@@ -31,7 +31,7 @@ def _add_node(db, workflow, node_id, component_type, **kwargs):
     return node
 
 
-def _add_edge(db, workflow, source, target, edge_label="", edge_type="direct", condition_mapping=None):
+def _add_edge(db, workflow, source, target, edge_label="", edge_type="direct", condition_mapping=None, condition_value=""):
     edge = WorkflowEdge(
         workflow_id=workflow.id,
         source_node_id=source,
@@ -39,6 +39,7 @@ def _add_edge(db, workflow, source, target, edge_label="", edge_type="direct", c
         edge_label=edge_label,
         edge_type=edge_type,
         condition_mapping=condition_mapping,
+        condition_value=condition_value,
     )
     db.add(edge)
     db.flush()
@@ -165,23 +166,29 @@ class TestBuildTopology:
 
     def test_conditional_edges(self, db, workflow):
         trigger = _add_node(db, workflow, "trigger_1", "trigger_telegram")
-        _add_node(db, workflow, "router_1", "router")
+        _add_node(db, workflow, "switch_1", "switch")
         _add_node(db, workflow, "agent_a", "agent")
         _add_node(db, workflow, "agent_b", "agent")
-        _add_edge(db, workflow, "trigger_1", "router_1")
+        _add_edge(db, workflow, "trigger_1", "switch_1")
         _add_edge(
-            db, workflow, "router_1", "",
+            db, workflow, "switch_1", "agent_a",
             edge_type="conditional",
-            condition_mapping={"route_a": "agent_a", "route_b": "agent_b"},
+            condition_value="route_a",
+        )
+        _add_edge(
+            db, workflow, "switch_1", "agent_b",
+            edge_type="conditional",
+            condition_value="route_b",
         )
         db.commit()
 
         topo = build_topology(workflow, db, trigger_node_id=trigger.id)
 
-        assert "router_1" in topo.nodes
-        cond_edges = [e for e in topo.edges_by_source.get("router_1", []) if e.edge_type == "conditional"]
-        assert len(cond_edges) == 1
-        assert cond_edges[0].condition_mapping == {"route_a": "agent_a", "route_b": "agent_b"}
+        assert "switch_1" in topo.nodes
+        cond_edges = [e for e in topo.edges_by_source.get("switch_1", []) if e.edge_type == "conditional"]
+        assert len(cond_edges) == 2
+        condition_values = {e.condition_value for e in cond_edges}
+        assert condition_values == {"route_a", "route_b"}
 
     def test_trigger_scoping(self, db, workflow):
         trigger_a = _add_node(db, workflow, "trigger_a", "trigger_telegram")
@@ -224,6 +231,9 @@ class TestOrchestratorAdvance:
              patch("services.orchestrator._publish_event"):
             mock_queue = MagicMock()
             mock_q.return_value = mock_queue
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
 
             _advance("exec-1", "a", state, topo_data, MagicMock())
 
@@ -237,19 +247,27 @@ class TestOrchestratorAdvance:
 
         topo_data = {
             "nodes": {
-                "router": {"component_type": "router"},
+                "switch_1": {"component_type": "switch"},
                 "a": {"component_type": "agent"},
                 "b": {"component_type": "agent"},
             },
             "edges_by_source": {
-                "router": [{
-                    "source_node_id": "router",
-                    "target_node_id": "",
-                    "edge_type": "conditional",
-                    "condition_mapping": {"go_a": "a", "go_b": "b"},
-                }],
+                "switch_1": [
+                    {
+                        "source_node_id": "switch_1",
+                        "target_node_id": "a",
+                        "edge_type": "conditional",
+                        "condition_value": "go_a",
+                    },
+                    {
+                        "source_node_id": "switch_1",
+                        "target_node_id": "b",
+                        "edge_type": "conditional",
+                        "condition_value": "go_b",
+                    },
+                ],
             },
-            "incoming_count": {"router": 0, "a": 0, "b": 0},
+            "incoming_count": {"switch_1": 0, "a": 0, "b": 0},
         }
         state = {"route": "go_b"}
 
@@ -258,8 +276,11 @@ class TestOrchestratorAdvance:
              patch("services.orchestrator._publish_event"):
             mock_queue = MagicMock()
             mock_q.return_value = mock_queue
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
 
-            _advance("exec-1", "router", state, topo_data, MagicMock())
+            _advance("exec-1", "switch_1", state, topo_data, MagicMock())
 
             mock_queue.enqueue.assert_called_once()
             args = mock_queue.enqueue.call_args
@@ -289,6 +310,9 @@ class TestOrchestratorAdvance:
              patch("services.orchestrator._publish_event"):
             mock_queue = MagicMock()
             mock_q.return_value = mock_queue
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
 
             _advance("exec-1", "src", state, topo_data, MagicMock())
 
@@ -319,6 +343,7 @@ class TestOrchestratorAdvance:
             mock_r.return_value = mock_redis
             # First parent done — count=1, not enough
             mock_redis.incr.return_value = 1
+            mock_redis.decr.return_value = 0
 
             _advance("exec-1", "a", state, topo_data, MagicMock())
             mock_queue.enqueue.assert_not_called()
@@ -338,10 +363,176 @@ class TestOrchestratorAdvance:
         }
         state = {"route": ""}
 
-        with patch("services.orchestrator._maybe_finalize") as mock_fin, \
+        with patch("services.orchestrator._finalize") as mock_fin, \
+             patch("services.orchestrator._redis") as mock_r, \
              patch("services.orchestrator._publish_event"):
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
+
             _advance("exec-1", "a", state, topo_data, MagicMock())
             mock_fin.assert_called_once()
+
+
+# ── Switch component tests ────────────────────────────────────────────────────
+
+
+class TestSwitchComponent:
+    def test_rule_matching(self):
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {
+            "rules": [
+                {"id": "r_good", "field": "node_outputs.cat_1.category", "operator": "equals", "value": "good", "label": "Good"},
+                {"id": "r_bad", "field": "node_outputs.cat_1.category", "operator": "equals", "value": "bad", "label": "Bad"},
+            ],
+        }
+
+        fn = switch_factory(node)
+        result = fn({"node_outputs": {"cat_1": {"category": "good"}}})
+
+        assert result["route"] == "r_good"
+        assert result["node_outputs"]["switch_1"]["route"] == "r_good"
+
+    def test_rule_second_match(self):
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {
+            "rules": [
+                {"id": "r_good", "field": "node_outputs.cat_1.category", "operator": "equals", "value": "good", "label": "Good"},
+                {"id": "r_bad", "field": "node_outputs.cat_1.category", "operator": "equals", "value": "bad", "label": "Bad"},
+            ],
+        }
+
+        fn = switch_factory(node)
+        result = fn({"node_outputs": {"cat_1": {"category": "bad"}}})
+
+        assert result["route"] == "r_bad"
+
+    def test_fallback(self):
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {
+            "rules": [
+                {"id": "r_good", "field": "node_outputs.cat_1.category", "operator": "equals", "value": "good", "label": "Good"},
+            ],
+            "enable_fallback": True,
+        }
+
+        fn = switch_factory(node)
+        result = fn({"node_outputs": {"cat_1": {"category": "unknown"}}})
+
+        assert result["route"] == "__other__"
+
+    def test_no_match_no_fallback(self):
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {
+            "rules": [
+                {"id": "r_good", "field": "node_outputs.cat_1.category", "operator": "equals", "value": "good", "label": "Good"},
+            ],
+            "enable_fallback": False,
+        }
+
+        fn = switch_factory(node)
+        result = fn({"node_outputs": {"cat_1": {"category": "unknown"}}})
+
+        assert result["route"] == ""
+
+    def test_backward_compat(self):
+        """Legacy condition_field config still works when no rules are set."""
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {"condition_field": "route"}
+
+        fn = switch_factory(node)
+        result = fn({"route": "go_a", "node_outputs": {}})
+
+        assert result["route"] == "go_a"
+        assert result["node_outputs"]["switch_1"]["route"] == "go_a"
+
+    def test_backward_compat_expression(self):
+        """Legacy condition_expression still works."""
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {
+            "condition_expression": "state.node_outputs.cat_1.category",
+        }
+
+        fn = switch_factory(node)
+        result = fn({"node_outputs": {"cat_1": {"category": "billing"}}})
+
+        assert result["route"] == "billing"
+
+    def test_backward_compat_default(self):
+        """Empty extra_config defaults to condition_field='route'."""
+        from components.switch import switch_factory
+
+        node = MagicMock()
+        node.node_id = "switch_1"
+        node.component_config.extra_config = {}
+
+        fn = switch_factory(node)
+        result = fn({"route": "test_val", "node_outputs": {}})
+
+        assert result["route"] == "test_val"
+
+    def test_operators(self):
+        """Test various operators."""
+        from components.switch import switch_factory
+
+        def _make(rules):
+            node = MagicMock()
+            node.node_id = "sw"
+            node.component_config.extra_config = {"rules": rules}
+            return switch_factory(node)
+
+        # equals
+        fn = _make([{"id": "r1", "field": "val", "operator": "equals", "value": "hello", "label": ""}])
+        assert fn({"val": "hello"})["route"] == "r1"
+        assert fn({"val": "nope"})["route"] == ""
+
+        # contains (string)
+        fn = _make([{"id": "r1", "field": "val", "operator": "contains", "value": "ell", "label": ""}])
+        assert fn({"val": "hello"})["route"] == "r1"
+        assert fn({"val": "world"})["route"] == ""
+
+        # gt (number)
+        fn = _make([{"id": "r1", "field": "val", "operator": "gt", "value": "5", "label": ""}])
+        assert fn({"val": 10})["route"] == "r1"
+        assert fn({"val": 3})["route"] == ""
+
+        # is_true (boolean, unary)
+        fn = _make([{"id": "r1", "field": "val", "operator": "is_true", "value": "", "label": ""}])
+        assert fn({"val": True})["route"] == "r1"
+        assert fn({"val": False})["route"] == ""
+
+        # length_eq (array)
+        fn = _make([{"id": "r1", "field": "val", "operator": "length_eq", "value": "3", "label": ""}])
+        assert fn({"val": [1, 2, 3]})["route"] == "r1"
+        assert fn({"val": [1, 2]})["route"] == ""
+
+        # exists (unary)
+        fn = _make([{"id": "r1", "field": "val", "operator": "exists", "value": "", "label": ""}])
+        assert fn({"val": "anything"})["route"] == "r1"
+        assert fn({})["route"] == ""
+
+        # matches_regex
+        fn = _make([{"id": "r1", "field": "val", "operator": "matches_regex", "value": "^\\d+$", "label": ""}])
+        assert fn({"val": "12345"})["route"] == "r1"
+        assert fn({"val": "abc"})["route"] == ""
 
 
 # ── Human confirmation tests ───────────────────────────────────────────────────

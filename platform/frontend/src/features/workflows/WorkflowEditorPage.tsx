@@ -56,6 +56,7 @@ export default function WorkflowEditorPage() {
           <NodeDetailsPanel
             slug={slug!}
             node={detailsNode}
+            workflow={workflow}
             onClose={() => {
               if (chatNodeId) setChatNodeId(null)
               else setSelectedNodeId(null)

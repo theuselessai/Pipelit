@@ -1,5 +1,5 @@
 // Component types
-export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "create_agent_user" | "platform_api" | "whoami" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
+export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "switch" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "create_agent_user" | "platform_api" | "whoami" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
 export type EdgeType = "direct" | "conditional"
 export type EdgeLabel = "" | "llm" | "tool" | "memory" | "output_parser"
 export type CredentialType = "git" | "llm" | "telegram" | "tool"
@@ -18,9 +18,9 @@ export interface NodeCreate { node_id: string; component_type: ComponentType; is
 export interface NodeUpdate { node_id?: string; component_type?: ComponentType; is_entry_point?: boolean; interrupt_before?: boolean; interrupt_after?: boolean; position_x?: number; position_y?: number; config?: Partial<ComponentConfigData>; subworkflow_id?: number | null; code_block_id?: number | null }
 
 // Edge
-export interface WorkflowEdge { id: number; source_node_id: string; target_node_id: string; edge_type: EdgeType; edge_label: EdgeLabel; condition_mapping: Record<string, unknown> | null; priority: number }
-export interface EdgeCreate { source_node_id: string; target_node_id: string; edge_type?: EdgeType; edge_label?: EdgeLabel; condition_mapping?: Record<string, unknown> | null; priority?: number }
-export interface EdgeUpdate { source_node_id?: string; target_node_id?: string; edge_type?: EdgeType; edge_label?: EdgeLabel; condition_mapping?: Record<string, unknown> | null; priority?: number }
+export interface WorkflowEdge { id: number; source_node_id: string; target_node_id: string; edge_type: EdgeType; edge_label: EdgeLabel; condition_mapping: Record<string, unknown> | null; condition_value: string; priority: number }
+export interface EdgeCreate { source_node_id: string; target_node_id: string; edge_type?: EdgeType; edge_label?: EdgeLabel; condition_mapping?: Record<string, unknown> | null; condition_value?: string; priority?: number }
+export interface EdgeUpdate { source_node_id?: string; target_node_id?: string; edge_type?: EdgeType; edge_label?: EdgeLabel; condition_mapping?: Record<string, unknown> | null; condition_value?: string; priority?: number }
 
 // Execution
 export interface Execution { execution_id: string; workflow_slug: string; status: ExecutionStatus; error_message: string; started_at: string | null; completed_at: string | null }
@@ -48,3 +48,12 @@ export interface MemoryUser { id: string; canonical_id: string; display_name: st
 
 // Agent Users
 export interface AgentUser { id: number; username: string; purpose: string; api_key_preview: string; created_at: string; created_by: string | null }
+
+// Paginated response
+export interface PaginatedResponse<T> { items: T[]; total: number }
+
+// Switch rules
+export interface SwitchRule { id: string; field: string; operator: string; value: string; label: string }
+
+// Checkpoints
+export interface Checkpoint { thread_id: string; checkpoint_ns: string; checkpoint_id: string; parent_checkpoint_id: string | null; step: number | null; source: string | null; blob_size: number }
