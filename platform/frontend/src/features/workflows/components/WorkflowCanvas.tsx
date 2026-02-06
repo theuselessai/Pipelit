@@ -130,29 +130,35 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
     : data.label
   const isSuccess = data.executionStatus === "success"
   const isFailed = data.executionStatus === "failed"
+  const isRouter = ["categorizer", "router"].includes(data.componentType)
   return (
     <div
       className={`relative px-3 py-2 rounded-lg border-2 border-muted-foreground/50 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
     >
       {!isTrigger && !isSubComponent && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
-      {isSubComponent && <Handle type="source" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
+      {isSubComponent && <Handle type="source" position={Position.Top} id="sub-source" className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
       {data.executable !== false && (
-        <div
-          className={`absolute rounded-sm border flex items-center justify-center ${isTool ? "bottom-[5px] right-[5px]" : "top-1.5 right-1.5"}`}
-          style={{
-            borderColor: isRunning ? NODE_STATUS_COLORS.running : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8",
-            width: isTool ? 14 : 20,
-            height: isTool ? 14 : 20,
-          }}
-        >
-          {isRunning
-            ? <FontAwesomeIcon icon={faCircleNotch} className="animate-spin" style={{ color: NODE_STATUS_COLORS.running, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
-            : isSuccess
-            ? <FontAwesomeIcon icon={faCircleCheck} style={{ color: NODE_STATUS_COLORS.success, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
-            : isFailed
-            ? <FontAwesomeIcon icon={faCircleXmark} style={{ color: NODE_STATUS_COLORS.failed, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
-            : <FontAwesomeIcon icon={faMinus} className="opacity-40" style={{ color: "#94a3b8", width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
-          }
+        <div className={`absolute flex flex-col items-center gap-0.5 ${isTool ? "bottom-[5px] right-[5px]" : "top-1.5 right-1.5"}`}>
+          <div
+            className="rounded-sm border flex items-center justify-center"
+            style={{
+              borderColor: isRunning ? NODE_STATUS_COLORS.running : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8",
+              width: isTool ? 14 : 20,
+              height: isTool ? 14 : 20,
+            }}
+          >
+            {isRunning
+              ? <FontAwesomeIcon icon={faCircleNotch} className="animate-spin" style={{ color: NODE_STATUS_COLORS.running, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+              : isSuccess
+              ? <FontAwesomeIcon icon={faCircleCheck} style={{ color: NODE_STATUS_COLORS.success, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+              : isFailed
+              ? <FontAwesomeIcon icon={faCircleXmark} style={{ color: NODE_STATUS_COLORS.failed, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+              : <FontAwesomeIcon icon={faMinus} className="opacity-40" style={{ color: "#94a3b8", width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+            }
+          </div>
+          {isRouter && (
+            <FontAwesomeIcon icon={faCodeBranch} className="text-muted-foreground/70" style={{ width: 8, height: 8, margin: "6px 0" }} title="Conditional routing" />
+          )}
         </div>
       )}
       <div className="flex items-center gap-2">
@@ -291,16 +297,18 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }
     const targetHandle = e.edge_label ? LABEL_TO_HANDLE[e.edge_label] : undefined
+    const sourceHandle = e.edge_label ? "sub-source" : undefined
     return {
       id: String(e.id),
       type: "deletable",
       source: e.source_node_id,
       target: e.target_node_id,
+      sourceHandle,
       targetHandle,
-      animated: e.edge_type === "conditional",
+      animated: !e.edge_label,
       label: e.edge_label || undefined,
       style: {
-        strokeDasharray: e.edge_type === "conditional" ? "5,5" : undefined,
+        strokeDasharray: !e.edge_label ? "5,5" : undefined,
       },
     }
   }), [workflow.edges])
