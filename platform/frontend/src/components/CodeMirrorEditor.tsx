@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useRef, useEffect, useCallback, useState } from "react"
 import { EditorState } from "@codemirror/state"
 import { EditorView, keymap, placeholder as cmPlaceholder, ViewUpdate } from "@codemirror/view"

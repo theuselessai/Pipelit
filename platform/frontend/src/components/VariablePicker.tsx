@@ -6,7 +6,7 @@ import type { WorkflowDetail } from "@/types/models"
 import type { PortDefinition } from "@/types/nodeIO"
 
 interface VariablePickerProps {
-  slug: string
+  slug?: string
   nodeId: string
   workflow: WorkflowDetail
   onInsert: (expr: string) => void
@@ -67,7 +67,7 @@ function getUpstreamNodes(
   return result
 }
 
-export default function VariablePicker({ slug: _slug, nodeId, workflow, onInsert }: VariablePickerProps) {
+export default function VariablePicker({ nodeId, workflow, onInsert }: VariablePickerProps) {
   const { data: nodeTypeRegistry } = useNodeTypes()
 
   const upstreamNodes = useMemo(() => {
