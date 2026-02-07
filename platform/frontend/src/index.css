@@ -154,4 +154,25 @@
   body {
     @apply bg-background text-foreground;
   }
+
+}
+
+/* Jinja2 template highlighting in CodeMirror — target self AND nested syntax spans */
+.cm-editor .cm-jinja2-bracket,
+.cm-editor .cm-jinja2-bracket * {
+  color: #4ade80 !important;
+  font-weight: bold;
+}
+.cm-editor .cm-jinja2-content,
+.cm-editor .cm-jinja2-content * {
+  color: #f59e0b !important;
+  font-weight: bold;
+}
+.dark .cm-editor .cm-jinja2-bracket,
+.dark .cm-editor .cm-jinja2-bracket * {
+  color: #86efac !important;
+}
+.dark .cm-editor .cm-jinja2-content,
+.dark .cm-editor .cm-jinja2-content * {
+  color: #fbbf24 !important;
 }

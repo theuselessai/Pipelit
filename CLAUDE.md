@@ -1,10 +1,39 @@
 # CLAUDE.md
 
+## Tech Stack
+This project uses **FastAPI + SQLAlchemy + RQ** (NOT Django). Never reference Django models, Django ORM, or Django settings. The backend is Python/FastAPI with SQLAlchemy models and Alembic migrations. The frontend is TypeScript/React.
+
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 
 ## Project Overview
 
 Telegram Bot that bridges Telegram messaging with LLM providers via LangChain. Supports OpenAI, Anthropic, and any OpenAI-compatible endpoint (Venice.ai, Ollama, etc.). Uses FastAPI + RQ for background task processing with Redis.
+
+# Workflow Architecture
+- Workflow nodes use a polymorphic SQLAlchemy inheritance hierarchy
+- Triggers ARE nodes (unified) — do not treat them as separate entities
+- Switch nodes handle conditional routing (not conditional edges)
+- Agent nodes can have sub-components (tools, memory)
+- Always check that new component types are registered in ALL required places: SQLAlchemy polymorphic_identity, Pydantic literals, frontend type definitions, and migration stamps
+
+## Working Style
+- Always present a plan and get user approval BEFORE writing code for architectural changes
+- Do not rush to fix/improve things the user is just showing you for discussion
+- When user shares output or logs, ask whether they want analysis, a fix, or are just sharing context
+
+## Database & Migrations
+- Use Alembic for all migrations
+- ALWAYS check for conflicting migration heads before creating new migrations
+- Be extremely careful with batch_alter_table operations in SQLite — they can cascade and delete data
+- Test migrations against existing data, not just empty databases
+## Authentication
+- API uses Bearer token authentication (API keys), NOT session auth, NOT basic auth, NOT OAuth
+- Tests must use Bearer token auth
+- Agent users are created without passwords via create_agent_user
+- Never use the user's personal API key for agent operations — create separate agent API keys
+
 
 **Architecture Flow:**
 ```mermaid
@@ -344,6 +373,8 @@ Components no longer receive or use their own `node_id`. Legacy format (returnin
 
 **Jinja2 expression resolution:** Before executing a component, the orchestrator resolves `{{ nodeId.portName }}` template expressions in `system_prompt` and `extra_config` values via `services/expressions.py`. Context variables include all upstream `node_outputs` (keyed by node_id) and `trigger` (with `text`, `payload`). The `trigger` shorthand always refers to whichever trigger fired the current execution, useful in multi-trigger workflows (e.g., chat + telegram triggers feeding the same downstream nodes). Undefined variables gracefully fall back to the original template string. Jinja2 filters (e.g., `| upper`) are supported. The frontend `{ }` variable picker button (ExpressionTextarea) is available on System Prompt, Code Snippet, and Extra Config fields.
 
+**Jinja2 syntax highlighting:** All three CodeMirror modal editors (System Prompt, Code Snippet, Extra Config) apply Jinja2 template highlighting via a `ViewPlugin` (`lib/jinja2Highlight.ts`). The plugin regex-matches `{{ }}`, `{% %}`, and `{# #}` delimiters (including whitespace-control variants like `{{-`, `-%}}`) in visible ranges and applies `Decoration.mark` classes. Brackets get bold lighter green text; inner content gets bold amber/orange text. Styles are defined in `index.css` outside `@layer` with `!important` and descendant selectors to override CodeMirror's syntax theme. Light/dark variants are provided.
+
 ### Running Platform Tests
 
 ```bash
@@ -400,7 +431,8 @@ platform/frontend/src/
 │   ├── useTheme.ts         # Dark mode hook (system/light/dark, persisted to localStorage)
 │   └── useWebSocket.ts     # useWebSocket() + useSubscription(channel) for global WS
 ├── lib/
-│   └── wsManager.ts        # Singleton WebSocketManager (reconnect, subscribe, cache updates)
+│   ├── wsManager.ts        # Singleton WebSocketManager (reconnect, subscribe, cache updates)
+│   └── jinja2Highlight.ts  # CodeMirror 6 ViewPlugin for Jinja2 template syntax highlighting
 ├── types/models.ts         # TS types mirroring API schemas
 ├── App.tsx                 # Routes
 └── main.tsx                # QueryClient + AuthProvider + Router
