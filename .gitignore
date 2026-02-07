@@ -27,6 +27,9 @@ ENV/
 *.swp
 *.swo
 
+# Vite
+.vite/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -117,11 +117,19 @@ class WorkflowBuilder:
             direct = [e for e in source_edges if e.edge_type == "direct"]
 
             if conditional:
-                edge = conditional[0]
-                mapping = edge.condition_mapping or {}
+                # Build path_map from individual conditional edges with condition_value
                 path_map = {}
-                for route_val, target_id in mapping.items():
-                    path_map[route_val] = END if target_id == "__end__" else target_id
+                for e in conditional:
+                    val = getattr(e, "condition_value", "") or ""
+                    if val:
+                        target = END if e.target_node_id == "__end__" else e.target_node_id
+                        path_map[val] = target
+                # Fallback: legacy condition_mapping on first edge
+                if not path_map:
+                    edge = conditional[0]
+                    mapping = edge.condition_mapping or {}
+                    for route_val, target_id in mapping.items():
+                        path_map[route_val] = END if target_id == "__end__" else target_id
                 graph.add_conditional_edges(source_id, _make_route_fn(source_id), path_map)
             elif direct:
                 target = direct[0].target_node_id

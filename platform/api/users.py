@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -13,18 +14,21 @@ from schemas.auth import AgentUserResponse
 router = APIRouter()
 
 
-@router.get("/agents/", response_model=list[AgentUserResponse])
+@router.get("/agents/")
 def list_agent_users(
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(get_db),
     user: UserProfile = Depends(get_current_user),
 ):
     """List all agent users."""
-    agent_users = (
+    base = (
         db.query(UserProfile)
         .filter(UserProfile.is_agent == True)  # noqa: E712
         .order_by(UserProfile.created_at.desc())
-        .all()
     )
+    total = base.count()
+    agent_users = base.offset(offset).limit(limit).all()
 
     result = []
     for agent in agent_users:
@@ -49,7 +53,7 @@ def list_agent_users(
             created_by=created_by,
         ))
 
-    return result
+    return {"items": result, "total": total}
 
 
 @router.delete("/agents/{user_id}/", status_code=204)
@@ -72,4 +76,25 @@ def delete_agent_user(
 
     # Delete the user
     db.delete(agent)
+    db.commit()
+
+
+class BatchDeleteAgentUsersIn(BaseModel):
+    ids: list[int]
+
+
+@router.post("/agents/batch-delete/", status_code=204)
+def batch_delete_agent_users(
+    payload: BatchDeleteAgentUsersIn,
+    db: Session = Depends(get_db),
+    user: UserProfile = Depends(get_current_user),
+):
+    if not payload.ids:
+        return
+    # Delete API keys first
+    db.query(APIKey).filter(APIKey.user_id.in_(payload.ids)).delete(synchronize_session=False)
+    db.query(UserProfile).filter(
+        UserProfile.id.in_(payload.ids),
+        UserProfile.is_agent == True,  # noqa: E712
+    ).delete(synchronize_session=False)
     db.commit()

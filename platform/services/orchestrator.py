@@ -114,6 +114,7 @@ def _save_topology(execution_id: str, topo) -> None:
                     "target_node_id": e.target_node_id,
                     "edge_type": e.edge_type,
                     "condition_mapping": e.condition_mapping,
+                    "condition_value": getattr(e, "condition_value", "") or "",
                     "priority": e.priority,
                 }
                 for e in edges
@@ -257,6 +258,24 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         if not db_node:
             raise RuntimeError(f"Node DB record {node_info['db_id']} not found")
 
+        # Resolve Jinja2 expressions in config before component gets it
+        from services.expressions import resolve_config_expressions, resolve_expressions
+
+        expr_node_outputs = state.get("node_outputs", {})
+        expr_trigger = state.get("trigger", {})
+
+        # Expunge config to avoid dirtying SQLAlchemy session
+        db.expunge(db_node.component_config)
+
+        if db_node.component_config.system_prompt:
+            db_node.component_config.system_prompt = resolve_expressions(
+                db_node.component_config.system_prompt, expr_node_outputs, expr_trigger
+            )
+        if db_node.component_config.extra_config:
+            db_node.component_config.extra_config = resolve_config_expressions(
+                db_node.component_config.extra_config, expr_node_outputs, expr_trigger
+            )
+
         from components import get_component_factory
         factory = get_component_factory(node_info["component_type"])
         node_fn = factory(db_node)
@@ -331,7 +350,30 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
         # Merge result into state
         if result and isinstance(result, dict):
-            state = merge_state_update(state, result)
+            if "node_outputs" in result:
+                # Legacy path — component did its own wrapping
+                state = merge_state_update(state, result)
+            else:
+                # New path — extract reserved keys, wrap the rest
+                route = result.pop("_route", None)
+                new_messages = result.pop("_messages", None)
+                state_patch = result.pop("_state_patch", None)
+
+                # Wrap port values into node_outputs
+                port_data = {k: v for k, v in result.items() if not k.startswith("_")}
+                node_outputs = state.get("node_outputs", {})
+                node_outputs[node_id] = port_data
+                state["node_outputs"] = node_outputs
+
+                # Apply side effects
+                if route is not None:
+                    state["route"] = route
+                if new_messages:
+                    state["messages"] = state.get("messages", []) + new_messages
+                if state_patch and isinstance(state_patch, dict):
+                    for k, v in state_patch.items():
+                        if k not in ("messages", "node_outputs", "node_results"):
+                            state[k] = v
 
         # Store NodeResult in state under node_results
         node_results = state.get("node_results", {})
@@ -340,14 +382,19 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
         save_state(execution_id, state)
 
+        # Extract output for log and WS event (truncate large values)
+        node_output = state.get("node_outputs", {}).get(node_id)
+        log_output = _safe_json(node_output) if node_output is not None else result_data
+
         _write_log(
             db, execution_id, node_id, "completed",
-            duration_ms=duration_ms, output=result_data,
+            duration_ms=duration_ms, output=log_output,
             metadata=node_result.metadata,
         )
         _publish_event(execution_id, "node_status", {
             "node_id": node_id, "status": NodeStatus.SUCCESS.value,
             "duration_ms": duration_ms,
+            "output": _truncate_output(node_output),
         }, workflow_slug=slug)
 
         # Mark node completed
@@ -458,16 +505,20 @@ def _advance(
     targets_to_enqueue: list[str] = []
 
     if conditional:
-        # Route based on state["route"]
+        # Route based on state["route"] using individual condition_value edges
         route_val = state.get("route", "")
-        edge = conditional[0]
-        mapping = edge.get("condition_mapping") or {}
-        target = mapping.get(route_val)
-        if target and target != "__end__":
-            targets_to_enqueue.append(target)
-        elif target == "__end__" or not target:
-            # This branch ends
-            pass
+        matched_target = None
+        for e in conditional:
+            if e.get("condition_value") == route_val:
+                matched_target = e["target_node_id"]
+                break
+        # Fallback: legacy condition_mapping
+        if matched_target is None:
+            edge = conditional[0]
+            mapping = edge.get("condition_mapping") or {}
+            matched_target = mapping.get(route_val)
+        if matched_target and matched_target != "__end__":
+            targets_to_enqueue.append(matched_target)
     else:
         # Fan-out: enqueue ALL direct edge targets
         for e in direct:
@@ -672,6 +723,27 @@ def _safe_json(obj) -> dict | None:
         except (TypeError, ValueError):
             return {"repr": repr(obj)[:1000]}
     return {"repr": repr(obj)[:1000]}
+
+
+def _truncate_output(obj, max_str_len: int = 2048) -> dict | None:
+    """Truncate large string values in output for WebSocket events."""
+    if obj is None:
+        return None
+    try:
+        if isinstance(obj, str):
+            return obj[:max_str_len] if len(obj) > max_str_len else obj
+        if isinstance(obj, dict):
+            truncated = {}
+            for k, v in obj.items():
+                if isinstance(v, str) and len(v) > max_str_len:
+                    truncated[k] = v[:max_str_len] + "..."
+                else:
+                    truncated[k] = v
+            json.dumps(truncated)
+            return truncated
+        return {"repr": repr(obj)[:1000]}
+    except (TypeError, ValueError):
+        return {"repr": repr(obj)[:1000]}
 
 
 def _get_workflow_slug(execution_id: str, db: Session | None = None) -> str | None:

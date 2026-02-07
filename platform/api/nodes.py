@@ -229,6 +229,16 @@ def create_edge(
 ):
     wf = get_workflow(slug, profile, db)
 
+    # Enforce switch-only conditional edges
+    if payload.edge_type == "conditional":
+        if not payload.condition_value:
+            raise HTTPException(status_code=422, detail="Conditional edges require a non-empty condition_value")
+        if not payload.target_node_id:
+            raise HTTPException(status_code=422, detail="Conditional edges require a non-empty target_node_id")
+        src_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.source_node_id).first()
+        if not src_node or src_node.component_type != "switch":
+            raise HTTPException(status_code=422, detail="Conditional edges can only originate from 'switch' nodes")
+
     # Validate edge type compatibility
     if payload.source_node_id and payload.target_node_id:
         src_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.source_node_id).first()

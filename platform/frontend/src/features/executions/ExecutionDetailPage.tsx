@@ -1,10 +1,13 @@
+import { useState } from "react"
 import { useParams } from "react-router-dom"
+import type { ExecutionLog } from "@/types/models"
 import { useExecution, useCancelExecution } from "@/api/executions"
 import { useSubscription } from "@/hooks/useWebSocket"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import { format } from "date-fns"
 
 export default function ExecutionDetailPage() {
@@ -73,34 +76,70 @@ export default function ExecutionDetailPage() {
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Node Execution Logs</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Node</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Timestamp</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {execution.logs.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell className="font-mono text-xs">{log.node_id}</TableCell>
-                  <TableCell><Badge variant="outline">{log.status}</Badge></TableCell>
-                  <TableCell className="text-xs">{log.duration_ms}ms</TableCell>
-                  <TableCell className="text-xs">{format(new Date(log.timestamp), "HH:mm:ss")}</TableCell>
-                </TableRow>
-              ))}
-              {execution.logs.length === 0 && (
-                <TableRow><TableCell colSpan={4} className="text-center py-4 text-muted-foreground">No logs yet.</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <LogsTable logs={execution.logs} />
     </div>
+  )
+}
+
+function LogsTable({ logs }: { logs: ExecutionLog[] }) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+
+  function toggle(id: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-sm">Node Execution Logs</CardTitle></CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8"></TableHead>
+              <TableHead>Node</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Duration</TableHead>
+              <TableHead>Timestamp</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {logs.map((log) => {
+              const hasOutput = log.output != null
+              const isOpen = expanded.has(log.id)
+              return (
+                <>
+                  <TableRow key={log.id} className={hasOutput ? "cursor-pointer" : ""} onClick={() => hasOutput && toggle(log.id)}>
+                    <TableCell className="w-8 px-2">
+                      {hasOutput && (isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{log.node_id}</TableCell>
+                    <TableCell><Badge variant="outline">{log.status}</Badge></TableCell>
+                    <TableCell className="text-xs">{log.duration_ms}ms</TableCell>
+                    <TableCell className="text-xs">{format(new Date(log.timestamp), "HH:mm:ss")}</TableCell>
+                  </TableRow>
+                  {isOpen && hasOutput && (
+                    <TableRow key={`${log.id}-output`}>
+                      <TableCell colSpan={5} className="bg-muted/50 p-0">
+                        <pre className="text-xs p-3 whitespace-pre-wrap break-all max-h-48 overflow-auto font-mono">
+                          {typeof log.output === "string" ? log.output : JSON.stringify(log.output, null, 2)}
+                        </pre>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
+              )
+            })}
+            {logs.length === 0 && (
+              <TableRow><TableCell colSpan={5} className="text-center py-4 text-muted-foreground">No logs yet.</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   )
 }

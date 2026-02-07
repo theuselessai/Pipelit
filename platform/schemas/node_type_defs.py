@@ -99,7 +99,7 @@ register_node_type(NodeTypeSpec(
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[
         PortDefinition(name="category", data_type=DataType.STRING),
-        PortDefinition(name="route", data_type=DataType.STRING),
+        PortDefinition(name="raw", data_type=DataType.STRING, description="Raw LLM response"),
     ],
 ))
 
@@ -121,6 +121,15 @@ register_node_type(NodeTypeSpec(
     requires_model=True, requires_memory=True, requires_output_parser=True,
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[PortDefinition(name="extracted", data_type=DataType.OBJECT)],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="switch",
+    display_name="Switch",
+    description="Routes to different branches based on a state field or expression",
+    category="flow",
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
+    outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
 ))
 
 # ── Sub-components ────────────────────────────────────────────────────────────
@@ -382,7 +391,10 @@ register_node_type(NodeTypeSpec(
     display_name="Human Confirmation",
     category="flow",
     inputs=[PortDefinition(name="prompt", data_type=DataType.STRING)],
-    outputs=[PortDefinition(name="response", data_type=DataType.STRING)],
+    outputs=[
+        PortDefinition(name="confirmed", data_type=DataType.BOOLEAN, description="Whether the user confirmed"),
+        PortDefinition(name="user_response", data_type=DataType.STRING, description="User's response text"),
+    ],
 ))
 
 register_node_type(NodeTypeSpec(

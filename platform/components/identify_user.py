@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 @register("identify_user")
 def identify_user_factory(node):
     """Return a graph node function that identifies the user and loads their context."""
-    node_id = node.node_id
 
     def identify_user_node(state: dict) -> dict:
         # Get trigger payload and channel
@@ -69,17 +68,11 @@ def identify_user_factory(node):
 
         if not channel_id:
             return {
-                "node_outputs": {
-                    node_id: {
-                        "user_id": None,
-                        "user_context": {"is_new": True, "facts": [], "history": []},
-                        "is_new_user": True,
-                        "error": f"Could not extract user ID from {channel} trigger",
-                    }
-                },
-                "user_context": {
-                    "is_new": True,
-                    "channel": channel,
+                "user_id": None,
+                "user_context": {"is_new": True, "facts": [], "history": []},
+                "is_new_user": True,
+                "_state_patch": {
+                    "user_context": {"is_new": True, "channel": channel},
                 },
             }
 
@@ -110,37 +103,27 @@ def identify_user_factory(node):
             )
 
             return {
-                "node_outputs": {
-                    node_id: {
-                        "user_id": user.canonical_id,
-                        "user_context": user_context,
-                        "is_new_user": is_new,
-                    }
-                },
-                # Also update the global user_context in state for other nodes
-                "user_context": {
-                    **user_context,
-                    "canonical_id": user.canonical_id,
-                    "display_name": display_name,
-                    "channel": channel,
+                "user_id": user.canonical_id,
+                "user_context": user_context,
+                "is_new_user": is_new,
+                "_state_patch": {
+                    "user_context": {
+                        **user_context,
+                        "canonical_id": user.canonical_id,
+                        "display_name": display_name,
+                        "channel": channel,
+                    },
                 },
             }
 
         except Exception as e:
             logger.exception("Identify user error")
             return {
-                "node_outputs": {
-                    node_id: {
-                        "user_id": None,
-                        "user_context": {"is_new": True, "facts": [], "history": []},
-                        "is_new_user": True,
-                        "error": str(e),
-                    }
-                },
-                "user_context": {
-                    "is_new": True,
-                    "channel": channel,
-                    "error": str(e),
+                "user_id": None,
+                "user_context": {"is_new": True, "facts": [], "history": []},
+                "is_new_user": True,
+                "_state_patch": {
+                    "user_context": {"is_new": True, "channel": channel, "error": str(e)},
                 },
             }
         finally:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from components import register
 
 
@@ -13,7 +11,6 @@ def router_factory(node):
     extra = node.component_config.extra_config
     condition_field = extra.get("condition_field", "route")
     condition_expression = extra.get("condition_expression")
-    node_id = node.node_id
 
     def router_node(state: dict) -> dict:
         if condition_expression:
@@ -21,10 +18,7 @@ def router_factory(node):
         else:
             route = str(state.get(condition_field, ""))
 
-        return {
-            "route": route,
-            "node_outputs": {node_id: {"route": route}},
-        }
+        return {"_route": route, "route": route}
 
     return router_node
 

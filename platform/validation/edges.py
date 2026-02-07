@@ -98,12 +98,17 @@ class EdgeValidator:
                 errors.append(f"Edge references unknown source node '{edge.source_node_id}'")
                 continue
 
-            # Conditional edges use condition_mapping for targets, not target_node_id
+            # Conditional edges: validate condition_value and target
             if edge.edge_type == "conditional":
-                mapping = edge.condition_mapping or {}
-                for route_val, target_id in mapping.items():
-                    if target_id and target_id != "__end__" and target_id not in node_map:
-                        errors.append(f"Conditional edge from '{edge.source_node_id}' maps '{route_val}' to unknown node '{target_id}'")
+                cv = getattr(edge, "condition_value", "") or ""
+                if not cv:
+                    errors.append(f"Conditional edge from '{edge.source_node_id}' is missing condition_value")
+                if not edge.target_node_id:
+                    errors.append(f"Conditional edge from '{edge.source_node_id}' is missing target_node_id")
+                elif edge.target_node_id != "__end__" and edge.target_node_id not in node_map:
+                    errors.append(f"Conditional edge from '{edge.source_node_id}' targets unknown node '{edge.target_node_id}'")
+                if src.component_type != "switch":
+                    errors.append(f"Conditional edge from '{edge.source_node_id}' ({src.component_type}): only 'switch' nodes can have conditional edges")
                 continue
 
             tgt = node_map.get(edge.target_node_id)

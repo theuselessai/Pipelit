@@ -393,8 +393,8 @@ class TestSwitchComponent:
         fn = switch_factory(node)
         result = fn({"node_outputs": {"cat_1": {"category": "good"}}})
 
+        assert result["_route"] == "r_good"
         assert result["route"] == "r_good"
-        assert result["node_outputs"]["switch_1"]["route"] == "r_good"
 
     def test_rule_second_match(self):
         from components.switch import switch_factory
@@ -411,6 +411,7 @@ class TestSwitchComponent:
         fn = switch_factory(node)
         result = fn({"node_outputs": {"cat_1": {"category": "bad"}}})
 
+        assert result["_route"] == "r_bad"
         assert result["route"] == "r_bad"
 
     def test_fallback(self):
@@ -428,6 +429,7 @@ class TestSwitchComponent:
         fn = switch_factory(node)
         result = fn({"node_outputs": {"cat_1": {"category": "unknown"}}})
 
+        assert result["_route"] == "__other__"
         assert result["route"] == "__other__"
 
     def test_no_match_no_fallback(self):
@@ -458,8 +460,8 @@ class TestSwitchComponent:
         fn = switch_factory(node)
         result = fn({"route": "go_a", "node_outputs": {}})
 
+        assert result["_route"] == "go_a"
         assert result["route"] == "go_a"
-        assert result["node_outputs"]["switch_1"]["route"] == "go_a"
 
     def test_backward_compat_expression(self):
         """Legacy condition_expression still works."""
@@ -474,6 +476,7 @@ class TestSwitchComponent:
         fn = switch_factory(node)
         result = fn({"node_outputs": {"cat_1": {"category": "billing"}}})
 
+        assert result["_route"] == "billing"
         assert result["route"] == "billing"
 
     def test_backward_compat_default(self):
@@ -487,6 +490,7 @@ class TestSwitchComponent:
         fn = switch_factory(node)
         result = fn({"route": "test_val", "node_outputs": {}})
 
+        assert result["_route"] == "test_val"
         assert result["route"] == "test_val"
 
     def test_operators(self):
@@ -501,38 +505,38 @@ class TestSwitchComponent:
 
         # equals
         fn = _make([{"id": "r1", "field": "val", "operator": "equals", "value": "hello", "label": ""}])
-        assert fn({"val": "hello"})["route"] == "r1"
-        assert fn({"val": "nope"})["route"] == ""
+        assert fn({"val": "hello"})["_route"] == "r1"
+        assert fn({"val": "nope"})["_route"] == ""
 
         # contains (string)
         fn = _make([{"id": "r1", "field": "val", "operator": "contains", "value": "ell", "label": ""}])
-        assert fn({"val": "hello"})["route"] == "r1"
-        assert fn({"val": "world"})["route"] == ""
+        assert fn({"val": "hello"})["_route"] == "r1"
+        assert fn({"val": "world"})["_route"] == ""
 
         # gt (number)
         fn = _make([{"id": "r1", "field": "val", "operator": "gt", "value": "5", "label": ""}])
-        assert fn({"val": 10})["route"] == "r1"
-        assert fn({"val": 3})["route"] == ""
+        assert fn({"val": 10})["_route"] == "r1"
+        assert fn({"val": 3})["_route"] == ""
 
         # is_true (boolean, unary)
         fn = _make([{"id": "r1", "field": "val", "operator": "is_true", "value": "", "label": ""}])
-        assert fn({"val": True})["route"] == "r1"
-        assert fn({"val": False})["route"] == ""
+        assert fn({"val": True})["_route"] == "r1"
+        assert fn({"val": False})["_route"] == ""
 
         # length_eq (array)
         fn = _make([{"id": "r1", "field": "val", "operator": "length_eq", "value": "3", "label": ""}])
-        assert fn({"val": [1, 2, 3]})["route"] == "r1"
-        assert fn({"val": [1, 2]})["route"] == ""
+        assert fn({"val": [1, 2, 3]})["_route"] == "r1"
+        assert fn({"val": [1, 2]})["_route"] == ""
 
         # exists (unary)
         fn = _make([{"id": "r1", "field": "val", "operator": "exists", "value": "", "label": ""}])
-        assert fn({"val": "anything"})["route"] == "r1"
-        assert fn({})["route"] == ""
+        assert fn({"val": "anything"})["_route"] == "r1"
+        assert fn({})["_route"] == ""
 
         # matches_regex
         fn = _make([{"id": "r1", "field": "val", "operator": "matches_regex", "value": "^\\d+$", "label": ""}])
-        assert fn({"val": "12345"})["route"] == "r1"
-        assert fn({"val": "abc"})["route"] == ""
+        assert fn({"val": "12345"})["_route"] == "r1"
+        assert fn({"val": "abc"})["_route"] == ""
 
 
 # ── Human confirmation tests ───────────────────────────────────────────────────
@@ -549,8 +553,8 @@ class TestHumanConfirmation:
         fn = human_confirmation_factory(node)
         result = fn({"node_outputs": {}})
 
-        assert result["route"] == "cancelled"
-        assert result["node_outputs"]["confirm_1"]["confirmed"] is False
+        assert result["_route"] == "cancelled"
+        assert result["confirmed"] is False
 
     def test_resume_input_yes(self):
         from components.human_confirmation import human_confirmation_factory
@@ -562,8 +566,8 @@ class TestHumanConfirmation:
         fn = human_confirmation_factory(node)
         result = fn({"node_outputs": {}, "_resume_input": "yes"})
 
-        assert result["route"] == "confirmed"
-        assert result["node_outputs"]["confirm_1"]["confirmed"] is True
+        assert result["_route"] == "confirmed"
+        assert result["confirmed"] is True
 
     def test_resume_input_no(self):
         from components.human_confirmation import human_confirmation_factory
@@ -575,5 +579,113 @@ class TestHumanConfirmation:
         fn = human_confirmation_factory(node)
         result = fn({"node_outputs": {}, "_resume_input": "no"})
 
-        assert result["route"] == "cancelled"
-        assert result["node_outputs"]["confirm_1"]["confirmed"] is False
+        assert result["_route"] == "cancelled"
+        assert result["confirmed"] is False
+
+
+# ── Orchestrator output wrapping tests ─────────────────────────────────────────
+
+
+class TestOrchestratorOutputWrapping:
+    """Test the new orchestrator output wrapping logic."""
+
+    def _apply_wrapping(self, state: dict, result: dict | None, node_id: str) -> dict:
+        """Simulate the orchestrator wrapping logic from execute_node_job."""
+        if result and isinstance(result, dict):
+            if "node_outputs" in result:
+                state = merge_state_update(state, result)
+            else:
+                route = result.pop("_route", None)
+                new_messages = result.pop("_messages", None)
+                state_patch = result.pop("_state_patch", None)
+
+                port_data = {k: v for k, v in result.items() if not k.startswith("_")}
+                node_outputs = state.get("node_outputs", {})
+                node_outputs[node_id] = port_data
+                state["node_outputs"] = node_outputs
+
+                if route is not None:
+                    state["route"] = route
+                if new_messages:
+                    state["messages"] = state.get("messages", []) + new_messages
+                if state_patch and isinstance(state_patch, dict):
+                    for k, v in state_patch.items():
+                        if k not in ("messages", "node_outputs", "node_results"):
+                            state[k] = v
+
+        return state
+
+    def test_flat_dict_wrapping(self):
+        state = {"node_outputs": {}, "messages": []}
+        result = {"output": "hello", "category": "chat"}
+        state = self._apply_wrapping(state, result, "agent_1")
+        assert state["node_outputs"]["agent_1"] == {"output": "hello", "category": "chat"}
+
+    def test_route_extraction(self):
+        state = {"node_outputs": {}, "route": ""}
+        result = {"_route": "FOOD", "category": "FOOD", "raw": "..."}
+        state = self._apply_wrapping(state, result, "cat_1")
+        assert state["route"] == "FOOD"
+        assert state["node_outputs"]["cat_1"] == {"category": "FOOD", "raw": "..."}
+
+    def test_messages_extraction(self):
+        state = {"node_outputs": {}, "messages": ["existing"]}
+        result = {"_messages": ["new_msg"], "output": "hello"}
+        state = self._apply_wrapping(state, result, "chat_1")
+        assert state["messages"] == ["existing", "new_msg"]
+        assert state["node_outputs"]["chat_1"] == {"output": "hello"}
+
+    def test_state_patch_extraction(self):
+        state = {"node_outputs": {}, "user_context": {}}
+        result = {
+            "user_id": "u1",
+            "is_new_user": True,
+            "_state_patch": {"user_context": {"name": "Alice"}},
+        }
+        state = self._apply_wrapping(state, result, "id_1")
+        assert state["user_context"] == {"name": "Alice"}
+        assert state["node_outputs"]["id_1"] == {"user_id": "u1", "is_new_user": True}
+
+    def test_state_patch_cannot_overwrite_protected_keys(self):
+        state = {"node_outputs": {"existing": "data"}, "messages": ["msg"], "node_results": {}}
+        result = {
+            "output": "ok",
+            "_state_patch": {
+                "messages": ["hacked"],
+                "node_outputs": {"hacked": True},
+                "node_results": {"hacked": True},
+                "custom_field": "allowed",
+            },
+        }
+        state = self._apply_wrapping(state, result, "n1")
+        assert state["messages"] == ["msg"]
+        assert "hacked" not in state["node_outputs"]
+        assert "hacked" not in state["node_results"]
+        assert state["custom_field"] == "allowed"
+
+    def test_legacy_format_still_works(self):
+        state = {"node_outputs": {}, "messages": []}
+        result = {
+            "messages": ["msg1"],
+            "node_outputs": {"agent_1": "response text"},
+        }
+        state = self._apply_wrapping(state, result, "agent_1")
+        assert state["node_outputs"]["agent_1"] == "response text"
+        assert state["messages"] == ["msg1"]
+
+    def test_underscore_keys_not_in_port_data(self):
+        state = {"node_outputs": {}}
+        result = {"_route": "x", "_messages": [], "_state_patch": {}, "output": "ok"}
+        state = self._apply_wrapping(state, result, "n1")
+        assert state["node_outputs"]["n1"] == {"output": "ok"}
+
+    def test_empty_result(self):
+        """Empty dict is falsy so wrapping is skipped — matches orchestrator behavior."""
+        state = {"node_outputs": {}}
+        state = self._apply_wrapping(state, {}, "n1")
+        assert "n1" not in state["node_outputs"]
+
+    def test_none_result(self):
+        state = {"node_outputs": {}}
+        state = self._apply_wrapping(state, None, "n1")
+        assert "n1" not in state["node_outputs"]

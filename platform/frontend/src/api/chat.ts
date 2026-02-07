@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./client"
 import type { ChatMessage, ChatResponse } from "@/types/models"
 
@@ -37,3 +37,10 @@ export function useSendChatMessage(slug: string, triggerNodeId?: string) {
   })
 }
 
+export function useDeleteChatHistory(slug: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<void>(`/workflows/${slug}/chat/history`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["chat-history", slug] }),
+  })
+}

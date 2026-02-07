@@ -30,6 +30,7 @@ class EdgeInfo:
     target_node_id: str
     edge_type: str = "direct"
     condition_mapping: dict | None = None
+    condition_value: str = ""
     priority: int = 0
 
 
@@ -107,6 +108,7 @@ def build_topology(workflow, db: Session, trigger_node_id: int | None = None) ->
             target_node_id=e.target_node_id,
             edge_type=e.edge_type,
             condition_mapping=e.condition_mapping,
+            condition_value=getattr(e, "condition_value", "") or "",
             priority=e.priority,
         )
         edges.append(ei)

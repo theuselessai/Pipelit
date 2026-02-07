@@ -17,7 +17,6 @@ def categorizer_factory(node):
     llm = resolve_llm_for_node(node)
     extra = node.component_config.extra_config
     categories = extra.get("categories", [])
-    node_id = node.node_id
 
     category_descriptions = "\n".join(
         f"- {cat['name']}: {cat.get('description', '')}" for cat in categories
@@ -49,10 +48,7 @@ def categorizer_factory(node):
 
         # Parse category from response
         category = _parse_category(content, category_names)
-        return {
-            "route": category,
-            "node_outputs": {node_id: {"category": category, "raw": content}},
-        }
+        return {"_route": category, "category": category, "raw": content}
 
     return categorizer_node
 

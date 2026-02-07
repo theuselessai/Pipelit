@@ -117,6 +117,10 @@ class _ExtractorConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "extractor"}
 
 
+class _SwitchConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "switch"}
+
+
 class CodeComponentConfig(BaseComponentConfig):
     """Config for code-type components."""
     __mapper_args__ = {"polymorphic_identity": "code"}
@@ -261,6 +265,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "categorizer": AIComponentConfig,
     "router": AIComponentConfig,
     "extractor": AIComponentConfig,
+    "switch": OtherComponentConfig,
     "code": CodeComponentConfig,
     "loop": CodeComponentConfig,
     "filter": CodeComponentConfig,
@@ -356,6 +361,7 @@ class WorkflowEdge(Base):
     edge_type: Mapped[str] = mapped_column(String(15), default="direct")
     edge_label: Mapped[str] = mapped_column(String(20), default="")
     condition_mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    condition_value: Mapped[str] = mapped_column(String(100), default="", server_default="")
     priority: Mapped[int] = mapped_column(Integer, default=0)
 
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="edges")  # noqa: F821

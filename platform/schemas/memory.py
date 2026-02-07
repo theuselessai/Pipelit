@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
 
 
 class FactOut(BaseModel):
@@ -68,3 +75,13 @@ class UserOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CheckpointOut(BaseModel):
+    thread_id: str
+    checkpoint_ns: str
+    checkpoint_id: str
+    parent_checkpoint_id: str | None
+    step: int | None
+    source: str | None
+    blob_size: int

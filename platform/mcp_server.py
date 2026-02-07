@@ -299,6 +299,7 @@ async def create_edge(
     edge_type: str = "direct",
     edge_label: str = "",
     condition_mapping: dict | None = None,
+    condition_value: str = "",
 ) -> str:
     """Connect two nodes with an edge.
 
@@ -309,6 +310,7 @@ async def create_edge(
         edge_type: "direct" or "conditional"
         edge_label: "" for data flow, "llm" for model connection, "tool" for tool connection, "memory" for memory, "output_parser" for parser
         condition_mapping: For conditional edges, a dict mapping route values to target node_ids (e.g. {"chat": "agent_chat", "research": "agent_research"})
+        condition_value: For conditional edges from switch nodes, the route value this edge matches (e.g. "chat", "research")
     """
     body: dict[str, Any] = {
         "source_node_id": source_node_id,
@@ -318,6 +320,8 @@ async def create_edge(
     }
     if condition_mapping is not None:
         body["condition_mapping"] = condition_mapping
+    if condition_value:
+        body["condition_value"] = condition_value
     result = await _post(f"/workflows/{slug}/edges/", body)
     return json.dumps(result, default=str)
 

@@ -630,8 +630,8 @@ class TestIdentifyUserComponent:
                 "node_outputs": {},
             })
 
-        assert result["node_outputs"]["identify_user_1"]["user_id"] == "telegram:123456789"
-        assert result["user_context"]["channel"] == "telegram"
+        assert result["user_id"] == "telegram:123456789"
+        assert result["_state_patch"]["user_context"]["channel"] == "telegram"
 
     def test_identify_new_user(self, db):
         from components.identify_user import identify_user_factory
@@ -652,7 +652,7 @@ class TestIdentifyUserComponent:
                 "node_outputs": {},
             })
 
-        assert result["node_outputs"]["identify_user_1"]["is_new_user"] is True
+        assert result["is_new_user"] is True
 
 
 # ── Code Execute Component Tests ──────────────────────────────────────────────

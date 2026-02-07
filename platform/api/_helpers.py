@@ -102,6 +102,7 @@ def serialize_edge(edge: WorkflowEdge) -> dict:
         "edge_type": edge.edge_type,
         "edge_label": edge.edge_label or "",
         "condition_mapping": edge.condition_mapping,
+        "condition_value": edge.condition_value or "",
         "priority": edge.priority,
     }
 

@@ -14,30 +14,25 @@ def code_factory(node):
     extra = node.component_config.extra_config
     code_snippet = extra.get("code", "")
     language = extra.get("language", "python")
-    node_id = node.node_id
 
     def code_node(state: dict) -> dict:
         if not code_snippet:
-            return {
-                "node_outputs": {node_id: {"output": "", "error": "No code provided"}},
-            }
+            raise ValueError("No code provided")
 
         if language == "python":
-            output, error = _exec_python(code_snippet, state, node_id)
+            output, error = _exec_python(code_snippet, state)
         else:
-            return {
-                "node_outputs": {node_id: {"output": "", "error": f"Language '{language}' not yet supported"}},
-            }
+            raise ValueError(f"Language '{language}' not yet supported")
 
-        result: dict = {"node_outputs": {node_id: {"output": output, "error": error}}}
-        if output and not error:
-            result["message"] = output
-        return result
+        if error:
+            raise RuntimeError(error)
+
+        return {"output": output}
 
     return code_node
 
 
-def _exec_python(code: str, state: dict, node_id: str) -> tuple[str, str]:
+def _exec_python(code: str, state: dict) -> tuple[str, str]:
     """Execute Python code with state available as a local variable.
 
     The code can:

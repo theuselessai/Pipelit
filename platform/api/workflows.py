@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -24,12 +25,14 @@ def list_node_types():
     return {ct: spec.model_dump() for ct, spec in NODE_TYPE_REGISTRY.items()}
 
 
-@router.get("/", response_model=list[WorkflowOut])
+@router.get("/")
 def list_workflows(
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    workflows = (
+    base = (
         db.query(Workflow)
         .filter(
             Workflow.deleted_at.is_(None),
@@ -41,9 +44,10 @@ def list_workflows(
                 ),
             ),
         )
-        .all()
     )
-    return [serialize_workflow(wf, db) for wf in workflows]
+    total = base.count()
+    workflows = base.offset(offset).limit(limit).all()
+    return {"items": [serialize_workflow(wf, db) for wf in workflows], "total": total}
 
 
 @router.post("/", response_model=WorkflowOut, status_code=201)
@@ -107,4 +111,37 @@ def delete_workflow(
 ):
     wf = get_workflow(slug, profile, db)
     wf.soft_delete()
+    db.commit()
+
+
+class BatchDeleteWorkflowsIn(BaseModel):
+    slugs: list[str]
+
+
+@router.post("/batch-delete/", status_code=204)
+def batch_delete_workflows(
+    payload: BatchDeleteWorkflowsIn,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    if not payload.slugs:
+        return
+    from datetime import datetime, timezone
+    workflows = (
+        db.query(Workflow)
+        .filter(
+            Workflow.slug.in_(payload.slugs),
+            Workflow.deleted_at.is_(None),
+            or_(
+                Workflow.owner_id == profile.id,
+                Workflow.id.in_(
+                    db.query(WorkflowCollaborator.workflow_id)
+                    .filter(WorkflowCollaborator.user_profile_id == profile.id)
+                ),
+            ),
+        )
+        .all()
+    )
+    for wf in workflows:
+        wf.soft_delete()
     db.commit()

@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 ComponentTypeStr = Literal[
-    "categorizer", "router", "extractor", "ai_model", "agent",
+    "categorizer", "router", "extractor", "ai_model", "agent", "switch",
     "run_command", "http_request", "web_search", "calculator", "datetime", "create_agent_user", "platform_api", "whoami",
     "aggregator", "human_confirmation", "parallel", "workflow",
     "code", "code_execute", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
@@ -90,6 +90,7 @@ class EdgeIn(BaseModel):
     edge_type: EdgeTypeStr = "direct"
     edge_label: EdgeLabelStr = ""
     condition_mapping: dict | None = None
+    condition_value: str = ""
     priority: int = 0
 
 
@@ -99,6 +100,7 @@ class EdgeUpdate(BaseModel):
     edge_type: EdgeTypeStr | None = None
     edge_label: EdgeLabelStr | None = None
     condition_mapping: dict | None = None
+    condition_value: str | None = None
     priority: int | None = None
 
 
@@ -109,6 +111,7 @@ class EdgeOut(BaseModel):
     edge_type: EdgeTypeStr
     edge_label: str = ""
     condition_mapping: dict | None = None
+    condition_value: str = ""
     priority: int
 
     model_config = {"from_attributes": True}

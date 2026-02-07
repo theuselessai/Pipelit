@@ -96,7 +96,6 @@ UNARY_OPERATORS = {"exists", "does_not_exist", "is_empty", "is_not_empty", "is_t
 def switch_factory(node):
     """Build a switch graph node."""
     extra = node.component_config.extra_config
-    node_id = node.node_id
 
     # New rule-based mode
     rules = extra.get("rules")
@@ -120,10 +119,7 @@ def switch_factory(node):
             if not route and enable_fallback:
                 route = "__other__"
 
-            return {
-                "route": route,
-                "node_outputs": {node_id: {"route": route}},
-            }
+            return {"_route": route, "route": route}
 
         return switch_node
 
@@ -137,10 +133,7 @@ def switch_factory(node):
         else:
             route = str(state.get(condition_field, ""))
 
-        return {
-            "route": route,
-            "node_outputs": {node_id: {"route": route}},
-        }
+        return {"_route": route, "route": route}
 
     return switch_node_legacy
 

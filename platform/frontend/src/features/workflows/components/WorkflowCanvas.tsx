@@ -40,6 +40,7 @@ import {
 import "@xyflow/react/dist/style.css"
 import type { WorkflowDetail, ComponentType, EdgeLabel, SwitchRule } from "@/types/models"
 import type { NodeStatus } from "@/types/nodeIO"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials } from "@/api/credentials"
@@ -111,7 +112,7 @@ function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean }; selected?: boolean }) {
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean; nodeOutput?: Record<string, unknown> }; selected?: boolean }) {
   const iconColor = getColor(data.componentType)
   const isRunning = data.executionStatus === "running"
   const isTrigger = data.componentType.startsWith("trigger_")
@@ -174,6 +175,16 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
         </div>
       </div>
       {data.isEntryPoint && <div className="text-[10px] text-primary mt-1">Entry Point</div>}
+      {isSuccess && data.nodeOutput && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="text-[10px] text-emerald-500 hover:underline mt-0.5 cursor-pointer">output</button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 max-h-64 overflow-auto p-2" align="start">
+            <pre className="text-[11px] whitespace-pre-wrap break-all font-mono">{JSON.stringify(data.nodeOutput, null, 2)}</pre>
+          </PopoverContent>
+        </Popover>
+      )}
       {isFixedWidth && !isSwitch && <hr className="border-muted-foreground/30 my-1" />}
       {isFixedWidth && !isSwitch && (
         <div className="flex mt-1">
@@ -275,20 +286,26 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const { data: credentials } = useCredentials()
   const { data: nodeTypeRegistry } = useNodeTypes()
 
-  // Track node execution status from WebSocket events
+  // Track node execution status and outputs from WebSocket events
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({})
+  const [nodeOutputs, setNodeOutputs] = useState<Record<string, Record<string, unknown>>>({})
 
   useEffect(() => {
     const handlerId = `canvas-node-status-${slug}`
     wsManager.registerHandler(handlerId, (msg) => {
       if (msg.type === "execution_started") {
-        // Reset all node statuses when a new execution starts
+        // Reset all node statuses and outputs when a new execution starts
         setNodeStatuses({})
+        setNodeOutputs({})
       } else if (msg.type === "node_status" && msg.data) {
         const nodeId = msg.data.node_id as string
         const status = msg.data.status as NodeStatus
         if (nodeId && status) {
           setNodeStatuses((prev) => ({ ...prev, [nodeId]: status }))
+          // Store output if present (on success)
+          if (status === "success" && msg.data.output != null) {
+            setNodeOutputs((prev) => ({ ...prev, [nodeId]: msg.data!.output as Record<string, unknown> }))
+          }
         }
       }
     })
@@ -311,10 +328,10 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false },
+      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id] },
       selected: n.node_id === selectedNodeId,
     }
-  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeTypeRegistry])
+  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }

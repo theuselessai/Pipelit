@@ -45,8 +45,8 @@ def agent_factory(node):
     concrete = node.component_config.concrete
     system_prompt = getattr(concrete, "system_prompt", None) or ""
     extra = getattr(concrete, "extra_config", None) or {}
-    node_id = node.node_id
     workflow_id = node.workflow_id
+    node_id = node.node_id
     conversation_memory = extra.get("conversation_memory", False)
 
     logger.warning(
@@ -129,8 +129,8 @@ def agent_factory(node):
                 break
 
         return {
-            "messages": out_messages,
-            "node_outputs": {node_id: final_content},
+            "_messages": out_messages,
+            "output": final_content,
         }
 
     return agent_node

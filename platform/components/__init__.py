@@ -51,6 +51,7 @@ from components import (  # noqa: E402, F401
     router,
     run_command,
     subworkflow,
+    switch,
     trigger,
     web_search,
 )

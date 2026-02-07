@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -82,13 +83,16 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
     return data
 
 
-@router.get("/", response_model=list[CredentialOut])
+@router.get("/")
 def list_credentials(
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    creds = db.query(BaseCredential).all()
-    return [_serialize_credential(c, db) for c in creds]
+    total = db.query(BaseCredential).count()
+    creds = db.query(BaseCredential).offset(offset).limit(limit).all()
+    return {"items": [_serialize_credential(c, db) for c in creds], "total": total}
 
 
 @router.post("/", response_model=CredentialOut, status_code=201)
@@ -213,6 +217,24 @@ def delete_credential(
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
     db.delete(cred)
+    db.commit()
+
+
+class BatchDeleteCredentialsIn(BaseModel):
+    ids: list[int]
+
+
+@router.post("/batch-delete/", status_code=204)
+def batch_delete_credentials(
+    payload: BatchDeleteCredentialsIn,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    if not payload.ids:
+        return
+    creds = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids)).all()
+    for cred in creds:
+        db.delete(cred)
     db.commit()
 
 

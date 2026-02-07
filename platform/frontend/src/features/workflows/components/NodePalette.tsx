@@ -4,7 +4,7 @@ import type { ComponentType } from "@/types/models"
 import {
   MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle,
   Cpu, Bot,
-  GitFork, Route, FileOutput,
+  GitFork, Route, FileOutput, Split,
   Terminal, Globe, Search, Calculator,
   Repeat, Columns2, Pause, Merge, Filter, Shuffle, ArrowDownNarrowWide, ListEnd,
   Code, UserCheck, Layers, ShieldAlert, FileText,
@@ -24,6 +24,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   agent: Bot,
   categorizer: GitFork,
   router: Route,
+  switch: Split,
   extractor: FileOutput,
   run_command: Terminal,
   http_request: Globe,
@@ -56,7 +57,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "Triggers", types: ["trigger_chat", "trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error"] },
   { label: "AI", types: ["ai_model", "agent"] },
-  { label: "Routing", types: ["categorizer", "router", "extractor"] },
+  { label: "Routing", types: ["categorizer", "switch", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
   { label: "Agent", types: ["whoami", "create_agent_user", "platform_api"] },
   { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute"] },

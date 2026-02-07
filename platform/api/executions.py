@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -19,10 +21,12 @@ from schemas.execution import ChatMessageIn, ChatMessageOut, ExecutionDetailOut,
 router = APIRouter()
 
 
-@router.get("/", response_model=list[ExecutionOut])
+@router.get("/")
 def list_executions(
     workflow_slug: str | None = None,
     status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
@@ -31,8 +35,9 @@ def list_executions(
         q = q.join(Workflow).filter(Workflow.slug == workflow_slug)
     if status:
         q = q.filter(WorkflowExecution.status == status)
-    executions = q.all()
-    return [_serialize_execution(e, db) for e in executions]
+    total = q.count()
+    executions = q.order_by(WorkflowExecution.started_at.desc()).offset(offset).limit(limit).all()
+    return {"items": [_serialize_execution(e, db) for e in executions], "total": total}
 
 
 @router.get("/{execution_id}/", response_model=ExecutionDetailOut)
@@ -94,6 +99,28 @@ def cancel_execution(
         db.commit()
         db.refresh(execution)
     return _serialize_execution(execution, db)
+
+
+class BatchDeleteExecutionsIn(BaseModel):
+    execution_ids: list[str]
+
+
+@router.post("/batch-delete/", status_code=204)
+def batch_delete_executions(
+    payload: BatchDeleteExecutionsIn,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    if not payload.execution_ids:
+        return
+    db.query(ExecutionLog).filter(
+        ExecutionLog.execution_id.in_(payload.execution_ids),
+    ).delete(synchronize_session=False)
+    db.query(WorkflowExecution).filter(
+        WorkflowExecution.execution_id.in_(payload.execution_ids),
+        WorkflowExecution.user_profile_id == profile.id,
+    ).delete(synchronize_session=False)
+    db.commit()
 
 
 # ── Chat endpoint (nested under workflows) ────────────────────────────────────
@@ -281,6 +308,29 @@ def get_chat_history(
     result = all_messages[-limit:] if limit > 0 else all_messages
 
     return ChatHistoryOut(messages=result, thread_id=thread_id, has_more=has_more)
+
+
+@chat_router.delete("/{slug}/chat/history", status_code=204)
+def delete_chat_history(
+    slug: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    """Delete chat history from LangGraph checkpoints for this workflow."""
+    workflow = db.query(Workflow).filter(Workflow.slug == slug, Workflow.deleted_at.is_(None)).first()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+
+    thread_id = f"{profile.id}:{workflow.id}"
+
+    from components.agent import _get_checkpointer
+
+    checkpointer = _get_checkpointer()
+    conn = checkpointer.conn
+
+    conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+    conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+    conn.commit()
 
 
 def _serialize_execution(execution: WorkflowExecution, db: Session) -> dict:

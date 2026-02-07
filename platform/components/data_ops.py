@@ -15,15 +15,14 @@ def filter_factory(node):
     field = extra.get("field", "")
     operator = extra.get("operator", "eq")
     value = extra.get("value")
-    node_id = node.node_id
 
     def filter_node(state: dict) -> dict:
         data = _get_source_data(state, source_node)
         if not isinstance(data, list):
-            return {"node_outputs": {node_id: data}}
+            return {"filtered": data}
 
         result = [item for item in data if _match(item, field, operator, value)]
-        return {"node_outputs": {node_id: result}}
+        return {"filtered": result}
 
     return filter_node
 
@@ -34,7 +33,6 @@ def transform_factory(node):
     extra = node.component_config.extra_config
     source_node = extra.get("source_node")
     mapping = extra.get("mapping", {})
-    node_id = node.node_id
 
     def transform_node(state: dict) -> dict:
         data = _get_source_data(state, source_node)
@@ -44,7 +42,7 @@ def transform_factory(node):
             result = _apply_mapping(data, mapping)
         else:
             result = data
-        return {"node_outputs": {node_id: result}}
+        return {"output": result}
 
     return transform_node
 
@@ -56,19 +54,18 @@ def sort_factory(node):
     source_node = extra.get("source_node")
     field = extra.get("field", "")
     reverse = extra.get("reverse", False)
-    node_id = node.node_id
 
     def sort_node(state: dict) -> dict:
         data = _get_source_data(state, source_node)
         if not isinstance(data, list):
-            return {"node_outputs": {node_id: data}}
+            return {"output": data}
 
         result = sorted(
             data,
             key=lambda item: item.get(field, "") if isinstance(item, dict) else item,
             reverse=reverse,
         )
-        return {"node_outputs": {node_id: result}}
+        return {"output": result}
 
     return sort_node
 
@@ -80,15 +77,14 @@ def limit_factory(node):
     source_node = extra.get("source_node")
     count = extra.get("count", 10)
     offset = extra.get("offset", 0)
-    node_id = node.node_id
 
     def limit_node(state: dict) -> dict:
         data = _get_source_data(state, source_node)
         if not isinstance(data, list):
-            return {"node_outputs": {node_id: data}}
+            return {"output": data}
 
         result = data[offset : offset + count]
-        return {"node_outputs": {node_id: result}}
+        return {"output": result}
 
     return limit_node
 
@@ -99,7 +95,6 @@ def merge_factory(node):
     extra = node.component_config.extra_config
     source_nodes = extra.get("source_nodes", [])
     merge_strategy = extra.get("strategy", "concat")
-    node_id = node.node_id
 
     def merge_node(state: dict) -> dict:
         outputs = state.get("node_outputs", {})
@@ -120,7 +115,7 @@ def merge_factory(node):
         else:
             result = sources
 
-        return {"node_outputs": {node_id: result}}
+        return {"merged": result}
 
     return merge_node
 

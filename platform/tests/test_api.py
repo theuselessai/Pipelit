@@ -129,8 +129,9 @@ class TestWorkflowAPI:
         resp = auth_client.get("/api/v1/workflows/")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 1
-        assert data[0]["slug"] == "test-workflow"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["slug"] == "test-workflow"
+        assert data["total"] == 1
 
     def test_create_workflow(self, auth_client, user_profile):
         resp = auth_client.post(
@@ -168,7 +169,7 @@ class TestWorkflowAPI:
     def test_bearer_auth(self, auth_client, workflow):
         resp = auth_client.get("/api/v1/workflows/")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert len(resp.json()["items"]) == 1
 
 
 # ── Auth Token Endpoint ──────────────────────────────────────────────────────
@@ -303,21 +304,21 @@ class TestExecutionAPI:
     def test_list_executions(self, auth_client, execution):
         resp = auth_client.get("/api/v1/executions/")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert len(resp.json()["items"]) == 1
 
     def test_list_executions_filter_status(self, auth_client, execution):
         resp = auth_client.get("/api/v1/executions/?status=running")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert len(resp.json()["items"]) == 1
 
         resp = auth_client.get("/api/v1/executions/?status=completed")
         assert resp.status_code == 200
-        assert len(resp.json()) == 0
+        assert len(resp.json()["items"]) == 0
 
     def test_list_executions_filter_workflow(self, auth_client, execution, workflow):
         resp = auth_client.get(f"/api/v1/executions/?workflow_slug={workflow.slug}")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert len(resp.json()["items"]) == 1
 
     def test_get_execution_detail(self, auth_client, execution):
         resp = auth_client.get(f"/api/v1/executions/{execution.execution_id}/")

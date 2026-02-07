@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus } from "lucide-react"
 import { format } from "date-fns"
+import ExpressionTextarea from "@/components/ExpressionTextarea"
 import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule } from "@/types/models"
 
 interface Props {
@@ -565,19 +566,42 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <span className="text-xs">Expand</span>
             </Button>
           </div>
-          <Textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} className="text-xs h-24 resize-none" />
+          {workflow ? (
+            <ExpressionTextarea
+              value={systemPrompt}
+              onChange={setSystemPrompt}
+              slug={slug}
+              nodeId={node.node_id}
+              workflow={workflow}
+              className="text-xs h-24 resize-none"
+            />
+          ) : (
+            <Textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} className="text-xs h-24 resize-none" />
+          )}
 
           <Dialog open={promptModalOpen} onOpenChange={setPromptModalOpen}>
             <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>Edit System Prompt</DialogTitle>
               </DialogHeader>
-              <Textarea
-                className="flex-1 font-mono text-sm resize-none"
-                value={promptDraft}
-                onChange={(e) => setPromptDraft(e.target.value)}
-                placeholder="Enter system prompt instructions..."
-              />
+              {workflow ? (
+                <ExpressionTextarea
+                  value={promptDraft}
+                  onChange={setPromptDraft}
+                  slug={slug}
+                  nodeId={node.node_id}
+                  workflow={workflow}
+                  className="flex-1 font-mono text-sm resize-none"
+                  placeholder="Enter system prompt instructions..."
+                />
+              ) : (
+                <Textarea
+                  className="flex-1 font-mono text-sm resize-none"
+                  value={promptDraft}
+                  onChange={(e) => setPromptDraft(e.target.value)}
+                  placeholder="Enter system prompt instructions..."
+                />
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setPromptModalOpen(false)}>Cancel</Button>
                 <Button onClick={() => { setSystemPrompt(promptDraft); setPromptModalOpen(false) }}>Save</Button>
@@ -683,12 +707,24 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <span className="text-xs">Expand</span>
               </Button>
             </div>
-            <Textarea
-              value={codeSnippet}
-              onChange={(e) => setCodeSnippet(e.target.value)}
-              className="text-xs h-32 font-mono resize-none"
-              placeholder="# Write your code here..."
-            />
+            {workflow ? (
+              <ExpressionTextarea
+                value={codeSnippet}
+                onChange={setCodeSnippet}
+                slug={slug}
+                nodeId={node.node_id}
+                workflow={workflow}
+                className="text-xs h-32 font-mono resize-none"
+                placeholder="# Write your code here..."
+              />
+            ) : (
+              <Textarea
+                value={codeSnippet}
+                onChange={(e) => setCodeSnippet(e.target.value)}
+                className="text-xs h-32 font-mono resize-none"
+                placeholder="# Write your code here..."
+              />
+            )}
           </div>
 
           <Dialog open={codeModalOpen} onOpenChange={setCodeModalOpen}>
@@ -696,12 +732,24 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <DialogHeader>
                 <DialogTitle>Edit Code — {codeLanguage}</DialogTitle>
               </DialogHeader>
-              <Textarea
-                className="flex-1 font-mono text-sm resize-none"
-                value={codeDraft}
-                onChange={(e) => setCodeDraft(e.target.value)}
-                placeholder="# Write your code here..."
-              />
+              {workflow ? (
+                <ExpressionTextarea
+                  value={codeDraft}
+                  onChange={setCodeDraft}
+                  slug={slug}
+                  nodeId={node.node_id}
+                  workflow={workflow}
+                  className="flex-1 font-mono text-sm resize-none"
+                  placeholder="# Write your code here..."
+                />
+              ) : (
+                <Textarea
+                  className="flex-1 font-mono text-sm resize-none"
+                  value={codeDraft}
+                  onChange={(e) => setCodeDraft(e.target.value)}
+                  placeholder="# Write your code here..."
+                />
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCodeModalOpen(false)}>Cancel</Button>
                 <Button onClick={() => { setCodeSnippet(codeDraft); setCodeModalOpen(false) }}>Save</Button>

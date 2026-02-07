@@ -13,7 +13,6 @@ def chat_model_factory(node):
     """Build a chat_model graph node."""
     llm = resolve_llm_for_node(node)
     system_prompt = node.component_config.system_prompt
-    node_id = node.node_id
 
     def chat_model_node(state: dict) -> dict:
         messages = list(state.get("messages", []))
@@ -22,8 +21,8 @@ def chat_model_factory(node):
 
         response = llm.invoke(messages)
         return {
-            "messages": [response],
-            "node_outputs": {node_id: response.content},
+            "_messages": [response],
+            "output": response.content,
         }
 
     return chat_model_node
