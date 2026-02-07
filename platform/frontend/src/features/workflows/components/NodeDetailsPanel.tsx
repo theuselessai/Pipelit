@@ -899,7 +899,11 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       {!isTriggerNode && (
         <div className="space-y-2">
           <Label className="text-xs">Extra Config (JSON)</Label>
-          <Textarea value={extraConfig} onChange={(e) => setExtraConfig(e.target.value)} rows={4} className="text-xs font-mono" />
+          {workflow ? (
+            <ExpressionTextarea slug={slug} nodeId={node.node_id} workflow={workflow} value={extraConfig} onChange={setExtraConfig} minHeight="80px" className="text-xs font-mono" />
+          ) : (
+            <Textarea value={extraConfig} onChange={(e) => setExtraConfig(e.target.value)} rows={4} className="text-xs font-mono" />
+          )}
         </div>
       )}
 

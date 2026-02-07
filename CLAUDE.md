@@ -342,7 +342,7 @@ Components no longer receive or use their own `node_id`. Legacy format (returnin
 
 **Per-edge conditional routing:** Conditional edges carry a `condition_value` string field on each `WorkflowEdge` row (instead of the legacy `condition_mapping` dict on a single edge). Only `switch` nodes can originate conditional edges. The builder and orchestrator match `state["route"]` against each edge's `condition_value` to determine the next node. Legacy `condition_mapping` fallback is preserved.
 
-**Jinja2 expression resolution:** Before executing a component, the orchestrator resolves `{{ nodeId.portName }}` template expressions in `system_prompt` and `extra_config` values via `services/expressions.py`. Context variables include all upstream `node_outputs` (keyed by node_id) and `trigger` (with `text`, `payload`). Undefined variables gracefully fall back to the original template string. Jinja2 filters (e.g., `| upper`) are supported.
+**Jinja2 expression resolution:** Before executing a component, the orchestrator resolves `{{ nodeId.portName }}` template expressions in `system_prompt` and `extra_config` values via `services/expressions.py`. Context variables include all upstream `node_outputs` (keyed by node_id) and `trigger` (with `text`, `payload`). The `trigger` shorthand always refers to whichever trigger fired the current execution, useful in multi-trigger workflows (e.g., chat + telegram triggers feeding the same downstream nodes). Undefined variables gracefully fall back to the original template string. Jinja2 filters (e.g., `| upper`) are supported. The frontend `{ }` variable picker button (ExpressionTextarea) is available on System Prompt, Code Snippet, and Extra Config fields.
 
 ### Running Platform Tests
 
@@ -474,7 +474,7 @@ Tool nodes connect to agents via the **tools** handle (diamond, green). At build
 
 **Switch node** (`switch`): A flow-control node that evaluates rules against input data and routes to different downstream nodes via conditional edges. Each rule has a `field`, `operator`, and `value`; the first matching rule's `route` value is emitted as `_route`. Each conditional edge carries a `condition_value` matching one route. Falls back to a `default` route if no rules match. Listed in the "Routing" category in the NodePalette.
 
-**Node output display:** After a successful execution, nodes that produced output show a clickable "output" link (emerald green) that opens a Popover with the pretty-printed JSON output. Node outputs are tracked via `node_status` WebSocket events with `status === "success"` and `data.output`.
+**Node output display:** After a successful execution, nodes that produced output show a clickable "output" link (emerald green) that opens a Popover with the pretty-printed JSON output. Failed nodes show a clickable "error" link (red) with error details and error_code. Node outputs are tracked via `node_status` WebSocket events with `status === "success"` and `data.output`, or `status === "failed"` and `data.error`/`data.error_code`.
 
 **Execution log expansion:** On the ExecutionDetailPage, log rows with an `output` field show a chevron toggle that expands to reveal the full output (string or pretty-printed JSON) in a `<pre>` block.
 

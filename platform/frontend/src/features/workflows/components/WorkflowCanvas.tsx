@@ -185,6 +185,16 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           </PopoverContent>
         </Popover>
       )}
+      {isFailed && data.nodeOutput && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="text-[10px] text-red-500 hover:underline mt-0.5 cursor-pointer">error</button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 max-h-64 overflow-auto p-2" align="start">
+            <pre className="text-[11px] whitespace-pre-wrap break-all font-mono text-red-500">{JSON.stringify(data.nodeOutput, null, 2)}</pre>
+          </PopoverContent>
+        </Popover>
+      )}
       {isFixedWidth && !isSwitch && <hr className="border-muted-foreground/30 my-1" />}
       {isFixedWidth && !isSwitch && (
         <div className="flex mt-1">
@@ -302,9 +312,11 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
         const status = msg.data.status as NodeStatus
         if (nodeId && status) {
           setNodeStatuses((prev) => ({ ...prev, [nodeId]: status }))
-          // Store output if present (on success)
+          // Store output if present (on success), or error info (on failure)
           if (status === "success" && msg.data.output != null) {
             setNodeOutputs((prev) => ({ ...prev, [nodeId]: msg.data!.output as Record<string, unknown> }))
+          } else if (status === "failed" && msg.data.error != null) {
+            setNodeOutputs((prev) => ({ ...prev, [nodeId]: { error: msg.data!.error, ...(msg.data!.error_code ? { error_code: msg.data!.error_code } : {}) } as Record<string, unknown> }))
           }
         }
       }
