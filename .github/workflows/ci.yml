@@ -33,13 +33,13 @@ jobs:
         working-directory: platform
         run: |
           export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-          python -m pytest tests/ -v --tb=short
-      - name: Upload coverage
+          python -m pytest tests/ -v --tb=short --cov=. --cov-report=xml:coverage.xml
+      - name: Upload coverage to Codecov
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: codecov/codecov-action@v5
         with:
-          name: coverage-report
-          path: platform/htmlcov/
+          files: platform/coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   frontend-lint:
     runs-on: ubuntu-latest
