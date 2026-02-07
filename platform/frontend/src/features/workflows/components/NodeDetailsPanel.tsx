@@ -16,6 +16,8 @@ import { Calendar } from "@/components/ui/calendar"
 import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus } from "lucide-react"
 import { format } from "date-fns"
 import ExpressionTextarea from "@/components/ExpressionTextarea"
+import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
+import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
 import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule } from "@/types/models"
 
 interface Props {
@@ -352,6 +354,11 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // System prompt modal state
   const [promptModalOpen, setPromptModalOpen] = useState(false)
   const [promptDraft, setPromptDraft] = useState("")
+  const [promptLanguage, setPromptLanguage] = useState<CodeMirrorLanguage>("markdown")
+
+  // Extra config modal state
+  const [extraConfigModalOpen, setExtraConfigModalOpen] = useState(false)
+  const [extraConfigDraft, setExtraConfigDraft] = useState("")
 
   // Trigger fields
   const [triggerCredentialId, setTriggerCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
@@ -582,16 +589,36 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           <Dialog open={promptModalOpen} onOpenChange={setPromptModalOpen}>
             <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
               <DialogHeader>
-                <DialogTitle>Edit System Prompt</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>Edit System Prompt</DialogTitle>
+                  <div className="flex items-center gap-1 text-xs">
+                    <Button
+                      variant={promptLanguage === "markdown" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setPromptLanguage("markdown")}
+                    >
+                      Markdown
+                    </Button>
+                    <Button
+                      variant={promptLanguage === "toml" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setPromptLanguage("toml")}
+                    >
+                      TOML
+                    </Button>
+                  </div>
+                </div>
               </DialogHeader>
               {workflow ? (
-                <ExpressionTextarea
+                <CodeMirrorExpressionEditor
                   value={promptDraft}
                   onChange={setPromptDraft}
                   slug={slug}
                   nodeId={node.node_id}
                   workflow={workflow}
-                  className="flex-1 font-mono text-sm resize-none"
+                  language={promptLanguage}
                   placeholder="Enter system prompt instructions..."
                 />
               ) : (
@@ -733,13 +760,13 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <DialogTitle>Edit Code — {codeLanguage}</DialogTitle>
               </DialogHeader>
               {workflow ? (
-                <ExpressionTextarea
+                <CodeMirrorExpressionEditor
                   value={codeDraft}
                   onChange={setCodeDraft}
                   slug={slug}
                   nodeId={node.node_id}
                   workflow={workflow}
-                  className="flex-1 font-mono text-sm resize-none"
+                  language={codeLanguage as CodeMirrorLanguage}
                   placeholder="# Write your code here..."
                 />
               ) : (
@@ -898,12 +925,53 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
       {!isTriggerNode && (
         <div className="space-y-2">
-          <Label className="text-xs">Extra Config (JSON)</Label>
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Extra Config (JSON)</Label>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2"
+              onClick={() => { setExtraConfigDraft(extraConfig); setExtraConfigModalOpen(true) }}
+            >
+              <Expand className="h-3 w-3 mr-1" />
+              <span className="text-xs">Expand</span>
+            </Button>
+          </div>
           {workflow ? (
-            <ExpressionTextarea slug={slug} nodeId={node.node_id} workflow={workflow} value={extraConfig} onChange={setExtraConfig} minHeight="80px" className="text-xs font-mono" />
+            <ExpressionTextarea slug={slug} nodeId={node.node_id} workflow={workflow} value={extraConfig} onChange={setExtraConfig} className="text-xs font-mono" />
           ) : (
             <Textarea value={extraConfig} onChange={(e) => setExtraConfig(e.target.value)} rows={4} className="text-xs font-mono" />
           )}
+
+          <Dialog open={extraConfigModalOpen} onOpenChange={setExtraConfigModalOpen}>
+            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Edit Extra Config (JSON)</DialogTitle>
+              </DialogHeader>
+              {workflow ? (
+                <CodeMirrorExpressionEditor
+                  value={extraConfigDraft}
+                  onChange={setExtraConfigDraft}
+                  slug={slug}
+                  nodeId={node.node_id}
+                  workflow={workflow}
+                  language="json"
+                  placeholder='{ "key": "value" }'
+                />
+              ) : (
+                <Textarea
+                  className="flex-1 font-mono text-sm resize-none"
+                  value={extraConfigDraft}
+                  onChange={(e) => setExtraConfigDraft(e.target.value)}
+                  placeholder='{ "key": "value" }'
+                />
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setExtraConfigModalOpen(false)}>Cancel</Button>
+                <Button onClick={() => { setExtraConfig(extraConfigDraft); setExtraConfigModalOpen(false) }}>Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
