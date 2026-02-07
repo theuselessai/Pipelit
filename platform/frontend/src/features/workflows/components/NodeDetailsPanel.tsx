@@ -116,16 +116,11 @@ function ChatPanel({ slug, node, onClose }: Props) {
     limit: 10,
     before: beforeDateISO,
   })
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const baseMessages = useMemo(() => historyData?.messages ?? [], [historyData])
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
+  const messages = useMemo(() => [...baseMessages, ...localMessages], [baseMessages, localMessages])
   const [input, setInput] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Load history on mount or when refetched
-  useEffect(() => {
-    if (historyData?.messages) {
-      setMessages(historyData.messages)
-    }
-  }, [historyData])
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
@@ -151,14 +146,14 @@ function ChatPanel({ slug, node, onClose }: Props) {
             (output.output as string) ||
             (output.node_outputs ? Object.entries(output.node_outputs as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join("\n\n") : null) ||
             JSON.stringify(output)
-          setMessages((prev) => [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }])
+          setLocalMessages((prev) => [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }])
         } else {
-          setMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)", timestamp: new Date().toISOString() }])
+          setLocalMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)", timestamp: new Date().toISOString() }])
         }
       } else if (msg.type === "execution_failed") {
         pendingExecRef.current = null
         setWaiting(false)
-        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}`, timestamp: new Date().toISOString() }])
+        setLocalMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}`, timestamp: new Date().toISOString() }])
       }
     })
     return () => wsManager.unregisterHandler(handlerId)
@@ -168,14 +163,14 @@ function ChatPanel({ slug, node, onClose }: Props) {
     const text = input.trim()
     if (!text || sendMessage.isPending || waiting) return
     setInput("")
-    setMessages((prev) => [...prev, { role: "user", text, timestamp: new Date().toISOString() }])
+    setLocalMessages((prev) => [...prev, { role: "user", text, timestamp: new Date().toISOString() }])
     sendMessage.mutate(text, {
       onSuccess: (data) => {
         setWaiting(true)
         pendingExecRef.current = data.execution_id
       },
       onError: (err) => {
-        setMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }])
+        setLocalMessages((prev) => [...prev, { role: "assistant", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }])
       },
     })
   }, [input, sendMessage, waiting])
@@ -183,7 +178,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
   function handleDeleteHistory() {
     deleteChatHistory.mutate(undefined, {
       onSuccess: () => {
-        setMessages([])
+        setLocalMessages([])
         setConfirmDelete(false)
         refetchHistory()
       },
@@ -294,7 +289,7 @@ export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Prop
   if (node.component_type === "trigger_chat") {
     return <ChatPanel slug={slug} node={node} onClose={onClose} />
   }
-  return <NodeConfigPanel slug={slug} node={node} workflow={workflow} onClose={onClose} />
+  return <NodeConfigPanel key={node.node_id} slug={slug} node={node} workflow={workflow} onClose={onClose} />
 }
 
 /** Parse a full field path like "node_outputs.cat_1.category" into { sourceNodeId, outputField }. */
@@ -404,39 +399,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
   const credId = llmCredentialId ? Number(llmCredentialId) : undefined
   const { data: availableModels } = useCredentialModels(credId)
-
-  useEffect(() => {
-    setSystemPrompt(node.config.system_prompt)
-    setExtraConfig(JSON.stringify(node.config.extra_config, null, 2))
-    setLlmCredentialId(node.config.llm_credential_id?.toString() ?? "")
-    setModelName(node.config.model_name ?? "")
-    setTemperature(node.config.temperature?.toString() ?? "")
-    setMaxTokens(node.config.max_tokens?.toString() ?? "")
-    setTopP(node.config.top_p?.toString() ?? "")
-    setFrequencyPenalty(node.config.frequency_penalty?.toString() ?? "")
-    setPresencePenalty(node.config.presence_penalty?.toString() ?? "")
-    setInterruptBefore(node.interrupt_before)
-    setInterruptAfter(node.interrupt_after)
-    setTriggerCredentialId(node.config.credential_id?.toString() ?? "")
-    setTriggerIsActive(node.config.is_active ?? true)
-    setTriggerPriority(node.config.priority?.toString() ?? "0")
-    setTriggerConfig(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
-    setConversationMemory(Boolean(node.config.extra_config?.conversation_memory))
-    setCodeSnippet((node.config.extra_config?.code as string) ?? "")
-    setCodeLanguage((node.config.extra_config?.language as string) ?? "python")
-    setCategories((node.config.extra_config?.categories as { name: string; description: string }[]) ?? [])
-    setSwitchRules((node.config.extra_config?.rules as SwitchRule[]) ?? [])
-    setEnableFallback(Boolean(node.config.extra_config?.enable_fallback))
-    setWaitDuration((node.config.extra_config?.duration as number)?.toString() ?? "0")
-    setWaitUnit((node.config.extra_config?.unit as string) ?? "seconds")
-    setFilterRules((node.config.extra_config?.rules as FilterRule[]) ?? [])
-    setFilterSourceNode((node.config.extra_config?.source_node as string) ?? "")
-    setFilterField((node.config.extra_config?.field as string) ?? "")
-    setMergeMode((node.config.extra_config?.mode as string) ?? "append")
-    setLoopSourceNode((node.config.extra_config?.source_node as string) ?? "")
-    setLoopField((node.config.extra_config?.field as string) ?? "")
-    setLoopOnError((node.config.extra_config?.on_error as string) ?? "stop")
-  }, [node])
 
   const isLLMNode = node.component_type === "ai_model"
   const isAgentNode = node.component_type === "agent"

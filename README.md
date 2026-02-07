@@ -1,176 +1,66 @@
-# LangChain Telegram Bot
+# AIChat Platform
 
-A Python bot that bridges Telegram messaging with LLM providers via LangChain. Supports OpenAI, Anthropic, and any OpenAI-compatible endpoint (Venice.ai, Ollama, etc.). Features intelligent agent routing, session management, automatic context compression, and background task processing with Redis Queue.
+A visual workflow automation platform for building LLM-powered agents. Design workflows on a React Flow canvas, connect triggers (Telegram, webhooks, chat), LLM agents, tools, and routing logic. Executes via LangGraph with real-time WebSocket status updates.
 
-## Architecture
+## Stack
 
-```mermaid
-flowchart TB
-    subgraph LOCAL["LOCAL MACHINE"]
-        TM[Telegram Message]
-        TM --> TP[Telegram Poller<br/>async]
-
-        subgraph GW["GATEWAY"]
-            CAT[Categorizer<br/>LLM] --> EXEC[Executor<br/>enqueue]
-            EXEC --> PLAN[Planner<br/>dynamic]
-            EXEC --> CHAT[Chat]
-            EXEC --> CONF[Confirm<br/>Redis]
-        end
-
-        TP --> GW
-
-        subgraph QUEUES["RQ QUEUES"]
-            BQ[browser queue]
-            DQ[default queue]
-            HQ[high queue]
-        end
-
-        GW --> QUEUES
-
-        subgraph WORKERS["RQ WORKERS - LangGraph react agents with tool-calling"]
-            BA[Browser Agent<br/>Playwright]
-            SA[System Agent<br/>shell]
-            SEA[Search Agent<br/>SearXNG]
-            RA[Research Agent<br/>analysis]
-        end
-
-        QUEUES --> WORKERS
-
-        STORAGE[(Redis + SQLite + LLM<br/>queues / sessions / provider)]
-        WORKERS --> STORAGE
-    end
-```
-
-### Message Flow
-
-```mermaid
-flowchart TB
-    USER[User sends message on Telegram]
-    USER --> POLLER[Poller]
-
-    POLLER -->|GATEWAY_ENABLED=false| CHAT_DIRECT[Chat LLM]
-    CHAT_DIRECT --> REPLY1[Reply]
-
-    POLLER -->|GATEWAY_ENABLED=true| CAT[Categorizer<br/>+ history]
-
-    CAT --> AGENT[AGENT]
-    CAT --> CHAT[CHAT]
-    CAT --> DYNAMIC[DYNAMIC PLAN]
-
-    AGENT --> LG[LangGraph Agent<br/>with tools<br/>system/browser/search/research]
-    CHAT --> LLM[LLM Chat<br/>no tools]
-    DYNAMIC --> PLANNER[Planner<br/>creates steps<br/>runs agents in sequence]
-
-    LG --> SAVE[Save to session<br/>Reply to user]
-    LLM --> SAVE
-    PLANNER --> SAVE
-```
-
-## Features
-
-- **LLM-based Routing** - Gateway classifies messages using LangChain LLM with conversation context
-- **LangGraph Agents** - System commands, browser automation, and research via LangGraph react agents with tool-calling
-- **Dynamic Planning** - LLM-based planning for complex multi-step tasks
-- **Confirmation Flow** - Sensitive actions (buy, delete, install, reboot) require user confirmation
-- **Session Management** - Persistent conversations stored in SQLite with full history
-- **Context Compression** - Automatic summarization when token count exceeds threshold
-- **Background Processing** - All tasks processed via Redis Queue workers
-- **Access Control** - Whitelist users by Telegram ID
+- **Backend:** FastAPI + SQLAlchemy + Alembic + RQ (Redis Queue)
+- **Frontend:** React + Vite + TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query
 
 ## Prerequisites
 
 - Python 3.10+
 - Redis server
-- Telegram Bot Token (from [@BotFather](https://t.me/botfather))
-- An LLM provider: OpenAI API key, Anthropic API key, or any OpenAI-compatible endpoint
-- SearXNG instance (optional, for web search) - see [setup guide](https://ppfeufer.de/searxng-build-your-own-search-engine/)
+- Node.js 18+ (for frontend)
 
 ## Setup
 
-1. **Clone the repository**
+1. **Clone and install backend dependencies**
    ```bash
    git clone git@github.com:theuselessai/aibot_telegram_server.git
    cd aibot_telegram_server
-   ```
-
-2. **Create virtual environment and install dependencies**
-   ```bash
    python3 -m venv .venv
    source .venv/bin/activate
-   pip install -r requirements.txt
+   pip install -r platform/requirements.txt
    ```
 
-3. **Install Redis**
+2. **Install frontend dependencies**
+   ```bash
+   cd platform/frontend
+   npm install
+   ```
+
+3. **Start Redis**
    ```bash
    # macOS
-   brew install redis
    brew services start redis
 
    # Linux (Debian/Ubuntu)
-   sudo apt install redis-server
    sudo systemctl start redis
-   ```
-
-4. **Install SearXNG (optional, for web search)**
-   ```bash
-   # Create directories for configuration and persistent data
-   mkdir -p ./searxng/config/ ./searxng/data/
-   cd ./searxng/
-
-   # Run the container
-   docker run --name searxng -d \
-       -p 8888:8080 \
-       -v "./config/:/etc/searxng/" \
-       -v "./data/:/var/cache/searxng/" \
-       docker.io/searxng/searxng:latest
-   ```
-
-   After first run, enable JSON API by editing `./searxng/config/settings.yml`:
-   ```yaml
-   search:
-     formats:
-       - html
-       - json
-   ```
-
-   Then restart the container:
-   ```bash
-   docker restart searxng
-   ```
-
-5. **Configure environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, and LLM settings
    ```
 
 ## Running
 
-**Terminal 1 - Start Redis (if not running as service):**
+**Backend:**
 ```bash
-redis-server
+cd platform
+source ../.venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Terminal 2 - Start RQ Worker:**
+**Frontend (development):**
 ```bash
-source .venv/bin/activate
-rq worker high default low browser
+cd platform/frontend
+npm run dev          # Dev server at http://localhost:5173 (proxies /api to backend)
 ```
 
-**Terminal 3 - Start Telegram Bot:**
+**Frontend (production):**
 ```bash
-source .venv/bin/activate
-python -m app.main
-```
-
-**Optional - RQ Dashboard (monitoring):**
-```bash
-rq-dashboard  # Opens at http://localhost:9181
+cd platform/frontend
+npm run build        # Build to dist/ (served by FastAPI static mount)
 ```
 
 ## Testing
-
-### Platform tests (Django)
 
 ```bash
 cd platform
@@ -179,151 +69,31 @@ export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet;
 python -m pytest tests/ -v
 ```
 
-## Bot Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message and help |
-| `/clear` | Clear conversation history |
-| `/stats` | Show session statistics |
-| `/context` | Show context window usage |
-| `/pending` | Show pending confirmations |
-| `/confirm_<id>` | Confirm a pending action |
-| `/cancel_<id>` | Cancel a pending action |
-
-## Gateway Routing
-
-When `GATEWAY_ENABLED=true`, messages are classified by an LLM categorizer with conversation context:
-
-| Strategy | Description | Example |
-|----------|-------------|---------|
-| **AGENT** | System/browser/search/research tasks | "run df", "go to google.com", "search for Python tutorials", "analyze this text" |
-| **DYNAMIC** | Complex multi-step tasks | "find houses and compare them" |
-| **CHAT** | Everything else | Regular conversation, questions, greetings |
-
-The categorizer also determines when confirmation is needed (buy, delete, send, install, reboot).
-
-### Agents
-
-| Agent | Queue | Description |
-|-------|-------|-------------|
-| `system_agent` | `default` | Shell commands, file operations, process management |
-| `browser_agent` | `browser` | Web navigation, screenshots, form filling (Playwright) |
-| `search_agent` | `default` | Web search via SearXNG (general, news, images) |
-| `research_agent` | `default` | Text analysis, comparison, summarization |
-
-## Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TELEGRAM_BOT_TOKEN` | Bot token from BotFather | Required |
-| `ALLOWED_USER_IDS` | Comma-separated user IDs | Empty (allow all) |
-| `LLM_PROVIDER` | `openai`, `anthropic`, or `openai_compatible` | `openai_compatible` |
-| `LLM_MODEL` | Model name | Required |
-| `LLM_API_KEY` | API key for the provider | Required |
-| `LLM_BASE_URL` | Base URL (for openai_compatible) | `http://127.0.0.1:8000/v1` |
-| `LLM_TEMPERATURE` | Temperature for generation | `0.7` |
-| `CATEGORIZER_MODEL` | Separate model for categorization | Same as `LLM_MODEL` |
-| `REDIS_HOST` | Redis server host | `localhost` |
-| `REDIS_PORT` | Redis server port | `6379` |
-| `JOB_TIMEOUT` | Max time for RQ job (seconds) | `300` |
-| `GATEWAY_ENABLED` | Enable agent routing | `true` |
-| `CONFIRMATION_TIMEOUT_MINUTES` | Confirmation expiry | `5` |
-| `CHROME_PROFILE_PATH` | Chrome profile for browser agent | `~/.config/agent-chrome-profile` |
-| `BROWSER_HEADLESS` | Run browser headless | `true` |
-| `API_ENABLED` | Enable optional REST API | `false` |
-| `API_PORT` | REST API port | `8080` |
-| `SEARXNG_BASE_URL` | SearXNG instance URL for web search | `http://localhost:8888` |
-
 ## Platform REST API
 
-The `platform/` directory contains a Django-based workflow management system with a REST API built on django-ninja, served at `/api/v1/`.
-
-Authentication uses Bearer tokens (`Authorization: Bearer <key>`). Obtain a token via `POST /api/v1/auth/token/` with `{username, password}`. All endpoints return JSON. CSRF middleware is disabled in development settings.
-
-### Endpoints
+All endpoints under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <key>`).
 
 | Resource | Endpoints |
 |----------|-----------|
-| **Auth** | `POST /api/v1/auth/token/` |
-| **Workflows** | `GET/POST /api/v1/workflows/`, `GET/PATCH/DELETE /api/v1/workflows/{slug}/` |
-| **Nodes** | `GET/POST /api/v1/workflows/{slug}/nodes/`, `PATCH/DELETE .../nodes/{node_id}/` |
-| **Edges** | `GET/POST /api/v1/workflows/{slug}/edges/`, `PATCH/DELETE .../edges/{id}/` |
-| **Triggers** | `GET/POST /api/v1/workflows/{slug}/triggers/`, `PATCH/DELETE .../triggers/{id}/` |
-| **Executions** | `GET /api/v1/executions/`, `GET .../executions/{id}/`, `POST .../executions/{id}/cancel/` |
-| **Credentials** | `GET/POST /api/v1/credentials/`, `GET/PATCH/DELETE .../credentials/{id}/` |
-| **LLM Providers** | `GET /api/v1/credentials/llm-providers/` |
-| **LLM Models** | `GET /api/v1/credentials/llm-models/?provider_id=` |
+| **Auth** | `POST /auth/token/`, `GET /auth/me/`, `POST /auth/setup/` |
+| **Workflows** | `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`, `POST /workflows/{slug}/validate/` |
+| **Nodes** | `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE .../nodes/{node_id}/` |
+| **Edges** | `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE .../edges/{id}/` |
+| **Executions** | `GET /executions/`, `GET .../executions/{id}/`, `POST .../executions/{id}/cancel/` |
+| **Chat** | `POST /workflows/{slug}/chat/`, `DELETE /workflows/{slug}/chat/history` |
+| **Credentials** | `GET/POST /credentials/`, `GET/PATCH/DELETE .../credentials/{id}/`, `POST .../credentials/{id}/test/` |
 
-Workflow detail (`GET /api/v1/workflows/{slug}/`) returns nested nodes, edges, and triggers. Workflow deletion is soft-delete. Node creation/update accepts inline `config` for the underlying `ComponentConfig`. Executions can be filtered by `?workflow_slug=` and `?status=`. Credential sensitive fields (api_key, bot_token) are masked on GET.
+## Features
 
-## React Frontend
-
-The `platform/frontend/` directory contains a React SPA for visual workflow management.
-
-**Stack:** React + Vite + TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query, React Router
-
-### Features
-
-- **Workflow Dashboard** — list, create, delete workflows
-- **Visual Editor** — three-panel layout with node palette, React Flow canvas, and config panel
-- **Node Configuration** — dynamic forms by component type (LLM model/credential selectors for AI nodes, system prompt, extra config JSON)
-- **Trigger Management** — create/delete triggers with type-specific forms
-- **Credentials Management** — CRUD for LLM, Telegram, Git, and Tool credentials with masked sensitive fields
-- **Execution Monitoring** — list with status filters, detail view with node logs, auto-refresh for running executions
-- **Dark Mode** — via Shadcn theme CSS variables
-
-### Running the Frontend
-
-```bash
-cd platform/frontend
-npm install
-npm run dev          # Dev server at http://localhost:5173 (proxies /api to Django)
-npm run build        # Production build to dist/
-```
-
-**Development:** Run both Django (`python manage.py runserver 0.0.0.0:8000`) and Vite (`npm run dev`) simultaneously. Vite proxies `/api` requests to Django at port 8000. Access the app at the Vite dev server URL (e.g. `http://192.168.1.68:5173`).
-
-**Production / without Vite:** Run `npm run build`, then access the app directly through Django (e.g. `http://192.168.1.68:8000`). Django serves the built `dist/` files as static assets and handles SPA routing via a catch-all URL.
-
-## Project Structure
-
-```
-app/
-├── main.py              # Entry point
-├── config.py            # Pydantic settings
-├── bot/
-│   ├── poller.py        # Telegram polling
-│   └── handlers.py      # Command & message handlers
-├── gateway/
-│   ├── router.py        # Route dataclasses + categorizer parser
-│   ├── planner.py       # Dynamic planning
-│   ├── executor.py      # Task enqueueing
-│   └── confirmation.py  # Confirmation handling
-├── agents/
-│   ├── base.py          # Agent factory (LangGraph react agents)
-│   ├── system_agent.py  # Shell, file, process tools
-│   ├── browser_agent.py # Playwright browser tools
-│   ├── search_agent.py  # Web search via SearXNG
-│   └── research_agent.py# Analysis and summarization
-├── tools/
-│   ├── system.py        # shell_execute, file_read/write, disk_usage, etc.
-│   ├── browser.py       # navigate, screenshot, click, type, get_page_text
-│   ├── search.py        # web_search, web_search_news, web_search_images
-│   └── research.py      # analyze_text, compare_items
-├── services/
-│   ├── telegram.py      # Telegram API client (sync, for workers)
-│   ├── llm.py           # LangChain LLM factory + service
-│   ├── sessions.py      # Session management
-│   └── tokens.py        # Token counting
-├── tasks/
-│   ├── queues.py        # RQ queue definitions
-│   ├── categorizer.py   # LLM message categorization
-│   ├── chat.py          # Chat processing
-│   └── agent_tasks.py   # Agent execution
-├── models/              # DB models & schemas
-└── db/                  # Data access layer
-```
+- **Visual Workflow Editor** — drag-and-drop React Flow canvas with node palette and config panel
+- **Multiple Triggers** — Telegram, webhooks, chat, manual execution
+- **LLM Agents** — LangGraph react agents with tool-calling (shell, HTTP, web search, calculator, etc.)
+- **Conditional Routing** — switch nodes with rule-based routing via conditional edges
+- **Conversation Memory** — optional per-agent SQLite-backed conversation persistence
+- **Real-time Updates** — WebSocket push for node execution status, canvas badges
+- **Jinja2 Expressions** — template variables in prompts referencing upstream node outputs
+- **Credentials Management** — encrypted storage for LLM providers, Telegram bots, etc.
+- **Dark Mode** — system/light/dark theme via Shadcn CSS variables
 
 ## License
 

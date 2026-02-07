@@ -459,7 +459,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
         strokeDasharray: (!e.edge_label || e.edge_label === "loop_return") ? "5,5" : undefined,
       },
     }
-  }), [workflow.edges])
+  }), [workflow.edges, workflow.nodes])
 
   const [nodes, setNodes] = useNodesState(initialNodes)
   const [edges, setEdges] = useEdgesState(initialEdges)
