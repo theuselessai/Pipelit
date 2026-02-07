@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
 import { useSendChatMessage, useChatHistory, useDeleteChatHistory } from "@/api/chat"
@@ -18,7 +18,7 @@ import { format } from "date-fns"
 import ExpressionTextarea from "@/components/ExpressionTextarea"
 import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
-import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule } from "@/types/models"
+import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule } from "@/types/models"
 
 interface Props {
   slug: string
@@ -346,10 +346,43 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [switchRules, setSwitchRules] = useState<SwitchRule[]>(() => (node.config.extra_config?.rules as SwitchRule[]) ?? [])
   const [enableFallback, setEnableFallback] = useState<boolean>(Boolean(node.config.extra_config?.enable_fallback))
 
-  // Compute upstream source nodes for switch (direct data edges targeting this node, excluding sub-component edges)
-  const upstreamNodes = workflow?.edges
-    .filter((e) => e.target_node_id === node.node_id && !e.edge_label && e.edge_type === "direct")
-    .map((e) => e.source_node_id) ?? []
+  // Wait state
+  const [waitDuration, setWaitDuration] = useState<string>((node.config.extra_config?.duration as number)?.toString() ?? "0")
+  const [waitUnit, setWaitUnit] = useState<string>((node.config.extra_config?.unit as string) ?? "seconds")
+
+  // Filter state
+  const [filterRules, setFilterRules] = useState<FilterRule[]>(() => (node.config.extra_config?.rules as FilterRule[]) ?? [])
+  const [filterSourceNode, setFilterSourceNode] = useState<string>((node.config.extra_config?.source_node as string) ?? "")
+  const [filterField, setFilterField] = useState<string>((node.config.extra_config?.field as string) ?? "")
+
+  // Merge state
+  const [mergeMode, setMergeMode] = useState<string>((node.config.extra_config?.mode as string) ?? "append")
+
+  // Loop state
+  const [loopSourceNode, setLoopSourceNode] = useState<string>((node.config.extra_config?.source_node as string) ?? "")
+  const [loopField, setLoopField] = useState<string>((node.config.extra_config?.field as string) ?? "")
+
+  // Compute all upstream ancestor nodes for switch/filter/loop (BFS backward through data edges)
+  const upstreamNodes = useMemo(() => {
+    if (!workflow) return []
+    const SUB_TYPES = new Set(["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"])
+    const visited = new Set<string>()
+    const queue = [node.node_id]
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      for (const e of workflow.edges) {
+        if (e.target_node_id === current && !e.edge_label && !visited.has(e.source_node_id)) {
+          visited.add(e.source_node_id)
+          queue.push(e.source_node_id)
+        }
+      }
+    }
+    const nodeMap = new Map(workflow.nodes.map((n) => [n.node_id, n]))
+    return Array.from(visited).filter((nid) => {
+      const n = nodeMap.get(nid)
+      return n && !n.component_type.startsWith("trigger_") && !SUB_TYPES.has(n.component_type)
+    })
+  }, [workflow, node.node_id])
 
   // System prompt modal state
   const [promptModalOpen, setPromptModalOpen] = useState(false)
@@ -392,6 +425,14 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     setCategories((node.config.extra_config?.categories as { name: string; description: string }[]) ?? [])
     setSwitchRules((node.config.extra_config?.rules as SwitchRule[]) ?? [])
     setEnableFallback(Boolean(node.config.extra_config?.enable_fallback))
+    setWaitDuration((node.config.extra_config?.duration as number)?.toString() ?? "0")
+    setWaitUnit((node.config.extra_config?.unit as string) ?? "seconds")
+    setFilterRules((node.config.extra_config?.rules as FilterRule[]) ?? [])
+    setFilterSourceNode((node.config.extra_config?.source_node as string) ?? "")
+    setFilterField((node.config.extra_config?.field as string) ?? "")
+    setMergeMode((node.config.extra_config?.mode as string) ?? "append")
+    setLoopSourceNode((node.config.extra_config?.source_node as string) ?? "")
+    setLoopField((node.config.extra_config?.field as string) ?? "")
   }, [node])
 
   const isLLMNode = node.component_type === "ai_model"
@@ -415,6 +456,18 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       parsedExtra = { ...parsedExtra, rules: switchRules, enable_fallback: enableFallback }
       delete parsedExtra.condition_field
       delete parsedExtra.condition_expression
+    }
+    if (node.component_type === "wait") {
+      parsedExtra = { ...parsedExtra, duration: Number(waitDuration) || 0, unit: waitUnit }
+    }
+    if (node.component_type === "filter") {
+      parsedExtra = { ...parsedExtra, rules: filterRules, source_node: filterSourceNode || undefined, field: filterField || undefined }
+    }
+    if (node.component_type === "merge") {
+      parsedExtra = { ...parsedExtra, mode: mergeMode }
+    }
+    if (node.component_type === "loop") {
+      parsedExtra = { ...parsedExtra, source_node: loopSourceNode || undefined, field: loopField || undefined }
     }
     let parsedTriggerConfig = {}
     try { parsedTriggerConfig = JSON.parse(triggerConfig) } catch { /* keep empty */ }
@@ -900,6 +953,188 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <p className="text-[10px] text-muted-foreground">Route to "other" when no rules match</p>
               </div>
               <Switch checked={enableFallback} onCheckedChange={setEnableFallback} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {node.component_type === "wait" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Wait Duration</Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={waitDuration}
+                onChange={(e) => setWaitDuration(e.target.value)}
+                className="text-xs h-7 flex-1"
+                placeholder="0"
+              />
+              <Select value={waitUnit} onValueChange={setWaitUnit}>
+                <SelectTrigger className="text-xs h-7 w-28"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="seconds">Seconds</SelectItem>
+                  <SelectItem value="minutes">Minutes</SelectItem>
+                  <SelectItem value="hours">Hours</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </>
+      )}
+
+      {node.component_type === "filter" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Filter Configuration</Label>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Source Node</Label>
+              {upstreamNodes.length > 0 ? (
+                <Select value={filterSourceNode} onValueChange={setFilterSourceNode}>
+                  <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
+                  <SelectContent>
+                    {upstreamNodes.map((nid) => (
+                      <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={filterSourceNode} onChange={(e) => setFilterSourceNode(e.target.value)} className="text-xs h-7 font-mono" placeholder="source_node_id" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Source Field (optional)</Label>
+              <Input value={filterField} onChange={(e) => setFilterField(e.target.value)} className="text-xs h-7 font-mono" placeholder="e.g. items" />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">Rules</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => setFilterRules((prev) => [...prev, { id: generateRuleId(), field: "", operator: "equals", value: "" }])}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add Rule
+              </Button>
+            </div>
+            {filterRules.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">No rules defined. All items will pass through.</p>
+            )}
+            {filterRules.map((rule, idx) => (
+              <div key={rule.id} className="border rounded-md p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Rule {idx + 1}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0"
+                    onClick={() => setFilterRules((prev) => prev.filter((r) => r.id !== rule.id))}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Field</Label>
+                  <Input
+                    value={rule.field}
+                    onChange={(e) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: e.target.value } : r))}
+                    className="text-xs h-7 font-mono"
+                    placeholder="e.g. name, status"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Operator</Label>
+                  <Select
+                    value={rule.operator}
+                    onValueChange={(v) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, operator: v } : r))}
+                  >
+                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {OPERATOR_OPTIONS.map((group) => (
+                        <div key={group.group}>
+                          <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground">{group.group}</div>
+                          {group.options.map((op) => (
+                            <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>
+                          ))}
+                        </div>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!UNARY_OPERATORS.has(rule.operator) && (
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Value</Label>
+                    <Input
+                      value={rule.value}
+                      onChange={(e) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, value: e.target.value } : r))}
+                      className="text-xs h-7"
+                      placeholder="comparison value"
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {node.component_type === "merge" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Merge Mode</Label>
+            <Select value={mergeMode} onValueChange={setMergeMode}>
+              <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="append">Append (flat array)</SelectItem>
+                <SelectItem value="combine">Combine (merged object)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              {mergeMode === "append"
+                ? "Concatenate all upstream outputs into a single array"
+                : "Merge all upstream outputs into a single object"}
+            </p>
+          </div>
+        </>
+      )}
+
+      {node.component_type === "loop" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Loop Configuration</Label>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Source Node</Label>
+              {upstreamNodes.length > 0 ? (
+                <Select value={loopSourceNode} onValueChange={setLoopSourceNode}>
+                  <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
+                  <SelectContent>
+                    {upstreamNodes.map((nid) => (
+                      <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={loopSourceNode} onChange={(e) => setLoopSourceNode(e.target.value)} className="text-xs h-7 font-mono" placeholder="source_node_id" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Array Field (optional)</Label>
+              <Input value={loopField} onChange={(e) => setLoopField(e.target.value)} className="text-xs h-7 font-mono" placeholder="e.g. items, results" />
+              <p className="text-[10px] text-muted-foreground">Field from source output that contains the array to iterate. Leave empty if source output is the array.</p>
+            </div>
+            <div className="border rounded-md p-2 space-y-1 bg-muted/50">
+              <p className="text-[10px] font-medium">Loop handles</p>
+              <p className="text-[10px] text-muted-foreground"><span className="text-amber-500 font-medium">Each Item</span> — connect to body nodes that run per item</p>
+              <p className="text-[10px] text-muted-foreground"><span className="text-emerald-500 font-medium">Done</span> — connect to nodes that run after all items</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Access current item: <code className="bg-muted px-1 rounded">{"{{ loop.item }}"}</code></p>
+              <p className="text-[10px] text-muted-foreground">Access index: <code className="bg-muted px-1 rounded">{"{{ loop.index }}"}</code></p>
             </div>
           </div>
         </>
