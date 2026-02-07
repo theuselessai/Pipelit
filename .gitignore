@@ -35,6 +35,9 @@ htmlcov/
 coverage.xml
 .coverage
 
+# MCP config
+.mcp.json
+
 # OS
 .DS_Store
 Thumbs.db
