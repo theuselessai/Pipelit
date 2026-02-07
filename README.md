@@ -1,7 +1,7 @@
 # Pipelit
 
-[![CI](https://github.com/theuselessai/aibot_telegram_server/actions/workflows/ci.yml/badge.svg)](https://github.com/theuselessai/aibot_telegram_server/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/theuselessai/aibot_telegram_server/graph/badge.svg)](https://codecov.io/gh/theuselessai/aibot_telegram_server)
+[![CI](https://github.com/theuselessai/Pipelit/actions/workflows/ci.yml/badge.svg)](https://github.com/theuselessai/Pipelit/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/theuselessai/Pipelit/graph/badge.svg)](https://app.codecov.io/gh/theuselessai/Pipelit)
 
 A visual workflow automation platform for building LLM-powered agents. Design workflows on a React Flow canvas, connect triggers (Telegram, webhooks, chat), LLM agents, tools, and routing logic. Executes via LangGraph with real-time WebSocket status updates.
 
