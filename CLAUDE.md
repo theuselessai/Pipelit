@@ -250,6 +250,7 @@ platform/
 │   ├── topology.py      # Workflow DAG analysis (BFS reachability)
 │   ├── builder.py       # Compiles Workflow → LangGraph CompiledGraph
 │   ├── executor.py      # WorkflowExecutor + RQ job wrappers
+│   ├── expressions.py   # Jinja2 template resolver for node config
 │   ├── cache.py         # Redis-backed graph caching
 │   ├── delivery.py      # Routes results to Telegram, webhooks, etc.
 │   ├── llm.py           # create_llm_from_db(), resolve_llm_for_node()
@@ -284,9 +285,13 @@ All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <ke
 - **Workflows** — `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`, `POST /workflows/{slug}/validate/`, `GET /workflows/node-types/`
 - **Nodes** — `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE /workflows/{slug}/nodes/{node_id}/`
 - **Edges** — `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE /workflows/{slug}/edges/{edge_id}/`
-- **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`
-- **Chat** — `POST /workflows/{slug}/chat/`
-- **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`, `POST /credentials/{id}/test/`, `GET /credentials/{id}/models/`
+- **Executions** — `GET /executions/`, `GET /executions/{id}/`, `POST /executions/{id}/cancel/`, `POST /executions/batch-delete/`
+- **Chat** — `POST /workflows/{slug}/chat/`, `DELETE /workflows/{slug}/chat/history`
+- **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`, `POST /credentials/{id}/test/`, `GET /credentials/{id}/models/`, `POST /credentials/batch-delete/`
+- **Memory** — `GET/POST /<type>/batch-delete/` for facts, episodes, procedures, users; `GET /checkpoints/`, `POST /checkpoints/batch-delete/`
+- **Users** — `GET /users/agents/`, `POST /users/agents/batch-delete/`
+
+**Pagination:** All list endpoints accept `limit` and `offset` query params and return `{"items": [...], "total": N}` instead of flat arrays. Default page size on the frontend is 50.
 
 ### Global WebSocket
 
@@ -328,6 +333,17 @@ A single persistent authenticated WebSocket at `GET /ws/?token=<api_key>` replac
 
 **Enum-typed API schemas:** `component_type`, `trigger_type`, and `edge_type` fields use `Literal` types in Pydantic schemas for validation.
 
+**Component output convention:** Components return flat dicts with their port values (e.g., `{"output": content}`, `{"category": cat, "raw": raw_text}`). The orchestrator wraps all non-underscore keys into `node_outputs[node_id]` automatically. Reserved underscore-prefixed keys control side effects:
+- `_route` — sets `state["route"]` for conditional edge routing
+- `_messages` — appended to `state["messages"]` (LangGraph message list)
+- `_state_patch` — dict merged into global state (e.g., `{"user_context": {...}}`), excluding protected keys (`messages`, `node_outputs`, `node_results`)
+
+Components no longer receive or use their own `node_id`. Legacy format (returning `node_outputs` directly) is still supported for backwards compatibility.
+
+**Per-edge conditional routing:** Conditional edges carry a `condition_value` string field on each `WorkflowEdge` row (instead of the legacy `condition_mapping` dict on a single edge). Only `switch` nodes can originate conditional edges. The builder and orchestrator match `state["route"]` against each edge's `condition_value` to determine the next node. Legacy `condition_mapping` fallback is preserved.
+
+**Jinja2 expression resolution:** Before executing a component, the orchestrator resolves `{{ nodeId.portName }}` template expressions in `system_prompt` and `extra_config` values via `services/expressions.py`. Context variables include all upstream `node_outputs` (keyed by node_id) and `trigger` (with `text`, `payload`). Undefined variables gracefully fall back to the original template string. Jinja2 filters (e.g., `| upper`) are supported.
+
 ### Running Platform Tests
 
 ```bash
@@ -354,10 +370,15 @@ platform/frontend/src/
 │   ├── nodes.ts            # useCreateNode(), useUpdateNode(), useDeleteNode()
 │   ├── edges.ts            # useCreateEdge(), useUpdateEdge(), useDeleteEdge()
 │   ├── triggers.ts         # useCreateTrigger(), useDeleteTrigger()
-│   ├── executions.ts       # useExecutions(), useExecution()
-│   └── credentials.ts      # useCredentials(), useLLMModels(), useLLMProviders()
+│   ├── executions.ts       # useExecutions(), useExecution(), useBatchDeleteExecutions()
+│   ├── credentials.ts      # useCredentials(), useLLMModels(), useLLMProviders(), useBatchDeleteCredentials()
+│   ├── memory.ts           # useMemoryFacts/Episodes/Procedures/Users/Checkpoints(), batch delete hooks
+│   ├── users.ts            # useAgentUsers(), useBatchDeleteAgentUsers()
+│   └── chat.ts             # useSendChat(), useChatHistory(), useDeleteChatHistory()
 ├── components/
-│   ├── ui/                 # Shadcn components (auto-generated)
+│   ├── ui/                 # Shadcn components (auto-generated, incl. checkbox, pagination-controls)
+│   ├── ExpressionTextarea.tsx  # Textarea with { } button for inserting Jinja2 variable expressions
+│   ├── VariablePicker.tsx      # Popover picker: BFS upstream nodes → clickable {{ nodeId.port }} items
 │   └── layout/
 │       ├── AppLayout.tsx   # Collapsible sidebar + user menu
 │       └── ProtectedRoute.tsx
@@ -371,7 +392,9 @@ platform/frontend/src/
 │   │       ├── NodePalette.tsx        # Click-to-add node types
 │   │       └── NodeDetailsPanel.tsx   # Right sidebar config form
 │   ├── credentials/        # CredentialsPage (table + create dialog)
-│   ├── executions/         # ExecutionsPage, ExecutionDetailPage
+│   ├── executions/         # ExecutionsPage, ExecutionDetailPage (expandable log rows)
+│   ├── memories/           # MemoriesPage (Facts, Episodes, Checkpoints, Procedures, Users tabs)
+│   ├── users/              # AgentUsersPage (agent user management)
 │   └── settings/           # SettingsPage (theme selector)
 ├── hooks/
 │   ├── useTheme.ts         # Dark mode hook (system/light/dark, persisted to localStorage)
@@ -404,6 +427,8 @@ In development, run Vite alongside FastAPI. Without Vite, run `npm run build` an
 | `/credentials` | Credentials management |
 | `/executions` | Execution list |
 | `/executions/:id` | Execution detail + logs |
+| `/memories` | Memory management (Facts, Episodes, Checkpoints, Procedures, Users) |
+| `/agent-users` | Agent user management |
 | `/settings` | Settings (appearance/theme) |
 
 ### Workflow Node Visual Design
@@ -446,6 +471,12 @@ Nodes on the canvas use Font Awesome icons and color-coded borders by component 
 | `datetime` | Get current date/time | `timezone` (optional) |
 
 Tool nodes connect to agents via the **tools** handle (diamond, green). At build time, the agent queries `edge_label="tool"` edges, loads each connected tool node's factory, and registers the resulting LangChain `@tool` functions for LLM function calling. When the agent invokes a tool, WebSocket `node_status` events are published so the tool node shows running/success/failed badges on the canvas.
+
+**Switch node** (`switch`): A flow-control node that evaluates rules against input data and routes to different downstream nodes via conditional edges. Each rule has a `field`, `operator`, and `value`; the first matching rule's `route` value is emitted as `_route`. Each conditional edge carries a `condition_value` matching one route. Falls back to a `default` route if no rules match. Listed in the "Routing" category in the NodePalette.
+
+**Node output display:** After a successful execution, nodes that produced output show a clickable "output" link (emerald green) that opens a Popover with the pretty-printed JSON output. Node outputs are tracked via `node_status` WebSocket events with `status === "success"` and `data.output`.
+
+**Execution log expansion:** On the ExecutionDetailPage, log rows with an `output` field show a chevron toggle that expands to reveal the full output (string or pretty-printed JSON) in a `<pre>` block.
 
 ### Node I/O Standardisation
 
