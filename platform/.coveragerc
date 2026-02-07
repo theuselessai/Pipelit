@@ -1,0 +1,16 @@
+[run]
+source = .
+omit =
+    tests/*
+    conftest.py
+    alembic/*
+    frontend/*
+    */migrations/*
+
+[report]
+show_missing = true
+fail_under = 50
+exclude_lines =
+    pragma: no cover
+    if __name__
+    raise NotImplementedError

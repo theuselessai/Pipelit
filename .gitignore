@@ -30,6 +30,11 @@ ENV/
 # Vite
 .vite/
 
+# Coverage
+htmlcov/
+coverage.xml
+.coverage
+
 # OS
 .DS_Store
 Thumbs.db
