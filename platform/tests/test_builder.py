@@ -182,3 +182,137 @@ class TestBuilderTriggerScoping:
 
         assert "agent_a" in graph.nodes
         assert "agent_b" in graph.nodes
+
+
+class TestBuilderEdgeTypes:
+    """Test conditional, direct, and __end__ edges."""
+
+    def test_conditional_edges_with_condition_value(self, db, workflow):
+        """Per-edge condition_value routing should compile conditional edges."""
+        _add_node(db, workflow, "switch_1", "switch", is_entry_point=True)
+        _add_node(db, workflow, "handler_a", "code")
+        _add_node(db, workflow, "handler_b", "code")
+
+        # Conditional edges
+        e1 = WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="switch_1",
+            target_node_id="handler_a",
+            edge_label="",
+            edge_type="conditional",
+            condition_value="route_a",
+        )
+        e2 = WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="switch_1",
+            target_node_id="handler_b",
+            edge_label="",
+            edge_type="conditional",
+            condition_value="route_b",
+        )
+        db.add_all([e1, e2])
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db)
+        assert "switch_1" in graph.nodes
+        assert "handler_a" in graph.nodes
+        assert "handler_b" in graph.nodes
+
+    def test_legacy_condition_mapping(self, db, workflow):
+        """Legacy condition_mapping on a single edge should work."""
+        _add_node(db, workflow, "switch_1", "switch", is_entry_point=True)
+        _add_node(db, workflow, "handler_a", "code")
+
+        e = WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="switch_1",
+            target_node_id="handler_a",
+            edge_label="",
+            edge_type="conditional",
+            condition_mapping={"yes": "handler_a"},
+        )
+        db.add(e)
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db)
+        assert "switch_1" in graph.nodes
+
+    def test_direct_edge_to_end(self, db, workflow):
+        """A direct edge to __end__ should terminate the graph."""
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
+        _add_edge(db, workflow, "agent_1", "__end__")
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db)
+        assert "agent_1" in graph.nodes
+
+    def test_entry_point_from_trigger_target(self, db, workflow):
+        """Entry point should be the trigger's target when no is_entry_point."""
+        _add_node(db, workflow, "trigger_1", "trigger_manual")
+        _add_node(db, workflow, "agent_1", "agent")
+        _add_edge(db, workflow, "trigger_1", "agent_1")
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db)
+        assert "agent_1" in graph.nodes
+
+    def test_no_edges_defaults_to_end(self, db, workflow):
+        """Nodes with no outgoing edges should be connected to END."""
+        _add_node(db, workflow, "agent_1", "agent", is_entry_point=True)
+        db.commit()
+
+        builder = WorkflowBuilder()
+        with patch("components.get_component_factory", return_value=_dummy_factory):
+            graph = builder.build(workflow, db)
+        assert "agent_1" in graph.nodes
+
+
+class TestReachableNodeIds:
+    def test_basic_bfs(self):
+        from services.builder import _reachable_node_ids
+
+        edges = [
+            WorkflowEdge(source_node_id="a", target_node_id="b", edge_type="direct"),
+            WorkflowEdge(source_node_id="b", target_node_id="c", edge_type="direct"),
+        ]
+        result = _reachable_node_ids("a", edges)
+        assert result == {"a", "b", "c"}
+
+    def test_conditional_mapping_targets(self):
+        from services.builder import _reachable_node_ids
+
+        edges = [
+            WorkflowEdge(
+                source_node_id="switch",
+                target_node_id="default",
+                edge_type="conditional",
+                condition_mapping={"a": "node_a", "b": "node_b", "end": "__end__"},
+            ),
+        ]
+        result = _reachable_node_ids("switch", edges)
+        assert "node_a" in result
+        assert "node_b" in result
+        assert "__end__" not in result
+
+    def test_empty_edges(self):
+        from services.builder import _reachable_node_ids
+
+        result = _reachable_node_ids("start", [])
+        assert result == {"start"}
+
+
+class TestMakeRouteFn:
+    def test_returns_route(self):
+        from services.builder import _make_route_fn
+
+        fn = _make_route_fn("node_1")
+        assert fn({"route": "yes"}) == "yes"
+        assert fn({}) == ""
