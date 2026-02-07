@@ -46,7 +46,6 @@ from components import (  # noqa: E402, F401
     memory_read,
     memory_write,
     output_parser,
-    parallel,
     agent,
     router,
     run_command,

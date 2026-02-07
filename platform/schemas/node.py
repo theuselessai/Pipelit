@@ -8,15 +8,15 @@ from pydantic import BaseModel
 ComponentTypeStr = Literal[
     "categorizer", "router", "extractor", "ai_model", "agent", "switch",
     "run_command", "http_request", "web_search", "calculator", "datetime", "create_agent_user", "platform_api", "whoami",
-    "aggregator", "human_confirmation", "parallel", "workflow",
-    "code", "code_execute", "loop", "wait", "merge", "filter", "transform", "sort", "limit",
+    "aggregator", "human_confirmation", "workflow",
+    "code", "code_execute", "loop", "wait", "merge", "filter",
     "error_handler", "output_parser",
     "memory_read", "memory_write", "identify_user",
     "trigger_telegram", "trigger_webhook", "trigger_schedule",
     "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat",
 ]
 EdgeTypeStr = Literal["direct", "conditional"]
-EdgeLabelStr = Literal["", "llm", "tool", "memory", "output_parser"]
+EdgeLabelStr = Literal["", "llm", "tool", "memory", "output_parser", "loop_body", "loop_return"]
 
 
 class ComponentConfigData(BaseModel):

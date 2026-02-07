@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from auth import get_current_user
 from database import get_db
 from handlers import dispatch_event
 from models.execution import WorkflowExecution
+from models.node import WorkflowNode
 from models.user import UserProfile
 from models.workflow import Workflow
 
@@ -22,6 +24,7 @@ router = APIRouter()
 
 class ManualExecuteIn(BaseModel):
     text: str = ""
+    trigger_node_id: str | None = None
 
 
 @router.post("/workflows/{workflow_slug}/execute/")
@@ -35,8 +38,44 @@ def manual_execute_view(
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    event_data = {"text": payload.text, "workflow_slug": workflow_slug}
-    execution = dispatch_event("manual", event_data, profile, db)
+    if payload.trigger_node_id:
+        # Direct lookup — bypass dispatch_event and resolver
+        trigger_node = (
+            db.query(WorkflowNode)
+            .filter(
+                WorkflowNode.workflow_id == workflow.id,
+                WorkflowNode.node_id == payload.trigger_node_id,
+                WorkflowNode.component_type == "trigger_manual",
+            )
+            .first()
+        )
+        if not trigger_node:
+            raise HTTPException(status_code=404, detail="Manual trigger node not found")
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            trigger_node_id=trigger_node.id,
+            user_profile_id=profile.id,
+            thread_id=uuid.uuid4().hex,
+            trigger_payload={"text": payload.text},
+        )
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+
+        import redis
+        from rq import Queue
+
+        from config import settings
+        from tasks import execute_workflow_job
+
+        conn = redis.from_url(settings.REDIS_URL)
+        queue = Queue("workflows", connection=conn)
+        queue.enqueue(execute_workflow_job, str(execution.execution_id))
+    else:
+        # Fallback — existing dispatch_event path
+        event_data = {"text": payload.text, "workflow_slug": workflow_slug}
+        execution = dispatch_event("manual", event_data, profile, db)
 
     if execution is None:
         raise HTTPException(status_code=404, detail="No trigger configured for manual execution")

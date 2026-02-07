@@ -1,120 +1,70 @@
-"""Data operation components — filter, transform, sort, limit, merge."""
+"""Data operation components — filter, merge."""
 
 from __future__ import annotations
-
-import re
 
 from components import register
 
 
 @register("filter")
 def filter_factory(node):
-    """Filter items from a source node output."""
+    """Filter items from a source node output using rule-based matching."""
+    from components.operators import OPERATORS
+
     extra = node.component_config.extra_config
+    rules = extra.get("rules", [])
     source_node = extra.get("source_node")
-    field = extra.get("field", "")
-    operator = extra.get("operator", "eq")
-    value = extra.get("value")
+    items_field = extra.get("field", "")
 
     def filter_node(state: dict) -> dict:
         data = _get_source_data(state, source_node)
+        if items_field and isinstance(data, dict):
+            data = data.get(items_field)
         if not isinstance(data, list):
+            return {"filtered": data if data is not None else []}
+        if not rules:
             return {"filtered": data}
 
-        result = [item for item in data if _match(item, field, operator, value)]
+        result = []
+        for item in data:
+            match_all = True
+            for rule in rules:
+                field_val = item.get(rule.get("field", "")) if isinstance(item, dict) else item
+                op_fn = OPERATORS.get(rule.get("operator", "equals"))
+                if op_fn and not op_fn(field_val, rule.get("value", "")):
+                    match_all = False
+                    break
+            if match_all:
+                result.append(item)
         return {"filtered": result}
 
     return filter_node
 
 
-@register("transform")
-def transform_factory(node):
-    """Transform data using a field mapping."""
-    extra = node.component_config.extra_config
-    source_node = extra.get("source_node")
-    mapping = extra.get("mapping", {})
-
-    def transform_node(state: dict) -> dict:
-        data = _get_source_data(state, source_node)
-        if isinstance(data, list):
-            result = [_apply_mapping(item, mapping) for item in data]
-        elif isinstance(data, dict):
-            result = _apply_mapping(data, mapping)
-        else:
-            result = data
-        return {"output": result}
-
-    return transform_node
-
-
-@register("sort")
-def sort_factory(node):
-    """Sort a list by a field."""
-    extra = node.component_config.extra_config
-    source_node = extra.get("source_node")
-    field = extra.get("field", "")
-    reverse = extra.get("reverse", False)
-
-    def sort_node(state: dict) -> dict:
-        data = _get_source_data(state, source_node)
-        if not isinstance(data, list):
-            return {"output": data}
-
-        result = sorted(
-            data,
-            key=lambda item: item.get(field, "") if isinstance(item, dict) else item,
-            reverse=reverse,
-        )
-        return {"output": result}
-
-    return sort_node
-
-
-@register("limit")
-def limit_factory(node):
-    """Limit list to N items."""
-    extra = node.component_config.extra_config
-    source_node = extra.get("source_node")
-    count = extra.get("count", 10)
-    offset = extra.get("offset", 0)
-
-    def limit_node(state: dict) -> dict:
-        data = _get_source_data(state, source_node)
-        if not isinstance(data, list):
-            return {"output": data}
-
-        result = data[offset : offset + count]
-        return {"output": result}
-
-    return limit_node
-
-
 @register("merge")
 def merge_factory(node):
-    """Merge outputs from multiple source nodes."""
+    """Merge outputs from multiple source nodes. Modes: append (flat array) or combine (merged object)."""
     extra = node.component_config.extra_config
-    source_nodes = extra.get("source_nodes", [])
-    merge_strategy = extra.get("strategy", "concat")
+    mode = extra.get("mode", "append")
 
     def merge_node(state: dict) -> dict:
         outputs = state.get("node_outputs", {})
-        sources = [outputs.get(sn) for sn in source_nodes if sn in outputs]
+        source_nodes = extra.get("source_nodes", [])
+        sources = [outputs[sn] for sn in source_nodes if sn in outputs] if source_nodes else list(outputs.values())
 
-        if merge_strategy == "concat":
+        if mode == "combine":
+            result = {}
+            for s in sources:
+                if isinstance(s, dict):
+                    result.update(s)
+                else:
+                    result[str(id(s))] = s
+        else:  # "append" (default, also handles legacy "concat")
             result = []
             for s in sources:
                 if isinstance(s, list):
                     result.extend(s)
                 else:
                     result.append(s)
-        elif merge_strategy == "dict":
-            result = {}
-            for sn in source_nodes:
-                if sn in outputs:
-                    result[sn] = outputs[sn]
-        else:
-            result = sources
-
         return {"merged": result}
 
     return merge_node
@@ -128,40 +78,3 @@ def _get_source_data(state: dict, source_node: str | None):
     if not source_node:
         return state.get("output")
     return state.get("node_outputs", {}).get(source_node)
-
-
-def _match(item, field: str, operator: str, value) -> bool:
-    """Check if item matches a filter condition."""
-    if isinstance(item, dict):
-        item_val = item.get(field)
-    else:
-        item_val = item
-
-    if operator == "eq":
-        return item_val == value
-    if operator == "neq":
-        return item_val != value
-    if operator == "gt":
-        return item_val is not None and item_val > value
-    if operator == "lt":
-        return item_val is not None and item_val < value
-    if operator == "contains":
-        return value in str(item_val) if item_val else False
-    if operator == "regex":
-        return bool(re.search(str(value), str(item_val))) if item_val else False
-    if operator == "exists":
-        return item_val is not None
-    return True
-
-
-def _apply_mapping(item: dict, mapping: dict) -> dict:
-    """Apply field mapping to a dict item."""
-    if not mapping:
-        return item
-    result = {}
-    for target_key, source_key in mapping.items():
-        if isinstance(source_key, str) and source_key in item:
-            result[target_key] = item[source_key]
-        else:
-            result[target_key] = source_key
-    return result

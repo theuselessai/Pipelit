@@ -135,28 +135,12 @@ class _FilterConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "filter"}
 
 
-class _TransformConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "transform"}
-
-
-class _SortConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "sort"}
-
-
-class _LimitConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "limit"}
-
-
 class _MergeConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "merge"}
 
 
 class _WaitConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "wait"}
-
-
-class _ParallelConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "parallel"}
 
 
 class _ErrorHandlerConfig(BaseComponentConfig):
@@ -269,12 +253,8 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "code": CodeComponentConfig,
     "loop": CodeComponentConfig,
     "filter": CodeComponentConfig,
-    "transform": CodeComponentConfig,
-    "sort": CodeComponentConfig,
-    "limit": CodeComponentConfig,
     "merge": CodeComponentConfig,
     "wait": CodeComponentConfig,
-    "parallel": CodeComponentConfig,
     "error_handler": CodeComponentConfig,
     "run_command": ToolComponentConfig,
     "http_request": ToolComponentConfig,

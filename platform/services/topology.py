@@ -29,6 +29,7 @@ class EdgeInfo:
     source_node_id: str
     target_node_id: str
     edge_type: str = "direct"
+    edge_label: str = ""
     condition_mapping: dict | None = None
     condition_value: str = ""
     priority: int = 0
@@ -42,6 +43,9 @@ class Topology:
     entry_node_ids: list[str] = field(default_factory=list)
     edges_by_source: dict[str, list[EdgeInfo]] = field(default_factory=dict)
     incoming_count: dict[str, int] = field(default_factory=dict)
+    loop_bodies: dict[str, list[str]] = field(default_factory=dict)
+    loop_return_nodes: dict[str, list[str]] = field(default_factory=dict)   # loop_id -> [return source node_ids]
+    loop_body_all_nodes: dict[str, list[str]] = field(default_factory=dict) # loop_id -> [all node_ids in body subgraph]
 
 
 def build_topology(workflow, db: Session, trigger_node_id: int | None = None) -> Topology:
@@ -54,11 +58,12 @@ def build_topology(workflow, db: Session, trigger_node_id: int | None = None) ->
         .order_by(WorkflowNode.id)
         .all()
     )
+    # Include both direct ("") and loop_body edges
     all_edges = (
         db.query(WorkflowEdge)
         .filter(
             WorkflowEdge.workflow_id == workflow.id,
-            WorkflowEdge.edge_label == "",
+            WorkflowEdge.edge_label.in_(["", "loop_body", "loop_return"]),
         )
         .order_by(WorkflowEdge.priority, WorkflowEdge.id)
         .all()
@@ -107,13 +112,14 @@ def build_topology(workflow, db: Session, trigger_node_id: int | None = None) ->
             source_node_id=e.source_node_id,
             target_node_id=e.target_node_id,
             edge_type=e.edge_type,
+            edge_label=getattr(e, "edge_label", "") or "",
             condition_mapping=e.condition_mapping,
             condition_value=getattr(e, "condition_value", "") or "",
             priority=e.priority,
         )
         edges.append(ei)
         edges_by_source.setdefault(e.source_node_id, []).append(ei)
-        if e.target_node_id in incoming_count:
+        if e.target_node_id in incoming_count and ei.edge_label != "loop_return":
             incoming_count[e.target_node_id] += 1
 
     # Determine entry nodes — ALL trigger targets are entries (supports fan-out from trigger)
@@ -128,6 +134,42 @@ def build_topology(workflow, db: Session, trigger_node_id: int | None = None) ->
         if not entry_nodes:
             entry_nodes = exec_nodes[:1]
 
+    # Build loop_bodies mapping: loop_node_id -> list of body target node_ids
+    loop_bodies: dict[str, list[str]] = {}
+    for nid, ninfo in nodes.items():
+        if ninfo.component_type == "loop":
+            body_targets = [
+                e.target_node_id for e in edges_by_source.get(nid, [])
+                if e.edge_label == "loop_body"
+            ]
+            if body_targets:
+                loop_bodies[nid] = body_targets
+
+    # Build loop_return_nodes: loop_id -> [source node_ids of loop_return edges]
+    loop_return_nodes: dict[str, list[str]] = {}
+    for nid, ninfo in nodes.items():
+        if ninfo.component_type == "loop":
+            return_sources = [
+                e.source_node_id for e in edges
+                if e.target_node_id == nid and e.edge_label == "loop_return"
+            ]
+            if return_sources:
+                loop_return_nodes[nid] = return_sources
+
+    # Build loop_body_all_nodes: BFS from body_targets through direct edges
+    loop_body_all_nodes: dict[str, list[str]] = {}
+    for loop_id in loop_bodies:
+        body_targets = loop_bodies[loop_id]
+        all_body = set(body_targets)
+        bfs_queue = deque(body_targets)
+        while bfs_queue:
+            cur = bfs_queue.popleft()
+            for e in edges_by_source.get(cur, []):
+                if e.edge_label in ("",) and e.target_node_id != loop_id and e.target_node_id not in all_body:
+                    all_body.add(e.target_node_id)
+                    bfs_queue.append(e.target_node_id)
+        loop_body_all_nodes[loop_id] = list(all_body)
+
     topo = Topology(
         workflow_slug=workflow.slug,
         nodes=nodes,
@@ -135,17 +177,20 @@ def build_topology(workflow, db: Session, trigger_node_id: int | None = None) ->
         entry_node_ids=[n.node_id for n in entry_nodes],
         edges_by_source=edges_by_source,
         incoming_count=incoming_count,
+        loop_bodies=loop_bodies,
+        loop_return_nodes=loop_return_nodes,
+        loop_body_all_nodes=loop_body_all_nodes,
     )
 
     logger.info(
-        "Built topology for workflow '%s': %d nodes, %d edges, entries=%s",
-        workflow.slug, len(nodes), len(edges), topo.entry_node_ids,
+        "Built topology for workflow '%s': %d nodes, %d edges, entries=%s, loops=%s",
+        workflow.slug, len(nodes), len(edges), topo.entry_node_ids, list(loop_bodies.keys()),
     )
     return topo
 
 
 def _reachable_node_ids(start_node_id: str, all_edges) -> set[str]:
-    """BFS from start_node_id following direct and conditional edges."""
+    """BFS from start_node_id following direct, conditional, and loop_body edges."""
     adjacency: dict[str, list[str]] = {}
     for e in all_edges:
         if e.target_node_id:

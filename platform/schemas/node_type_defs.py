@@ -127,7 +127,7 @@ register_node_type(NodeTypeSpec(
     component_type="switch",
     display_name="Switch",
     description="Routes to different branches based on a state field or expression",
-    category="flow",
+    category="logic",
     inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
     outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
 ))
@@ -357,33 +357,37 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="merge",
     display_name="Merge",
-    category="flow",
+    description="Merge outputs from multiple branches into one",
+    category="logic",
     inputs=[PortDefinition(name="branches", data_type=DataType.ARRAY, required=True)],
-    outputs=[PortDefinition(name="merged", data_type=DataType.OBJECT)],
+    outputs=[PortDefinition(name="merged", data_type=DataType.ANY)],
 ))
 
 register_node_type(NodeTypeSpec(
     component_type="filter",
     display_name="Filter",
-    category="flow",
+    description="Filter array items using rule-based matching",
+    category="logic",
     inputs=[PortDefinition(name="input", data_type=DataType.ARRAY, required=True)],
     outputs=[PortDefinition(name="filtered", data_type=DataType.ARRAY)],
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="transform",
-    display_name="Transform",
-    category="flow",
-    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
-    outputs=[PortDefinition(name="output", data_type=DataType.ANY)],
+    component_type="loop",
+    display_name="Loop",
+    description="Iterate over an array, executing body nodes for each item",
+    category="logic",
+    inputs=[PortDefinition(name="items", data_type=DataType.ARRAY, required=True)],
+    outputs=[PortDefinition(name="results", data_type=DataType.ARRAY)],
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="loop",
-    display_name="Loop",
-    category="flow",
-    inputs=[PortDefinition(name="items", data_type=DataType.ARRAY, required=True)],
-    outputs=[PortDefinition(name="results", data_type=DataType.ARRAY)],
+    component_type="wait",
+    display_name="Wait",
+    description="Delay downstream execution by a specified duration",
+    category="logic",
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY)],
+    outputs=[PortDefinition(name="output", data_type=DataType.STRING)],
 ))
 
 register_node_type(NodeTypeSpec(

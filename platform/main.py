@@ -41,7 +41,7 @@ app.include_router(chat_router, prefix="/api/v1/workflows", tags=["chat"])
 
 # Webhook & manual execution endpoints
 app.include_router(webhook_router, prefix="/api", tags=["webhooks"])
-app.include_router(manual_router, prefix="/api", tags=["manual"])
+app.include_router(manual_router, prefix="/api/v1", tags=["manual"])
 
 # WebSocket endpoints
 app.include_router(ws_router)

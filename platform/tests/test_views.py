@@ -77,7 +77,7 @@ class TestManualExecuteView:
              patch("handlers.Queue") as mock_queue_cls:
             mock_queue_cls.return_value.enqueue.return_value = None
             response = authed_client.post(
-                f"/api/workflows/{workflow.slug}/execute/",
+                f"/api/v1/workflows/{workflow.slug}/execute/",
                 json={"text": "go"},
             )
 
@@ -85,14 +85,14 @@ class TestManualExecuteView:
 
     def test_workflow_not_found(self, authed_client, db, user_profile):
         response = authed_client.post(
-            "/api/workflows/nonexistent/execute/",
+            "/api/v1/workflows/nonexistent/execute/",
             json={},
         )
         assert response.status_code == 404
 
     def test_unauthenticated(self, anon_client):
         response = anon_client.post(
-            "/api/workflows/test/execute/",
+            "/api/v1/workflows/test/execute/",
             json={},
         )
         assert response.status_code in (401, 403)
@@ -111,7 +111,7 @@ class TestExecutionStatusView:
         db.commit()
         db.refresh(execution)
 
-        response = authed_client.get(f"/api/executions/{execution.execution_id}/status/")
+        response = authed_client.get(f"/api/v1/executions/{execution.execution_id}/status/")
 
         assert response.status_code == 200
         data = response.json()
@@ -119,5 +119,5 @@ class TestExecutionStatusView:
         assert data["final_output"] == {"message": "done"}
 
     def test_not_found(self, authed_client, db, user_profile):
-        response = authed_client.get("/api/executions/00000000-0000-0000-0000-000000000000/status/")
+        response = authed_client.get("/api/v1/executions/00000000-0000-0000-0000-000000000000/status/")
         assert response.status_code == 404

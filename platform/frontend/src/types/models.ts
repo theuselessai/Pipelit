@@ -1,7 +1,7 @@
 // Component types
-export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "switch" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "create_agent_user" | "platform_api" | "whoami" | "aggregator" | "human_confirmation" | "parallel" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "transform" | "sort" | "limit" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
+export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "switch" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "create_agent_user" | "platform_api" | "whoami" | "aggregator" | "human_confirmation" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_webhook" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
 export type EdgeType = "direct" | "conditional"
-export type EdgeLabel = "" | "llm" | "tool" | "memory" | "output_parser"
+export type EdgeLabel = "" | "llm" | "tool" | "memory" | "output_parser" | "loop_body" | "loop_return"
 export type CredentialType = "git" | "llm" | "telegram" | "tool"
 export type ExecutionStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "cancelled"
 
@@ -54,6 +54,9 @@ export interface PaginatedResponse<T> { items: T[]; total: number }
 
 // Switch rules
 export interface SwitchRule { id: string; field: string; operator: string; value: string; label: string }
+
+// Filter rules
+export interface FilterRule { id: string; field: string; operator: string; value: string }
 
 // Checkpoints
 export interface Checkpoint { thread_id: string; checkpoint_ns: string; checkpoint_id: string; parent_checkpoint_id: string | null; step: number | null; source: string | null; blob_size: number }

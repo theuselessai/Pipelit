@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
 import { useSendChatMessage, useChatHistory, useDeleteChatHistory } from "@/api/chat"
+import { useManualExecute } from "@/api/executions"
 import { wsManager } from "@/lib/wsManager"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus } from "lucide-react"
+import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus, Play } from "lucide-react"
 import { format } from "date-fns"
 import ExpressionTextarea from "@/components/ExpressionTextarea"
 import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
@@ -326,7 +327,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [topP, setTopP] = useState<string>(node.config.top_p?.toString() ?? "")
   const [frequencyPenalty, setFrequencyPenalty] = useState<string>(node.config.frequency_penalty?.toString() ?? "")
   const [presencePenalty, setPresencePenalty] = useState<string>(node.config.presence_penalty?.toString() ?? "")
-  const [isEntryPoint, setIsEntryPoint] = useState(node.is_entry_point)
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
   const [conversationMemory, setConversationMemory] = useState<boolean>(Boolean(node.config.extra_config?.conversation_memory))
@@ -361,6 +361,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Loop state
   const [loopSourceNode, setLoopSourceNode] = useState<string>((node.config.extra_config?.source_node as string) ?? "")
   const [loopField, setLoopField] = useState<string>((node.config.extra_config?.field as string) ?? "")
+  const [loopOnError, setLoopOnError] = useState<string>((node.config.extra_config?.on_error as string) ?? "stop")
 
   // Compute all upstream ancestor nodes for switch/filter/loop (BFS backward through data edges)
   const upstreamNodes = useMemo(() => {
@@ -399,6 +400,8 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [triggerPriority, setTriggerPriority] = useState<string>(node.config.priority?.toString() ?? "0")
   const [triggerConfig, setTriggerConfig] = useState(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
 
+  const manualExecute = useManualExecute(slug, node.node_id)
+
   const credId = llmCredentialId ? Number(llmCredentialId) : undefined
   const { data: availableModels } = useCredentialModels(credId)
 
@@ -412,7 +415,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     setTopP(node.config.top_p?.toString() ?? "")
     setFrequencyPenalty(node.config.frequency_penalty?.toString() ?? "")
     setPresencePenalty(node.config.presence_penalty?.toString() ?? "")
-    setIsEntryPoint(node.is_entry_point)
     setInterruptBefore(node.interrupt_before)
     setInterruptAfter(node.interrupt_after)
     setTriggerCredentialId(node.config.credential_id?.toString() ?? "")
@@ -433,6 +435,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     setMergeMode((node.config.extra_config?.mode as string) ?? "append")
     setLoopSourceNode((node.config.extra_config?.source_node as string) ?? "")
     setLoopField((node.config.extra_config?.field as string) ?? "")
+    setLoopOnError((node.config.extra_config?.on_error as string) ?? "stop")
   }, [node])
 
   const isLLMNode = node.component_type === "ai_model"
@@ -467,14 +470,13 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       parsedExtra = { ...parsedExtra, mode: mergeMode }
     }
     if (node.component_type === "loop") {
-      parsedExtra = { ...parsedExtra, source_node: loopSourceNode || undefined, field: loopField || undefined }
+      parsedExtra = { ...parsedExtra, source_node: loopSourceNode || undefined, field: loopField || undefined, on_error: loopOnError }
     }
     let parsedTriggerConfig = {}
     try { parsedTriggerConfig = JSON.parse(triggerConfig) } catch { /* keep empty */ }
     updateNode.mutate({
       nodeId: node.node_id,
       data: {
-        is_entry_point: isEntryPoint,
         interrupt_before: interruptBefore,
         interrupt_after: interruptAfter,
         config: {
@@ -513,10 +515,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">Entry Point</Label>
-          <Switch checked={isEntryPoint} onCheckedChange={setIsEntryPoint} />
-        </div>
-        <div className="flex items-center justify-between">
           <Label className="text-xs">Interrupt Before</Label>
           <Switch checked={interruptBefore} onCheckedChange={setInterruptBefore} />
         </div>
@@ -526,10 +524,23 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         </div>
       </div>
 
-      <Separator />
-
       {isTriggerNode && (
         <>
+          {node.component_type === "trigger_manual" && (
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={() => manualExecute.mutate()}
+              disabled={manualExecute.isPending}
+            >
+              {manualExecute.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Play className="h-4 w-4 mr-2" />
+              )}
+              Run
+            </Button>
+          )}
           <div className="space-y-2">
             <Label className="text-xs">Credential</Label>
             <Select value={triggerCredentialId || "none"} onValueChange={(v) => setTriggerCredentialId(v === "none" ? "" : v)}>
@@ -1129,9 +1140,25 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <Input value={loopField} onChange={(e) => setLoopField(e.target.value)} className="text-xs h-7 font-mono" placeholder="e.g. items, results" />
               <p className="text-[10px] text-muted-foreground">Field from source output that contains the array to iterate. Leave empty if source output is the array.</p>
             </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">On Error</Label>
+              <Select value={loopOnError} onValueChange={setLoopOnError}>
+                <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stop">Stop (fail execution)</SelectItem>
+                  <SelectItem value="continue">Continue (skip to next item)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                {loopOnError === "continue"
+                  ? "When a body node fails, record the error and continue to the next item"
+                  : "When a body node fails, stop the entire execution"}
+              </p>
+            </div>
             <div className="border rounded-md p-2 space-y-1 bg-muted/50">
               <p className="text-[10px] font-medium">Loop handles</p>
-              <p className="text-[10px] text-muted-foreground"><span className="text-amber-500 font-medium">Each Item</span> — connect to body nodes that run per item</p>
+              <p className="text-[10px] text-muted-foreground"><span className="text-amber-500 font-medium">Each Item</span> — connect to the first body node(s)</p>
+              <p className="text-[10px] text-muted-foreground"><span className="text-amber-500 font-medium">Return</span> — connect from the last body node back to loop</p>
               <p className="text-[10px] text-muted-foreground"><span className="text-emerald-500 font-medium">Done</span> — connect to nodes that run after all items</p>
               <p className="text-[10px] text-muted-foreground mt-1">Access current item: <code className="bg-muted px-1 rounded">{"{{ loop.item }}"}</code></p>
               <p className="text-[10px] text-muted-foreground">Access index: <code className="bg-muted px-1 rounded">{"{{ loop.index }}"}</code></p>
@@ -1159,6 +1186,8 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       )}
 
       {!isTriggerNode && (
+        <>
+        <Separator />
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs">Extra Config (JSON)</Label>
@@ -1208,6 +1237,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             </DialogContent>
           </Dialog>
         </div>
+        </>
       )}
 
       <div className="flex gap-2">

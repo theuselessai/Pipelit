@@ -32,3 +32,15 @@ export function useBatchDeleteExecutions() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["executions"] }),
   })
 }
+
+export function useManualExecute(slug: string, triggerNodeId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (text?: string) =>
+      apiFetch<{ execution_id: string; status: string }>(`/workflows/${slug}/execute/`, {
+        method: "POST",
+        body: JSON.stringify({ text: text ?? "", trigger_node_id: triggerNodeId }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["executions"] }),
+  })
+}
