@@ -116,6 +116,10 @@ class EdgeValidator:
                 errors.append(f"Edge references unknown target node '{edge.target_node_id}'")
                 continue
 
+            # Skip loop flow-control edges (no type compatibility needed)
+            if edge.edge_label in ("loop_body", "loop_return"):
+                continue
+
             # Map edge_label to target handle
             label_to_handle = {"llm": "model", "tool": "tools", "memory": "memory", "output_parser": "output_parser"}
             target_handle = label_to_handle.get(edge.edge_label) if edge.edge_label else None

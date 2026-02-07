@@ -5,8 +5,8 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
 import {
   faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart, faBrain,
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
-  faFileExport, faRepeat, faGripVertical, faClock, faCodeMerge, faFilter,
-  faArrowsRotate, faArrowUpAZ, faGauge, faBolt, faCalendarDays, faHandPointer,
+  faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
+  faBolt, faCalendarDays, faHandPointer,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
   faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard, faLaptopCode,
@@ -70,6 +70,10 @@ const COMPONENT_COLORS: Record<string, string> = {
   platform_api: "#14b8a6",
   whoami: "#14b8a6",
   switch: "#6366f1",
+  loop: "#6366f1",
+  filter: "#6366f1",
+  merge: "#6366f1",
+  wait: "#6366f1",
   workflow: "#6366f1",
   code: "#64748b",
   code_execute: "#10b981",
@@ -97,8 +101,7 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   code: faCode, code_execute: faLaptopCode, error_handler: faTriangleExclamation,
   memory_read: faDatabase, memory_write: faFloppyDisk, identify_user: faIdCard,
   human_confirmation: faUserCheck, aggregator: faLayerGroup, output_parser: faFileExport,
-  loop: faRepeat, parallel: faGripVertical, wait: faClock, merge: faCodeMerge,
-  filter: faFilter, transform: faArrowsRotate, sort: faArrowUpAZ, limit: faGauge,
+  loop: faRepeat, wait: faClock, merge: faCodeMerge, filter: faFilter,
   trigger_telegram: faTelegram, trigger_webhook: faBolt, trigger_schedule: faCalendarDays,
   trigger_manual: faHandPointer, trigger_workflow: faPlay, trigger_error: faBug,
   trigger_chat: faComments,
@@ -116,7 +119,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const iconColor = getColor(data.componentType)
   const isRunning = data.executionStatus === "running"
   const isTrigger = data.componentType.startsWith("trigger_")
-  const isFixedWidth = ["router", "categorizer", "agent", "extractor", "switch"].includes(data.componentType)
+  const isLoop = data.componentType === "loop"
+  const isFixedWidth = ["router", "categorizer", "agent", "extractor", "switch", "loop"].includes(data.componentType)
   const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"].includes(data.componentType)
   const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
@@ -195,8 +199,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           </PopoverContent>
         </Popover>
       )}
-      {isFixedWidth && !isSwitch && <hr className="border-muted-foreground/30 my-1" />}
-      {isFixedWidth && !isSwitch && (
+      {isFixedWidth && !isSwitch && !isLoop && <hr className="border-muted-foreground/30 my-1" />}
+      {isFixedWidth && !isSwitch && !isLoop && (
         <div className="flex mt-1">
           {hasModel && (
             <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#3b82f6", borderColor: "#3b82f6", borderWidth: 1, borderStyle: "solid" }} title="model">
@@ -245,7 +249,30 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           </div>
         </>
       )}
-      {!isSubComponent && !(isSwitch && (switchHandles.length > 0 || showFallbackHandle)) && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
+      {isLoop && (
+        <>
+          <hr className="border-muted-foreground/30 my-1" />
+          <div className="flex flex-col gap-1">
+            <div className="relative flex items-center justify-end pr-4">
+              <span className="text-[10px] text-emerald-500 font-medium">Done</span>
+              <Handle type="source" position={Position.Right} id="done" className="!bg-emerald-500 !w-2 !h-2" />
+            </div>
+            <div className="relative flex items-center justify-end pr-4">
+              <span className="text-[10px] text-amber-500 font-medium">Each Item</span>
+              <Handle type="source" position={Position.Right} id="loop_body" className="!bg-amber-500 !w-2 !h-2" />
+            </div>
+          </div>
+          {/* Return handle on left side, below main input */}
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="loop_return"
+            className="!bg-amber-500 !w-2 !h-2"
+            style={{ top: "auto", bottom: 8 }}
+          />
+        </>
+      )}
+      {!isSubComponent && !(isSwitch && (switchHandles.length > 0 || showFallbackHandle)) && !isLoop && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
     </div>
   )
 }
@@ -276,8 +303,53 @@ function LabelEdge({
   )
 }
 
+function SmoothStepLabelEdge({
+  sourceX, sourceY, targetX, targetY,
+  style, label, markerEnd, animated,
+}: EdgeProps) {
+  // Route below both nodes with rounded 90-degree corners
+  const r = 16
+  const gap = 30
+  const bottomY = Math.max(sourceY, targetY) + 80
+  const x1 = sourceX + gap
+  const x2 = targetX - gap
+  const edgePath = [
+    `M ${sourceX},${sourceY}`,
+    `L ${x1 - r},${sourceY}`,
+    `Q ${x1},${sourceY} ${x1},${sourceY + r}`,
+    `L ${x1},${bottomY - r}`,
+    `Q ${x1},${bottomY} ${x1 - r},${bottomY}`,
+    `L ${x2 + r},${bottomY}`,
+    `Q ${x2},${bottomY} ${x2},${bottomY - r}`,
+    `L ${x2},${targetY + r}`,
+    `Q ${x2},${targetY} ${x2 + r},${targetY}`,
+    `L ${targetX},${targetY}`,
+  ].join(" ")
+  const labelX = (x1 + x2) / 2
+  const labelY = bottomY
+  return (
+    <>
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} className={animated ? "react-flow__edge-animated" : ""} />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              pointerEvents: "none",
+            }}
+          >
+            <span className="text-[10px] bg-background px-1 rounded border">{label}</span>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  )
+}
+
 const nodeTypes: NodeTypes = { workflowNode: WorkflowNodeComponent }
-const edgeTypes: EdgeTypes = { deletable: LabelEdge }
+const edgeTypes: EdgeTypes = { deletable: LabelEdge, smoothstep: SmoothStepLabelEdge }
 
 interface Props {
   slug: string
@@ -347,10 +419,18 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }
-    const targetHandle = e.edge_label ? LABEL_TO_HANDLE[e.edge_label] : undefined
-    const sourceHandle = e.edge_label ? "sub-source"
+    const targetHandle = (e.edge_label && e.edge_label !== "loop_body" && e.edge_label !== "loop_return")
+      ? LABEL_TO_HANDLE[e.edge_label]
+      : e.edge_label === "loop_return" ? "loop_return" : undefined
+    const sourceHandle = e.edge_label === "loop_body" ? "loop_body"
+      : e.edge_label === "loop_return" ? undefined
+      : e.edge_label ? "sub-source"
       : (e.edge_type === "conditional" && e.condition_value) ? e.condition_value
-      : undefined
+      : (() => {
+          // If source is a loop node and this is a direct edge, use "done" handle
+          const srcNode = workflow.nodes.find((n) => n.node_id === e.source_node_id)
+          return srcNode?.component_type === "loop" ? "done" : undefined
+        })()
     // For conditional edge labels, find the rule label from the source switch node
     let condLabel: string | undefined
     if (e.edge_type === "conditional" && e.condition_value) {
@@ -363,18 +443,20 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
         condLabel = e.condition_value
       }
     }
-    const edgeLabel = e.edge_label || condLabel
+    const edgeLabel = e.edge_label === "loop_body" ? "each item"
+      : e.edge_label === "loop_return" ? "return"
+      : (e.edge_label || condLabel)
     return {
       id: String(e.id),
-      type: "deletable",
+      type: e.edge_label === "loop_return" ? "smoothstep" : "deletable",
       source: e.source_node_id,
       target: e.target_node_id,
       sourceHandle,
       targetHandle,
-      animated: !e.edge_label,
+      animated: !e.edge_label || e.edge_label === "loop_return",
       label: edgeLabel,
       style: {
-        strokeDasharray: !e.edge_label ? "5,5" : undefined,
+        strokeDasharray: (!e.edge_label || e.edge_label === "loop_return") ? "5,5" : undefined,
       },
     }
   }), [workflow.edges])
@@ -408,11 +490,19 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const onConnect: OnConnect = useCallback((params) => {
     if (params.source && params.target) {
-      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", memory: "memory", output_parser: "output_parser" }
+      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", memory: "memory", output_parser: "output_parser", loop_return: "loop_return" }
       const edge_label = (params.targetHandle && HANDLE_TO_LABEL[params.targetHandle]) || ""
 
-      // Check if source is a switch node
+      // Check if source is a loop node with loop_body handle
       const sourceNode = workflow.nodes.find((n) => n.node_id === params.source)
+      if (sourceNode?.component_type === "loop" && params.sourceHandle === "loop_body" && !edge_label) {
+        createEdge.mutate({
+          source_node_id: params.source,
+          target_node_id: params.target,
+          edge_label: "loop_body",
+        })
+        return
+      }
       if (sourceNode?.component_type === "switch" && !edge_label) {
         // If dragged from a specific rule handle, auto-create conditional edge
         const ruleId = params.sourceHandle

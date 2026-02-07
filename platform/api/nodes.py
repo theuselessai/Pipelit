@@ -239,8 +239,8 @@ def create_edge(
         if not src_node or src_node.component_type != "switch":
             raise HTTPException(status_code=422, detail="Conditional edges can only originate from 'switch' nodes")
 
-    # Validate edge type compatibility
-    if payload.source_node_id and payload.target_node_id:
+    # Validate edge type compatibility (skip loop flow-control edges)
+    if payload.source_node_id and payload.target_node_id and payload.edge_label not in ("loop_body", "loop_return"):
         src_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.source_node_id).first()
         tgt_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.target_node_id).first()
         if src_node and tgt_node:

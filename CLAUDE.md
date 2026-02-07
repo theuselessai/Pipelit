@@ -506,6 +506,8 @@ Tool nodes connect to agents via the **tools** handle (diamond, green). At build
 
 **Switch node** (`switch`): A flow-control node that evaluates rules against input data and routes to different downstream nodes via conditional edges. Each rule has a `field`, `operator`, and `value`; the first matching rule's `route` value is emitted as `_route`. Each conditional edge carries a `condition_value` matching one route. Falls back to a `default` route if no rules match. Listed in the "Routing" category in the NodePalette.
 
+**Loop edge rendering:** Loop nodes use two special edge labels — `loop_body` (loop → body node) and `loop_return` (body → loop). These are flow-control edges that bypass type-compatibility validation in both the edge creation API (`platform/api/nodes.py`) and `EdgeValidator.validate_workflow_edges()`. On the canvas, `loop_return` edges render with a custom smoothstep path that routes **below** the nodes (right from source, down, left, up to target) with rounded 90-degree corners, dashed stroke, and a "return" label.
+
 **Node output display:** After a successful execution, nodes that produced output show a clickable "output" link (emerald green) that opens a Popover with the pretty-printed JSON output. Failed nodes show a clickable "error" link (red) with error details and error_code. Node outputs are tracked via `node_status` WebSocket events with `status === "success"` and `data.output`, or `status === "failed"` and `data.error`/`data.error_code`.
 
 **Execution log expansion:** On the ExecutionDetailPage, log rows with an `output` field show a chevron toggle that expands to reveal the full output (string or pretty-printed JSON) in a `<pre>` block.
