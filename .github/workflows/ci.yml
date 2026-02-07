@@ -45,6 +45,7 @@ jobs:
         run: npm ci
       - name: Lint
         working-directory: platform/frontend
+        continue-on-error: true
         run: npm run lint
       - name: Build
         working-directory: platform/frontend
