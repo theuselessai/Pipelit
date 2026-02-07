@@ -64,6 +64,16 @@ def _inflight_key(execution_id: str) -> str:
     return f"execution:{execution_id}:inflight"
 
 
+def _loop_key(execution_id: str, loop_id: str) -> str:
+    return f"execution:{execution_id}:loop:{loop_id}"
+
+
+def _loop_iter_done_key(execution_id: str, loop_id: str, iter_index: int | None = None) -> str:
+    if iter_index is not None:
+        return f"execution:{execution_id}:loop:{loop_id}:iter:{iter_index}:done"
+    return f"execution:{execution_id}:loop:{loop_id}:iter_done"  # legacy fallback
+
+
 def load_state(execution_id: str) -> dict:
     r = _redis()
     raw = r.get(_state_key(execution_id))
@@ -113,6 +123,7 @@ def _save_topology(execution_id: str, topo) -> None:
                     "source_node_id": e.source_node_id,
                     "target_node_id": e.target_node_id,
                     "edge_type": e.edge_type,
+                    "edge_label": getattr(e, "edge_label", "") or "",
                     "condition_mapping": e.condition_mapping,
                     "condition_value": getattr(e, "condition_value", "") or "",
                     "priority": e.priority,
@@ -122,6 +133,9 @@ def _save_topology(execution_id: str, topo) -> None:
             for src, edges in topo.edges_by_source.items()
         },
         "incoming_count": topo.incoming_count,
+        "loop_bodies": getattr(topo, "loop_bodies", {}),
+        "loop_return_nodes": getattr(topo, "loop_return_nodes", {}),
+        "loop_body_all_nodes": {k: list(v) for k, v in getattr(topo, "loop_body_all_nodes", {}).items()},
     }
     r.set(_topo_key(execution_id), json.dumps(data), ex=STATE_TTL)
 
@@ -263,6 +277,10 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
         expr_node_outputs = state.get("node_outputs", {})
         expr_trigger = state.get("trigger", {})
+        # Include loop context in expression resolution
+        loop_ctx = state.get("loop")
+        if loop_ctx:
+            expr_node_outputs = {**expr_node_outputs, "loop": loop_ctx}
 
         # Expunge config to avoid dirtying SQLAlchemy session
         db.expunge(db_node.component_config)
@@ -321,6 +339,54 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 )
                 return
 
+            # Check if failed node is inside a loop body with on_error=continue
+            r = _redis()
+            loop_body_all = topo_data.get("loop_body_all_nodes", {})
+            owning_loop_id = None
+            for lid, all_body in loop_body_all.items():
+                if node_id in set(all_body):
+                    owning_loop_id = lid
+                    break
+
+            if owning_loop_id:
+                from models.node import WorkflowNode as _WFNode
+                loop_info = topo_data["nodes"].get(owning_loop_id)
+                on_error = "stop"
+                if loop_info:
+                    loop_db_node = db.get(_WFNode, loop_info["db_id"])
+                    if loop_db_node and loop_db_node.component_config:
+                        on_error = loop_db_node.component_config.extra_config.get("on_error", "stop")
+
+                if on_error == "continue":
+                    logger.warning("Node %s failed in loop %s body (on_error=continue), skipping", node_id, owning_loop_id)
+                    # Store error in state so _loop_next_iteration includes it
+                    state = load_state(execution_id)
+                    loop_errors = state.get("_loop_errors", {})
+                    loop_errors.setdefault(owning_loop_id, {})[node_id] = {
+                        "error": str(exc)[:500], "error_code": exc_type,
+                    }
+                    state["_loop_errors"] = loop_errors
+                    save_state(execution_id, state)
+
+                    # Check if this is a completion node or intermediate
+                    return_nodes = topo_data.get("loop_return_nodes", {}).get(owning_loop_id, [])
+                    body_targets = topo_data.get("loop_bodies", {}).get(owning_loop_id, [])
+                    completion_nodes = return_nodes if return_nodes else body_targets
+
+                    if node_id not in completion_nodes:
+                        # Intermediate node failed — downstream won't run, force advance
+                        _loop_next_iteration(execution_id, owning_loop_id, topo_data, db)
+                    else:
+                        # Completion node failed — _check_loop_body_done handles it normally
+                        _check_loop_body_done(execution_id, node_id, topo_data, db)
+
+                    # Decrement inflight for the failed node
+                    remaining = r.decr(_inflight_key(execution_id))
+                    if remaining <= 0:
+                        _finalize(execution_id, db)
+                    return
+
+            # on_error == "stop" (default) — fail the entire execution
             logger.exception("Node %s failed permanently in execution %s", node_id, execution_id)
             execution.status = "failed"
             execution.error_message = f"Node {node_id}: {str(exc)[:1900]}"
@@ -349,6 +415,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         )
 
         # Merge result into state
+        delay_seconds = None
+        loop_data = None
         if result and isinstance(result, dict):
             if "node_outputs" in result:
                 # Legacy path — component did its own wrapping
@@ -358,6 +426,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 route = result.pop("_route", None)
                 new_messages = result.pop("_messages", None)
                 state_patch = result.pop("_state_patch", None)
+                delay_seconds = result.pop("_delay_seconds", None)
+                loop_data = result.pop("_loop", None)
 
                 # Wrap port values into node_outputs
                 port_data = {k: v for k, v in result.items() if not k.startswith("_")}
@@ -406,7 +476,23 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             _handle_interrupt(execution, node_id, "after", db)
             return
 
-        _advance(execution_id, node_id, state, topo_data, db)
+        # Handle loop: if component returned _loop, start iteration
+        if loop_data:
+            items = loop_data.get("items", [])
+            body_targets = topo_data.get("loop_bodies", {}).get(node_id, [])
+            if items and body_targets:
+                r.set(_loop_key(execution_id, node_id), json.dumps({
+                    "items": items, "index": 0, "results": [],
+                    "body_targets": body_targets,
+                }), ex=STATE_TTL)
+                state["loop"] = {"item": items[0], "index": 0, "total": len(items)}
+                save_state(execution_id, state)
+                _advance_loop_body(execution_id, node_id, topo_data, slug, iter_index=0)
+                return
+            # Empty array or no body targets — advance normally
+
+        # Handle delay: pass delay to _advance
+        _advance(execution_id, node_id, state, topo_data, db, delay_seconds=delay_seconds)
 
     except Exception as exc:
         logger.exception("Unexpected error in execute_node_job(%s, %s)", execution_id, node_id)
@@ -486,11 +572,18 @@ def _advance(
     state: dict,
     topo_data: dict,
     db: Session,
+    delay_seconds: float | None = None,
 ) -> None:
     """Enqueue successor nodes after a node completes."""
     r = _redis()
-    edges = topo_data["edges_by_source"].get(completed_node_id, [])
+    # Filter to non-loop_body edges for normal advancement
+    all_edges = topo_data["edges_by_source"].get(completed_node_id, [])
+    edges = [e for e in all_edges if e.get("edge_label", "") not in ("loop_body", "loop_return")]
     if not edges:
+        # Check if completed node is inside a loop body
+        if _check_loop_body_done(execution_id, completed_node_id, topo_data, db, delay_seconds=delay_seconds):
+            r.decr(_inflight_key(execution_id))
+            return
         remaining = r.decr(_inflight_key(execution_id))
         if remaining <= 0:
             _finalize(execution_id, db)
@@ -548,12 +641,130 @@ def _advance(
         enqueued_count += 1
         _publish_event(execution_id, "node_enqueued", {"node_id": target_id}, workflow_slug=topo_data.get("workflow_slug", ""))
         from tasks import execute_node_job as _enqueue_node
-        q.enqueue(_enqueue_node, execution_id, target_id)
+        if delay_seconds and delay_seconds > 0:
+            q.enqueue_in(timedelta(seconds=delay_seconds), _enqueue_node, execution_id, target_id)
+        else:
+            q.enqueue(_enqueue_node, execution_id, target_id)
+
+    # Check if completed node is inside a loop body
+    _check_loop_body_done(execution_id, completed_node_id, topo_data, db, delay_seconds=delay_seconds)
 
     # Decrement inflight for the completed node and check if execution is done
     remaining = r.decr(_inflight_key(execution_id))
     if remaining <= 0:
         _finalize(execution_id, db)
+
+
+def _advance_loop_body(execution_id: str, loop_node_id: str, topo_data: dict, slug: str, iter_index: int = 0, delay_seconds: float | None = None) -> None:
+    """Enqueue body target nodes for the current loop iteration."""
+    r = _redis()
+    q = _queue()
+    body_targets = topo_data.get("loop_bodies", {}).get(loop_node_id, [])
+    r.delete(_loop_iter_done_key(execution_id, loop_node_id, iter_index))
+
+    from tasks import execute_node_job as _enqueue_node
+
+    for target_id in body_targets:
+        r.incr(_inflight_key(execution_id))
+        _publish_event(execution_id, "node_enqueued", {"node_id": target_id}, workflow_slug=slug)
+        if delay_seconds and delay_seconds > 0:
+            q.enqueue_in(timedelta(seconds=delay_seconds), _enqueue_node, execution_id, target_id)
+        else:
+            q.enqueue(_enqueue_node, execution_id, target_id)
+
+
+def _check_loop_body_done(execution_id: str, completed_node_id: str, topo_data: dict, db: Session, delay_seconds: float | None = None) -> bool:
+    """Check if completed node is a loop body node, and if all completion nodes for this iteration are done.
+
+    Returns True if the node was inside a loop body (caller should handle inflight differently).
+    """
+    r = _redis()
+    loop_bodies = topo_data.get("loop_bodies", {})
+    loop_return_nodes = topo_data.get("loop_return_nodes", {})
+    loop_body_all = topo_data.get("loop_body_all_nodes", {})
+
+    for loop_id, body_targets in loop_bodies.items():
+        all_body = set(loop_body_all.get(loop_id, body_targets))
+        if completed_node_id not in all_body:
+            continue
+
+        # Node is inside this loop's body
+        return_nodes = loop_return_nodes.get(loop_id, [])
+        completion_nodes = return_nodes if return_nodes else body_targets
+
+        if completed_node_id in completion_nodes:
+            # Get current iteration index
+            loop_raw = r.get(_loop_key(execution_id, loop_id))
+            iter_index = json.loads(loop_raw).get("index", 0) if loop_raw else 0
+
+            done_key = _loop_iter_done_key(execution_id, loop_id, iter_index)
+            count = r.incr(done_key)
+            r.expire(done_key, STATE_TTL)
+            if count >= len(completion_nodes):
+                # All completion nodes done for this iteration
+                _loop_next_iteration(execution_id, loop_id, topo_data, db, delay_seconds=delay_seconds)
+
+        return True  # All body nodes return True (skip _finalize check)
+
+    return False
+
+
+def _loop_next_iteration(execution_id: str, loop_node_id: str, topo_data: dict, db: Session, delay_seconds: float | None = None) -> None:
+    """Advance loop to next iteration or complete it."""
+    r = _redis()
+    loop_raw = r.get(_loop_key(execution_id, loop_node_id))
+    loop_state = json.loads(loop_raw) if loop_raw else {}
+    items = loop_state.get("items", [])
+    index = loop_state.get("index", 0)
+    results = loop_state.get("results", [])
+
+    # Collect body outputs for this iteration
+    state = load_state(execution_id)
+    body_targets = loop_state.get("body_targets", [])
+    return_nodes = topo_data.get("loop_return_nodes", {}).get(loop_node_id, [])
+    output_nodes = return_nodes if return_nodes else body_targets
+
+    # Check for recorded errors from on_error=continue
+    loop_errors = state.get("_loop_errors", {}).get(loop_node_id, {})
+    iter_output = {}
+    for bt in output_nodes:
+        if bt in loop_errors:
+            iter_output[bt] = loop_errors[bt]
+        else:
+            iter_output[bt] = state.get("node_outputs", {}).get(bt)
+
+    # Clear errors for this iteration
+    if loop_node_id in state.get("_loop_errors", {}):
+        del state["_loop_errors"][loop_node_id]
+
+    results.append(iter_output)
+    index += 1
+
+    slug = topo_data.get("workflow_slug", "")
+
+    if index < len(items):
+        # More items — update loop state, set next item, re-enqueue body
+        loop_state["index"] = index
+        loop_state["results"] = results
+        r.set(_loop_key(execution_id, loop_node_id), json.dumps(loop_state), ex=STATE_TTL)
+        state["loop"] = {"item": items[index], "index": index, "total": len(items)}
+        save_state(execution_id, state)
+        _advance_loop_body(execution_id, loop_node_id, topo_data, slug, iter_index=index, delay_seconds=delay_seconds)
+    else:
+        # Loop complete — store results and advance via non-body edges
+        loop_state["results"] = results
+        r.set(_loop_key(execution_id, loop_node_id), json.dumps(loop_state), ex=STATE_TTL)
+        node_outputs = state.get("node_outputs", {})
+        if loop_node_id in node_outputs:
+            node_outputs[loop_node_id]["results"] = results
+        else:
+            node_outputs[loop_node_id] = {"results": results}
+        state["node_outputs"] = node_outputs
+        # Clear loop context
+        state.pop("loop", None)
+        save_state(execution_id, state)
+        # Advance via normal direct edges (the "done" path)
+        _advance(execution_id, loop_node_id, state, topo_data, db, delay_seconds=delay_seconds)
 
 
 def _maybe_finalize(execution_id: str, topo_data: dict, db: Session) -> None:
