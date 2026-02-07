@@ -530,7 +530,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             <Button
               size="sm"
               className="w-full"
-              onClick={() => manualExecute.mutate()}
+              onClick={() => manualExecute.mutate("")}
               disabled={manualExecute.isPending}
             >
               {manualExecute.isPending ? (
