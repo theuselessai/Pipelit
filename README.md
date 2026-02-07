@@ -1,4 +1,6 @@
-# AIChat Platform
+# Pipelit
+
+[![CI](https://github.com/theuselessai/aibot_telegram_server/actions/workflows/ci.yml/badge.svg)](https://github.com/theuselessai/aibot_telegram_server/actions/workflows/ci.yml)
 
 A visual workflow automation platform for building LLM-powered agents. Design workflows on a React Flow canvas, connect triggers (Telegram, webhooks, chat), LLM agents, tools, and routing logic. Executes via LangGraph with real-time WebSocket status updates.
 
