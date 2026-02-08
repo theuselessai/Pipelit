@@ -2,9 +2,9 @@
 
 ## Tech Stack
 This project uses **FastAPI + SQLAlchemy + RQ** (NOT Django). Never reference Django models, Django ORM, or Django settings. The backend is Python/FastAPI with SQLAlchemy models and Alembic migrations. The frontend is TypeScript/React.
-
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+
 
 
 ## Project Overview
@@ -22,6 +22,7 @@ Visual workflow automation platform for building LLM-powered agents. Design work
 - Always present a plan and get user approval BEFORE writing code for architectural changes
 - Do not rush to fix/improve things the user is just showing you for discussion
 - When user shares output or logs, ask whether they want analysis, a fix, or are just sharing context
+- ALWAYS CREATE A NEW BRANCH BEFORE IMPLEMENTING A NEW FEATURE
 
 ## Database & Migrations
 - Use Alembic for all migrations
