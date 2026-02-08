@@ -400,6 +400,15 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 error_code=exc_type,
                 error_message=f"Node {node_id}: {str(exc)[:500]}",
             )
+            # If this is a child execution, propagate failure to parent
+            _fail_parent_eid = getattr(execution, "parent_execution_id", None)
+            _fail_parent_nid = getattr(execution, "parent_node_id", None)
+            if _fail_parent_eid and _fail_parent_nid and isinstance(_fail_parent_eid, str):
+                _resume_from_child(
+                    parent_execution_id=_fail_parent_eid,
+                    parent_node_id=_fail_parent_nid,
+                    child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
+                )
             _cleanup_redis(execution_id)
             return
 
@@ -417,6 +426,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         # Merge result into state
         delay_seconds = None
         loop_data = None
+        subworkflow_data = None
         if result and isinstance(result, dict):
             if "node_outputs" in result:
                 # Legacy path — component did its own wrapping
@@ -428,6 +438,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 state_patch = result.pop("_state_patch", None)
                 delay_seconds = result.pop("_delay_seconds", None)
                 loop_data = result.pop("_loop", None)
+                subworkflow_data = result.pop("_subworkflow", None)
 
                 # Wrap port values into node_outputs
                 port_data = {k: v for k, v in result.items() if not k.startswith("_")}
@@ -490,6 +501,20 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 _advance_loop_body(execution_id, node_id, topo_data, slug, iter_index=0)
                 return
             # Empty array or no body targets — advance normally
+
+        # Handle subworkflow: component created a child execution, wait for it
+        if subworkflow_data:
+            child_id = subworkflow_data.get("child_execution_id")
+            logger.info(
+                "Node %s waiting for child execution %s", node_id, child_id,
+            )
+            _publish_event(execution_id, "node_status", {
+                "node_id": node_id, "status": NodeStatus.WAITING.value,
+                "child_execution_id": child_id,
+            }, workflow_slug=slug)
+            # Do NOT advance or decrement inflight — node stays in-flight
+            # until child completes and _resume_from_child is called.
+            return
 
         # Handle delay: pass delay to _advance
         _advance(execution_id, node_id, state, topo_data, db, delay_seconds=delay_seconds)
@@ -559,6 +584,58 @@ def resume_node_job(execution_id: str, user_input: str) -> None:
         q = _queue()
         q.enqueue(_enqueue_node, execution_id, node_id)
 
+    finally:
+        db.close()
+
+
+def _resume_from_child(
+    parent_execution_id: str,
+    parent_node_id: str,
+    child_output: dict | None,
+) -> None:
+    """Resume a parent execution after a child subworkflow completes.
+
+    Injects the child's final_output into parent state, then re-enqueues
+    the subworkflow node so it can return the result and advance normally.
+    """
+    from database import SessionLocal
+    from models.execution import WorkflowExecution
+
+    db = SessionLocal()
+    try:
+        parent = (
+            db.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == parent_execution_id)
+            .first()
+        )
+        if not parent:
+            logger.error("Parent execution %s not found for child resume", parent_execution_id)
+            return
+        if parent.status != "running":
+            logger.warning(
+                "Parent execution %s not running (status=%s), skipping resume",
+                parent_execution_id, parent.status,
+            )
+            return
+
+        # Inject child output into parent state
+        state = load_state(parent_execution_id)
+        subworkflow_results = state.get("_subworkflow_results", {})
+        subworkflow_results[parent_node_id] = child_output
+        state["_subworkflow_results"] = subworkflow_results
+        save_state(parent_execution_id, state)
+
+        # Re-enqueue the subworkflow node — on re-entry it will see the
+        # child result and return it as normal output, then advance.
+        from tasks import execute_node_job as _enqueue_node
+
+        q = _queue()
+        q.enqueue(_enqueue_node, parent_execution_id, parent_node_id)
+
+        logger.info(
+            "Resumed parent execution %s at node %s with child output",
+            parent_execution_id, parent_node_id,
+        )
     finally:
         db.close()
 
@@ -811,6 +888,20 @@ def _finalize(execution_id: str, db: Session) -> None:
 
     from services.delivery import output_delivery
     output_delivery.deliver(execution, db)
+
+    # If this execution has a parent, resume the parent's subworkflow node
+    parent_eid = getattr(execution, "parent_execution_id", None)
+    parent_nid = getattr(execution, "parent_node_id", None)
+    if parent_eid and parent_nid and isinstance(parent_eid, str):
+        logger.info(
+            "Child execution %s completed, resuming parent %s at node %s",
+            execution_id, parent_eid, parent_nid,
+        )
+        _resume_from_child(
+            parent_execution_id=parent_eid,
+            parent_node_id=parent_nid,
+            child_output=execution.final_output,
+        )
 
     _cleanup_redis(execution_id)
 
