@@ -53,12 +53,12 @@ def db():
 
 @pytest.fixture
 def user_profile(db):
-    from passlib.hash import pbkdf2_sha256
+    import bcrypt
     from models.user import UserProfile
 
     profile = UserProfile(
         username="testuser",
-        password_hash=pbkdf2_sha256.hash("testpass"),
+        password_hash=bcrypt.hashpw(b"testpass", bcrypt.gensalt()).decode(),
         telegram_user_id=111222333,
     )
     db.add(profile)

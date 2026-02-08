@@ -267,9 +267,9 @@ class TestWriteLog:
         # Need a workflow + execution first
         from models.workflow import Workflow
         from models.user import UserProfile
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
 
-        user = UserProfile(username="logtest", password_hash=pbkdf2_sha256.hash("p"))
+        user = UserProfile(username="logtest", password_hash=bcrypt.hashpw(b"p", bcrypt.gensalt()).decode())
         db.add(user)
         db.flush()
 
@@ -299,9 +299,9 @@ class TestWriteLog:
         from models.execution import WorkflowExecution, ExecutionLog
         from models.workflow import Workflow
         from models.user import UserProfile
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
 
-        user = UserProfile(username="logtest2", password_hash=pbkdf2_sha256.hash("p"))
+        user = UserProfile(username="logtest2", password_hash=bcrypt.hashpw(b"p", bcrypt.gensalt()).decode())
         db.add(user)
         db.flush()
 
@@ -493,9 +493,9 @@ class TestHandleInterrupt:
         from models.execution import PendingTask, WorkflowExecution
         from models.workflow import Workflow
         from models.user import UserProfile
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
 
-        user = UserProfile(username="inttest", password_hash=pbkdf2_sha256.hash("p"))
+        user = UserProfile(username="inttest", password_hash=bcrypt.hashpw(b"p", bcrypt.gensalt()).decode())
         db.add(user)
         db.flush()
 
