@@ -17,11 +17,11 @@ router = APIRouter()
 
 def _verify_password(stored_hash: str, password: str) -> bool:
     """Verify password against stored hash."""
-    from passlib.hash import pbkdf2_sha256
+    import bcrypt
 
     if not stored_hash:
         return False
-    return pbkdf2_sha256.verify(password, stored_hash)
+    return bcrypt.checkpw(password.encode(), stored_hash.encode())
 
 
 @router.post("/token/", response_model=TokenResponse, responses={401: {"description": "Invalid credentials"}})
@@ -57,11 +57,11 @@ def setup(payload: SetupRequest, db: Session = Depends(get_db)):
     if db.query(UserProfile).first() is not None:
         raise HTTPException(status_code=409, detail="Setup already completed.")
 
-    from passlib.hash import pbkdf2_sha256
+    import bcrypt
 
     user = UserProfile(
         username=payload.username,
-        password_hash=pbkdf2_sha256.hash(payload.password),
+        password_hash=bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode(),
     )
     db.add(user)
     db.flush()

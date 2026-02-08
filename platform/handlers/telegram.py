@@ -151,13 +151,13 @@ class TelegramTriggerHandler:
             username = f"{base_username}_{counter}"
             counter += 1
 
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
         profile = UserProfile(
             username=username,
             first_name=first,
             last_name=last,
             telegram_user_id=telegram_user_id,
-            password_hash=pbkdf2_sha256.hash(uuid.uuid4().hex),  # random password
+            password_hash=bcrypt.hashpw(uuid.uuid4().hex.encode(), bcrypt.gensalt()).decode(),  # random password
         )
         db.add(profile)
         db.commit()

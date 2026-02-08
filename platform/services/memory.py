@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -95,7 +95,7 @@ class MemoryService:
     def _record_access(self, fact: MemoryFact) -> None:
         """Track fact access for usage analytics."""
         fact.access_count += 1
-        fact.last_accessed = datetime.utcnow()
+        fact.last_accessed = datetime.now(timezone.utc)
         self.db.commit()
 
     def set_fact(
@@ -126,7 +126,7 @@ class MemoryService:
             if overwrite:
                 existing.value = value
                 existing.times_confirmed += 1
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
                 self.db.commit()
                 return existing
             else:
@@ -239,7 +239,7 @@ class MemoryService:
             trigger_input=trigger_input,
             conversation=[],
             actions_taken=[],
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         self.db.add(episode)
         self.db.commit()
@@ -267,7 +267,7 @@ class MemoryService:
         episode.actions_taken = actions_taken or []
         episode.error_code = error_code
         episode.error_message = error_message or ""
-        episode.ended_at = datetime.utcnow()
+        episode.ended_at = datetime.now(timezone.utc)
         episode.duration_ms = int(
             (episode.ended_at - episode.started_at).total_seconds() * 1000
         )
@@ -357,7 +357,7 @@ class MemoryService:
             ).scalar_one_or_none()
 
         if user:
-            user.last_seen_at = datetime.utcnow()
+            user.last_seen_at = datetime.now(timezone.utc)
             if display_name and not user.display_name:
                 user.display_name = display_name
             self.db.commit()
@@ -440,7 +440,7 @@ class MemoryService:
         user = self.get_user_by_canonical_id(user_id)
         if user:
             user.total_conversations += 1
-            user.last_conversation_at = datetime.utcnow()
+            user.last_conversation_at = datetime.now(timezone.utc)
             self.db.commit()
 
     # ========== PROCEDURES ==========
@@ -563,7 +563,7 @@ class MemoryService:
         else:
             procedure.times_failed += 1
 
-        procedure.last_used_at = datetime.utcnow()
+        procedure.last_used_at = datetime.now(timezone.utc)
 
         if duration_ms is not None:
             if procedure.avg_duration_ms:

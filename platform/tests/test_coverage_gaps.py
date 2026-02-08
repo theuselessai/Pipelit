@@ -421,13 +421,13 @@ class TestEdgeValidation:
         from models.node import BaseComponentConfig, WorkflowEdge, WorkflowNode
         from validation.edges import EdgeValidator
 
-        cc1 = BaseComponentConfig(component_type="control_flow")
+        cc1 = BaseComponentConfig(component_type="loop")
         cc2 = BaseComponentConfig(component_type="code")
         db.add_all([cc1, cc2])
         db.flush()
         n1 = WorkflowNode(
             workflow_id=workflow.id, node_id="loop_1",
-            component_type="control_flow", component_config_id=cc1.id,
+            component_type="loop", component_config_id=cc1.id,
         )
         n2 = WorkflowNode(
             workflow_id=workflow.id, node_id="body_1",

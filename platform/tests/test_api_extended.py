@@ -266,10 +266,10 @@ class TestUsersAPI:
         assert data["total"] == 0
 
     def test_list_agent_users(self, auth_client, db):
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
         agent = UserProfile(
             username="agent-bot",
-            password_hash=pbkdf2_sha256.hash("random"),
+            password_hash=bcrypt.hashpw(b"random", bcrypt.gensalt()).decode(),
             is_agent=True,
             first_name="Test Agent",
         )
@@ -286,10 +286,10 @@ class TestUsersAPI:
         assert data["items"][0]["username"] == "agent-bot"
 
     def test_delete_agent_user(self, auth_client, db):
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
         agent = UserProfile(
             username="agent-to-delete",
-            password_hash=pbkdf2_sha256.hash("random"),
+            password_hash=bcrypt.hashpw(b"random", bcrypt.gensalt()).decode(),
             is_agent=True,
         )
         db.add(agent)
@@ -306,10 +306,10 @@ class TestUsersAPI:
         assert resp.status_code == 404
 
     def test_batch_delete_agent_users(self, auth_client, db):
-        from passlib.hash import pbkdf2_sha256
+        import bcrypt
         agent = UserProfile(
             username="agent-batch-del",
-            password_hash=pbkdf2_sha256.hash("random"),
+            password_hash=bcrypt.hashpw(b"random", bcrypt.gensalt()).decode(),
             is_agent=True,
         )
         db.add(agent)

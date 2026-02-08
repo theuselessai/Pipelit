@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,10 +28,11 @@ class Settings(BaseSettings):
 
     CORS_ALLOW_ALL_ORIGINS: bool = True
 
-    class Config:
-        env_file = str(BASE_DIR.parent / ".env")
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    model_config = ConfigDict(
+        env_file=str(BASE_DIR.parent / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 settings = Settings()
