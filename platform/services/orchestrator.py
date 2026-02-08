@@ -401,10 +401,12 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 error_message=f"Node {node_id}: {str(exc)[:500]}",
             )
             # If this is a child execution, propagate failure to parent
-            if execution.parent_execution_id and execution.parent_node_id:
+            _fail_parent_eid = getattr(execution, "parent_execution_id", None)
+            _fail_parent_nid = getattr(execution, "parent_node_id", None)
+            if _fail_parent_eid and _fail_parent_nid and isinstance(_fail_parent_eid, str):
                 _resume_from_child(
-                    parent_execution_id=execution.parent_execution_id,
-                    parent_node_id=execution.parent_node_id,
+                    parent_execution_id=_fail_parent_eid,
+                    parent_node_id=_fail_parent_nid,
                     child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
                 )
             _cleanup_redis(execution_id)
@@ -888,14 +890,16 @@ def _finalize(execution_id: str, db: Session) -> None:
     output_delivery.deliver(execution, db)
 
     # If this execution has a parent, resume the parent's subworkflow node
-    if execution.parent_execution_id and execution.parent_node_id:
+    parent_eid = getattr(execution, "parent_execution_id", None)
+    parent_nid = getattr(execution, "parent_node_id", None)
+    if parent_eid and parent_nid and isinstance(parent_eid, str):
         logger.info(
             "Child execution %s completed, resuming parent %s at node %s",
-            execution_id, execution.parent_execution_id, execution.parent_node_id,
+            execution_id, parent_eid, parent_nid,
         )
         _resume_from_child(
-            parent_execution_id=execution.parent_execution_id,
-            parent_node_id=execution.parent_node_id,
+            parent_execution_id=parent_eid,
+            parent_node_id=parent_nid,
             child_output=execution.final_output,
         )
 
