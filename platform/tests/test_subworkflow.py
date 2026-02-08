@@ -260,3 +260,265 @@ class TestNodeStatusWaiting:
 
         assert NodeStatus.WAITING == "waiting"
         assert "waiting" in [s.value for s in NodeStatus]
+
+
+# ── _create_child_execution tests (implicit mode) ────────────────────────────
+
+
+class TestCreateChildExecutionImplicit:
+    """Test _create_child_execution with trigger_mode='implicit'."""
+
+    @patch("database.SessionLocal")
+    def test_lookup_by_slug(self, mock_session_cls):
+        """Implicit mode looks up workflow by slug and creates child execution."""
+        from components.subworkflow import _create_child_execution
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+
+        # Mock workflow found by slug
+        mock_workflow = MagicMock()
+        mock_workflow.id = 42
+        mock_workflow.slug = "child-wf"
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_workflow
+
+        def refresh_side_effect(obj):
+            obj.execution_id = "child-exec-abc"
+        mock_db.refresh.side_effect = refresh_side_effect
+
+        with patch("redis.from_url"), \
+             patch("rq.Queue") as mock_queue_cls:
+            mock_q = MagicMock()
+            mock_queue_cls.return_value = mock_q
+
+            result = _create_child_execution(
+                state={
+                    "execution_id": "parent-exec-1",
+                    "trigger": {"text": "hello"},
+                    "node_outputs": {},
+                    "user_context": {"user_profile_id": 5},
+                },
+                target_slug="child-wf",
+                subworkflow_id_fk=None,
+                trigger_mode="implicit",
+                input_mapping={},
+                parent_node_id="subworkflow_1",
+            )
+
+        assert result == "child-exec-abc"
+        mock_db.add.assert_called_once()
+        mock_db.commit.assert_called_once()
+        mock_q.enqueue.assert_called_once()
+
+    @patch("database.SessionLocal")
+    def test_fallback_to_subworkflow_id(self, mock_session_cls):
+        """When slug lookup fails, fall back to subworkflow_id FK."""
+        from components.subworkflow import _create_child_execution
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+
+        # First query (by slug) returns None, second (by id) returns workflow
+        mock_workflow = MagicMock()
+        mock_workflow.id = 99
+        mock_workflow.slug = "fallback-wf"
+        mock_db.query.return_value.filter.return_value.first.side_effect = [None, mock_workflow]
+
+        def refresh_side_effect(obj):
+            obj.execution_id = "child-fallback"
+        mock_db.refresh.side_effect = refresh_side_effect
+
+        with patch("redis.from_url"), \
+             patch("rq.Queue") as mock_queue_cls:
+            mock_queue_cls.return_value = MagicMock()
+
+            result = _create_child_execution(
+                state={
+                    "execution_id": "parent-1",
+                    "trigger": {},
+                    "node_outputs": {},
+                    "user_context": {"user_profile_id": 1},
+                },
+                target_slug="nonexistent",
+                subworkflow_id_fk=99,
+                trigger_mode="implicit",
+                input_mapping={},
+                parent_node_id="sw_1",
+            )
+
+        assert result == "child-fallback"
+
+    @patch("database.SessionLocal")
+    def test_workflow_not_found_raises(self, mock_session_cls):
+        """Raises ValueError when neither slug nor subworkflow_id resolves."""
+        from components.subworkflow import _create_child_execution
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        with pytest.raises(ValueError, match="Target workflow not found"):
+            _create_child_execution(
+                state={"execution_id": "p1", "trigger": {}, "node_outputs": {}, "user_context": {"user_profile_id": 1}},
+                target_slug="missing",
+                subworkflow_id_fk=None,
+                trigger_mode="implicit",
+                input_mapping={},
+                parent_node_id="sw_1",
+            )
+
+    @patch("database.SessionLocal")
+    def test_no_user_profile_raises(self, mock_session_cls):
+        """Raises ValueError when user_profile_id cannot be determined."""
+        from components.subworkflow import _create_child_execution
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+
+        mock_workflow = MagicMock()
+        mock_workflow.id = 1
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_workflow
+
+        with pytest.raises(ValueError, match="Cannot determine user_profile_id"):
+            _create_child_execution(
+                state={"execution_id": "", "trigger": {}, "node_outputs": {}, "user_context": {}},
+                target_slug="wf",
+                subworkflow_id_fk=None,
+                trigger_mode="implicit",
+                input_mapping={},
+                parent_node_id="sw_1",
+            )
+
+    @patch("database.SessionLocal")
+    def test_user_profile_fallback_from_parent_execution(self, mock_session_cls):
+        """Falls back to looking up user_profile_id from parent execution."""
+        from components.subworkflow import _create_child_execution
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+
+        mock_workflow = MagicMock()
+        mock_workflow.id = 1
+        mock_workflow.slug = "wf"
+
+        mock_parent_exec = MagicMock()
+        mock_parent_exec.user_profile_id = 7
+
+        # First query: workflow lookup, second: parent execution lookup
+        mock_db.query.return_value.filter.return_value.first.side_effect = [
+            mock_workflow, mock_parent_exec,
+        ]
+
+        def refresh_side_effect(obj):
+            obj.execution_id = "child-from-parent"
+        mock_db.refresh.side_effect = refresh_side_effect
+
+        with patch("redis.from_url"), \
+             patch("rq.Queue") as mock_queue_cls:
+            mock_queue_cls.return_value = MagicMock()
+
+            result = _create_child_execution(
+                state={
+                    "execution_id": "parent-exec-1",
+                    "trigger": {},
+                    "node_outputs": {},
+                    "user_context": {},  # no user_profile_id
+                },
+                target_slug="wf",
+                subworkflow_id_fk=None,
+                trigger_mode="implicit",
+                input_mapping={},
+                parent_node_id="sw_1",
+            )
+
+        assert result == "child-from-parent"
+
+    @patch("components.subworkflow._create_via_dispatch")
+    @patch("database.SessionLocal")
+    def test_explicit_mode_delegates_to_dispatch(self, mock_session_cls, mock_dispatch):
+        """When trigger_mode='explicit', delegates to _create_via_dispatch."""
+        from components.subworkflow import _create_child_execution
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+        mock_dispatch.return_value = "dispatch-exec-1"
+
+        result = _create_child_execution(
+            state={"execution_id": "p1", "user_context": {"user_profile_id": 1}},
+            target_slug="wf",
+            subworkflow_id_fk=None,
+            trigger_mode="explicit",
+            input_mapping={},
+            parent_node_id="sw_1",
+        )
+
+        assert result == "dispatch-exec-1"
+        mock_dispatch.assert_called_once()
+
+
+# ── _create_via_dispatch tests (explicit mode) ───────────────────────────────
+
+
+class TestCreateViaDispatch:
+    """Test _create_via_dispatch for explicit trigger mode."""
+
+    def test_successful_dispatch(self):
+        from components.subworkflow import _create_via_dispatch
+
+        mock_db = MagicMock()
+        mock_execution = MagicMock()
+        mock_execution.execution_id = "dispatched-123"
+        mock_user = MagicMock()
+
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+
+        with patch("handlers.dispatch_event", return_value=mock_execution):
+            result = _create_via_dispatch(
+                state={
+                    "execution_id": "parent-1",
+                    "trigger": {"text": "hi"},
+                    "node_outputs": {},
+                    "user_context": {"user_profile_id": 5},
+                },
+                target_slug="target-wf",
+                input_mapping={},
+                parent_node_id="sw_1",
+                db=mock_db,
+            )
+
+        assert result == "dispatched-123"
+        assert mock_execution.parent_execution_id == "parent-1"
+        assert mock_execution.parent_node_id == "sw_1"
+        mock_db.commit.assert_called_once()
+
+    def test_dispatch_no_match_raises(self):
+        from components.subworkflow import _create_via_dispatch
+
+        mock_db = MagicMock()
+        mock_user = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+
+        with patch("handlers.dispatch_event", return_value=None):
+            with pytest.raises(ValueError, match="No workflow matched"):
+                _create_via_dispatch(
+                    state={"execution_id": "p1", "trigger": {}, "node_outputs": {}, "user_context": {"user_profile_id": 1}},
+                    target_slug="no-match",
+                    input_mapping={},
+                    parent_node_id="sw_1",
+                    db=mock_db,
+                )
+
+    def test_dispatch_user_not_found_raises(self):
+        from components.subworkflow import _create_via_dispatch
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        with pytest.raises(ValueError, match="User profile.*not found"):
+            _create_via_dispatch(
+                state={"execution_id": "p1", "trigger": {}, "node_outputs": {}, "user_context": {"user_profile_id": 999}},
+                target_slug="wf",
+                input_mapping={},
+                parent_node_id="sw_1",
+                db=mock_db,
+            )
