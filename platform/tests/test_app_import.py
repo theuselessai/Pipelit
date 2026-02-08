@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 
@@ -13,9 +14,16 @@ class TestAppSetup:
         assert app.title == "Workflow Platform API"
 
     @patch("main.engine")
-    def test_startup_creates_tables(self, mock_engine):
-        from main import startup
-        startup()
+    @patch("main.Base")
+    def test_startup_creates_tables(self, mock_base, mock_engine):
+        from main import lifespan, app
+
+        async def _run():
+            async with lifespan(app):
+                pass
+
+        asyncio.run(_run())
+        mock_base.metadata.create_all.assert_called_once_with(bind=mock_engine)
 
     @patch("main.engine")
     def test_routers_registered(self, mock_engine):
