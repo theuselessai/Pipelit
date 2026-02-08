@@ -105,14 +105,41 @@ Unlike text-based procedure memory, these are actual runnable graphs — inspect
 
 ## Revised Gap List (Collapsed)
 
-The 8 original gaps collapse into 4 concrete pieces, three of which are just new tools:
+The 8 original gaps collapse into 5 concrete pieces:
 
 | Gap | What's Needed | Type |
 |---|---|---|
+| **Task registry** | Semantic layer on top of executions that tracks agent intent, delegated task dependencies, and links goals to workflows/executions (see below) | New model + tools |
 | **Workflow discovery** | Tool for agents to search existing workflows by description, tags, or capability — not just `GET /workflows/` listing all | New tool |
 | **Workflow creation tool** | Higher-level tool than raw `platform_api` — takes a structured goal/spec and creates nodes + edges in one call | New tool |
 | **Spawn-and-await from tool context** | Today `workflow` node is a static graph node. Agents need a tool-callable way to spawn a subworkflow mid-execution and block until it returns results | New tool |
 | **Execution feedback / tagging** | After subworkflow completes, tag it with success/failure, cost, duration — so future discovery can rank workflows by reliability and fitness | Enhancement |
+
+### Why a Task Registry Is Still Needed
+
+Dynamic subworkflows replace the worker pool and planning engine, but NOT the task registry. Subworkflows are the execution mechanism; the task registry is the **semantic layer** that gives agents awareness of their own delegations.
+
+**Without a task registry, the main agent has amnesia about its delegations:**
+
+| What the agent needs to know | Where it lives today |
+|---|---|
+| "Why did I spawn this?" (goal/intent) | Nowhere |
+| "Which of my subtasks are still running?" | Would need to query executions + remember which are "mine" |
+| "Task B depends on Task A finishing" | Nowhere — edge dependencies are within a workflow, not across spawned workflows |
+| "What was I working on?" (resume after interruption) | Nowhere — agent loses context between executions |
+| "This subtask failed, cancel the others?" | No cancel-by-parent mechanism |
+| "Which subworkflow solved goal X last time?" | Nowhere — no link between intent and execution |
+
+**The task registry bridges intent and execution. It tracks:**
+
+- **Goal/description** — why this task exists (semantic, searchable)
+- **Associated workflow + execution ID** — what's running it
+- **Parent task** — for hierarchical decomposition
+- **Dependencies** — what must finish before this task can start
+- **Status + result summary** — outcome
+- **Cost/duration metrics** — for the feedback loop and budget tracking
+
+**This is also what makes the "neural link" concept work** — without a task registry, agents can create subworkflows but can't find them by purpose later. The registry is the index that connects "I need coverage analysis" to "workflow X solved that last time with 95% success rate."
 
 ---
 
@@ -120,15 +147,16 @@ The 8 original gaps collapse into 4 concrete pieces, three of which are just new
 
 - No new orchestration layer needed
 - No worker pool infrastructure
-- No task registry system
 - No separate planning engine
-- Build on existing workflow primitives + 3-4 new tools
+- Build on existing workflow primitives + task registry + new tools
 - The "multi-agent delegation" capability emerges from agents composing workflows dynamically
+- The task registry provides the semantic memory that makes delegation stateful and resumable
 
 ---
 
 ## Next Steps
 
-- Design the 4 pieces listed above
+- Design the task registry model (schema, API, agent tools)
+- Design the 4 remaining tools (workflow discovery, creation, spawn-and-await, feedback)
 - Define tool schemas and component specs
 - Plan implementation order and dependencies
