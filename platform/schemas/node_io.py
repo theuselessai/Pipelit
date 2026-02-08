@@ -15,6 +15,7 @@ class NodeStatus(str, enum.Enum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
+    WAITING = "waiting"
 
 
 class NodeError(BaseModel):

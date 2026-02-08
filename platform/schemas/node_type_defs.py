@@ -409,6 +409,36 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="aggregated", data_type=DataType.ANY)],
 ))
 
+register_node_type(NodeTypeSpec(
+    component_type="workflow",
+    display_name="Subworkflow",
+    description="Execute another workflow as a child and return its output",
+    category="logic",
+    inputs=[PortDefinition(name="payload", data_type=DataType.ANY, description="Data passed to child workflow")],
+    outputs=[PortDefinition(name="output", data_type=DataType.ANY, description="Child workflow final output")],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "target_workflow": {
+                "type": "string",
+                "description": "Slug of the workflow to invoke",
+            },
+            "trigger_mode": {
+                "type": "string",
+                "enum": ["implicit", "explicit"],
+                "default": "implicit",
+                "description": "implicit = call workflow directly; explicit = go through trigger resolver",
+            },
+            "input_mapping": {
+                "type": "object",
+                "default": {},
+                "description": "Map parent state fields to child trigger payload",
+            },
+        },
+        "required": ["target_workflow"],
+    },
+))
+
 # ── Mark non-executable types ─────────────────────────────────────────────────
 # Triggers don't execute (they initiate), ai_model and output_parser are config-only.
 # Tools (run_command, http_request, etc.) ARE executable - they run when agents invoke them.

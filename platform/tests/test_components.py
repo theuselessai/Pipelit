@@ -162,11 +162,14 @@ class TestTrigger:
 # ── Subworkflow ───────────────────────────────────────────────────────────────
 
 class TestSubworkflow:
-    def test_raises_not_implemented(self):
+    def test_returns_child_result_when_available(self):
         from components.subworkflow import subworkflow_factory
-        fn = subworkflow_factory(_make_node("workflow"))
-        with pytest.raises(NotImplementedError, match="not yet implemented"):
-            fn({})
+        node = _make_node("workflow")
+        node.subworkflow_id = None
+        fn = subworkflow_factory(node)
+        state = {"_subworkflow_results": {"test_node_1": {"message": "done"}}}
+        result = fn(state)
+        assert result == {"output": {"message": "done"}}
 
 
 # ── Human Confirmation ────────────────────────────────────────────────────────

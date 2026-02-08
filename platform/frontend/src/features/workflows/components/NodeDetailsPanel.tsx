@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
+import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
 import { useSendChatMessage, useChatHistory, useDeleteChatHistory } from "@/api/chat"
 import { useManualExecute } from "@/api/executions"
@@ -358,6 +359,11 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [loopField, setLoopField] = useState<string>((node.config.extra_config?.field as string) ?? "")
   const [loopOnError, setLoopOnError] = useState<string>((node.config.extra_config?.on_error as string) ?? "stop")
 
+  // Subworkflow state
+  const [subworkflowTarget, setSubworkflowTarget] = useState<string>((node.config.extra_config?.target_workflow as string) ?? "")
+  const [subworkflowTriggerMode, setSubworkflowTriggerMode] = useState<string>((node.config.extra_config?.trigger_mode as string) ?? "implicit")
+  const { data: workflowList } = useWorkflows({ limit: 200 })
+
   // Compute all upstream ancestor nodes for switch/filter/loop (BFS backward through data edges)
   const upstreamNodes = useMemo(() => {
     if (!workflow) return []
@@ -433,6 +439,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     }
     if (node.component_type === "loop") {
       parsedExtra = { ...parsedExtra, source_node: loopSourceNode || undefined, field: loopField || undefined, on_error: loopOnError }
+    }
+    if (node.component_type === "workflow") {
+      parsedExtra = { ...parsedExtra, target_workflow: subworkflowTarget || undefined, trigger_mode: subworkflowTriggerMode }
     }
     let parsedTriggerConfig = {}
     try { parsedTriggerConfig = JSON.parse(triggerConfig) } catch { /* keep empty */ }
@@ -1124,6 +1133,49 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <p className="text-[10px] text-muted-foreground"><span className="text-emerald-500 font-medium">Done</span> — connect to nodes that run after all items</p>
               <p className="text-[10px] text-muted-foreground mt-1">Access current item: <code className="bg-muted px-1 rounded">{"{{ loop.item }}"}</code></p>
               <p className="text-[10px] text-muted-foreground">Access index: <code className="bg-muted px-1 rounded">{"{{ loop.index }}"}</code></p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {node.component_type === "workflow" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Subworkflow Configuration</Label>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Target Workflow</Label>
+              <Select value={subworkflowTarget} onValueChange={setSubworkflowTarget}>
+                <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Select a workflow" /></SelectTrigger>
+                <SelectContent>
+                  {(workflowList?.items ?? [])
+                    .filter((w: { slug: string }) => w.slug !== workflow?.slug)
+                    .map((w: { slug: string; name: string }) => (
+                      <SelectItem key={w.slug} value={w.slug} className="text-xs">{w.name} <span className="text-muted-foreground font-mono">({w.slug})</span></SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">The workflow to execute as a child</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Trigger Mode</Label>
+              <Select value={subworkflowTriggerMode} onValueChange={setSubworkflowTriggerMode}>
+                <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="implicit">Implicit (direct call)</SelectItem>
+                  <SelectItem value="explicit">Explicit (via trigger resolver)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                {subworkflowTriggerMode === "implicit"
+                  ? "Call the target workflow directly — no trigger node needed on the child"
+                  : "Fire a workflow event through the trigger resolver — child must have a Workflow Trigger node"}
+              </p>
+            </div>
+            <div className="border rounded-md p-2 space-y-1 bg-muted/50">
+              <p className="text-[10px] font-medium">How it works</p>
+              <p className="text-[10px] text-muted-foreground">Parent state data is passed as the child&apos;s trigger payload. The parent waits for the child to complete, then receives its output.</p>
+              <p className="text-[10px] text-muted-foreground">Use <span className="font-medium">Input Mapping</span> in Extra Config to control what data flows to the child.</p>
             </div>
           </div>
         </>

@@ -6,7 +6,7 @@ import {
   faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart, faBrain,
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
   faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
-  faBolt, faCalendarDays, faHandPointer,
+  faBolt, faCalendarDays, faHandPointer, faHourglass,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
   faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard, faLaptopCode,
@@ -53,6 +53,7 @@ const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
   success: "#10b981",
   failed: "#ef4444",
   skipped: "#f59e0b",
+  waiting: "#0ea5e9",
 }
 
 const COMPONENT_COLORS: Record<string, string> = {
@@ -118,6 +119,7 @@ function getColor(type: string) {
 function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean; nodeOutput?: Record<string, unknown> }; selected?: boolean }) {
   const iconColor = getColor(data.componentType)
   const isRunning = data.executionStatus === "running"
+  const isWaiting = data.executionStatus === "waiting"
   const isTrigger = data.componentType.startsWith("trigger_")
   const isLoop = data.componentType === "loop"
   const isFixedWidth = ["router", "categorizer", "agent", "extractor", "switch", "loop"].includes(data.componentType)
@@ -150,13 +152,15 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           <div
             className="rounded-sm border flex items-center justify-center"
             style={{
-              borderColor: isRunning ? NODE_STATUS_COLORS.running : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8",
+              borderColor: isRunning ? NODE_STATUS_COLORS.running : isWaiting ? NODE_STATUS_COLORS.waiting : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8",
               width: isTool ? 14 : 20,
               height: isTool ? 14 : 20,
             }}
           >
             {isRunning
               ? <FontAwesomeIcon icon={faCircleNotch} className="animate-spin" style={{ color: NODE_STATUS_COLORS.running, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+              : isWaiting
+              ? <FontAwesomeIcon icon={faHourglass} className="animate-pulse" style={{ color: NODE_STATUS_COLORS.waiting, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
               : isSuccess
               ? <FontAwesomeIcon icon={faCircleCheck} style={{ color: NODE_STATUS_COLORS.success, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
               : isFailed

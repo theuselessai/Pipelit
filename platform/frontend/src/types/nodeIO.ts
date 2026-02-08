@@ -1,6 +1,6 @@
 // Node I/O types mirroring Python schemas
 
-export type NodeStatus = "pending" | "running" | "success" | "failed" | "skipped"
+export type NodeStatus = "pending" | "running" | "success" | "failed" | "skipped" | "waiting"
 
 export interface NodeError {
   code: string
