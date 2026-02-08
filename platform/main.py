@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Ensure platform/ is on sys.path for absolute imports
@@ -22,7 +23,15 @@ from handlers.webhook import router as webhook_router
 from handlers.manual import router as manual_router
 from ws import ws_router
 
-app = FastAPI(title="Workflow Platform API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
+app = FastAPI(title="Workflow Platform API", version="1.0.0", lifespan=lifespan)
 
 # CORS
 app.add_middleware(
@@ -50,12 +59,6 @@ app.include_router(ws_router)
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="spa")
-
-
-@app.on_event("startup")
-def startup():
-    # Create tables if they don't exist (dev convenience; use alembic in prod)
-    Base.metadata.create_all(bind=engine)
 
 
 if __name__ == "__main__":
