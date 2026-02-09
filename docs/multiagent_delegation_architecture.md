@@ -234,7 +234,9 @@ class Epic(Base):
     # ── Ownership ─────────────────────────────────────────────
     created_by_node_id = Column(String, nullable=True)
     workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=True)
-    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False)
+    # Nullable: set when a human user is known (e.g., telegram trigger),
+    # left null when created by agents or in nested delegation chains.
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True)
 
     # ── Lifecycle ─────────────────────────────────────────────
     status = Column(String, default="planning")
@@ -698,8 +700,45 @@ This reuses the existing orchestrator infrastructure (`_subworkflow` signal, `_h
 
 **Checkpointer requirement:** `spawn_and_await` requires a checkpointer on the agent to save/restore mid-tool-call state. See section 7.5 for the dual checkpointer strategy that makes this work regardless of conversation memory settings.
 
+**Timeout enforcement:**
+
+When `spawn_and_await` creates the child execution, it also schedules a delayed RQ job at `now + timeout_seconds`. This watchdog job checks if the child execution is still running — if so, cancels it. On cancellation, the orchestrator resumes the parent agent with a timeout error result (`{"error": "timeout", "timeout_seconds": 300}`). The agent can then decide to retry, skip, or fail the task.
+
+```python
+# Scheduled at child creation time:
+rq_scheduler.enqueue_in(
+    timedelta(seconds=timeout),
+    check_spawn_timeout,
+    child_execution_id=child_execution_id,
+    task_id=task_id,
+    parent_execution_id=execution_id,
+    parent_node_id=node_id,
+)
+```
+
+**Sequential spawn_and_await (multiple calls in one agent run):**
+
+An agent may call `spawn_and_await` multiple times in a single execution (e.g., spawn task A, resume, spawn task B, resume). Each interrupt/resume cycle must cleanly hand off state. The critical detail:
+
+```python
+# IMPORTANT: Use .pop() not .get() to consume the result.
+# Without this, a stale result from cycle N would be visible
+# in cycle N+1's initial invocation, causing the agent to
+# resume with the wrong child's output.
+#
+# Flow for sequential spawns:
+#   Cycle 1: orchestrator sets _subworkflow_results[node_id] = child_A_result
+#            → agent_node .pop()s it, resumes agent with child_A_result
+#            → key is now absent
+#   Cycle 2: agent calls spawn_and_await again → interrupt → _subworkflow signal
+#            → orchestrator sets _subworkflow_results[node_id] = child_B_result
+#            → agent_node .pop()s it, resumes agent with child_B_result
+child_result = state.get("_subworkflow_results", {}).pop(node_id, None)
+```
+
 **Side effects:**
 - Sets `task.execution_id` and `task.status = "running"`
+- Schedules timeout watchdog RQ job
 - On completion: calls `sync_task_from_execution` to update cost metrics
 - On failure: increments `task.retry_count`, sets status appropriately
 
@@ -778,7 +817,10 @@ async def sync_task_from_execution(task_id: str, execution: WorkflowExecution):
     task.llm_calls = sum(1 for log in logs if log.metadata.get("is_llm_call"))
     task.tool_invocations = sum(1 for log in logs if log.metadata.get("is_tool_call"))
     task.duration_ms = int((execution.completed_at - execution.started_at).total_seconds() * 1000)
-    task.actual_usd = compute_cost(task.actual_tokens, model_name)
+    # USD cost computed from credential pricing metadata.
+    # LLMProviderCredential stores pricing: {"input_per_1k": 0.01, "output_per_1k": 0.03}
+    # set by the admin when configuring credentials.
+    task.actual_usd = compute_cost_from_credential(task.actual_tokens, credential_id)
 
     if execution.status == "completed":
         task.status = "completed"
@@ -1131,7 +1173,7 @@ register_node_type(NodeTypeSpec(
 
 ## 11. Migration
 
-Single Alembic migration. No changes to existing models.
+Single Alembic migration. One additive change to an existing model: `Workflow.tags`.
 
 ```python
 def upgrade():
@@ -1142,7 +1184,7 @@ def upgrade():
         sa.Column("tags", sa.JSON(), default=[]),
         sa.Column("created_by_node_id", sa.String(), nullable=True),
         sa.Column("workflow_id", sa.Integer(), sa.ForeignKey("workflows.id"), nullable=True),
-        sa.Column("user_profile_id", sa.Integer(), sa.ForeignKey("user_profiles.id"), nullable=False),
+        sa.Column("user_profile_id", sa.Integer(), sa.ForeignKey("user_profiles.id"), nullable=True),
         sa.Column("status", sa.String(), default="planning"),
         sa.Column("priority", sa.Integer(), default=2),
         sa.Column("budget_tokens", sa.Integer(), nullable=True),
@@ -1196,7 +1238,11 @@ def upgrade():
     op.create_index("ix_tasks_status", "tasks", ["status"])
     op.create_index("ix_tasks_workflow_id", "tasks", ["workflow_id"])
 
+    # ── Add tags to existing Workflow model ─────────────────────
+    op.add_column("workflows", sa.Column("tags", sa.JSON(), server_default="[]"))
+
 def downgrade():
+    op.drop_column("workflows", "tags")
     op.drop_table("tasks")
     op.drop_table("epics")
 ```
@@ -1218,6 +1264,16 @@ def downgrade():
 6. ~~**Garbage collection**~~ — **RESOLVED.** Manual management via a Kanban-style task board UI (like Jira). Epics and tasks are exposed in the frontend for users to archive, delete, or reorganize. No automated GC policy needed initially.
 
 7. ~~**Inline task cost tracking**~~ — **RESOLVED.** LangGraph callbacks track per-step token usage. Between `task_update(status="running")` and `task_update(status="completed")`, sum the tokens from callback reports and write to `task.actual_tokens`. The Epic's `agent_overhead_tokens` captures reasoning cost outside any task (decomposition, planning). Three cost categories: delegated task cost (from child execution), inline task cost (from callback delta), agent overhead (everything else).
+
+8. ~~**Epic `user_profile_id` ownership**~~ — **RESOLVED.** Made nullable. Epics created by agents in nested delegation chains don't have a meaningful human owner. Set when a human user is known (e.g., telegram trigger provides user context), left null otherwise. Provenance tracked via `created_by_node_id` + `workflow_id`.
+
+9. ~~**`Workflow.tags` column**~~ — **RESOLVED.** Add `tags = Column(JSON, default=list)` to the existing `Workflow` model in the same migration. Additive change, defaults to `[]` for existing workflows.
+
+10. ~~**`spawn_and_await` timeout enforcement**~~ — **RESOLVED.** RQ scheduled watchdog job at `now + timeout_seconds`. Checks if child execution is still running, cancels it if so, resumes parent agent with timeout error. See section 7.4.
+
+11. ~~**Sequential `spawn_and_await` state cleanup**~~ — **RESOLVED.** `agent_node` uses `.pop()` (not `.get()`) to consume `_subworkflow_results[node_id]` after reading, ensuring stale results from cycle N don't leak into cycle N+1. See section 7.4 code comments.
+
+12. ~~**Token-to-USD cost computation**~~ — **RESOLVED.** Pricing metadata stored on `LLMProviderCredential` as a `pricing` JSON field (e.g., `{"input_per_1k": 0.01, "output_per_1k": 0.03}`). Set by admin when configuring credentials. `compute_cost_from_credential()` reads pricing from the credential used by the execution.
 
 ---
 

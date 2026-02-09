@@ -717,7 +717,9 @@ def spawn_and_await_factory(node):
         # 1. Update task: set status="running"
         # 2. Create child WorkflowExecution (reuse _create_child_execution from subworkflow.py)
         # 3. Link task.execution_id = child_execution_id
-        # 4. Call interrupt() — pauses the ReAct loop, saves state to checkpointer
+        # 4. Schedule timeout watchdog: RQ delayed job at now + timeout_seconds
+        #    that cancels child execution if still running, resumes parent with error
+        # 5. Call interrupt() — pauses the ReAct loop, saves state to checkpointer
         result = interrupt({
             "action": "spawn_workflow",
             "task_id": task_id,
@@ -726,9 +728,9 @@ def spawn_and_await_factory(node):
             "timeout_seconds": timeout,
             "child_execution_id": child_execution_id,
         })
-        # 5. When resumed: interrupt() returns child output
-        # 6. Call sync_task_from_execution(task_id, execution)
-        # 7. Return formatted result
+        # 6. When resumed: interrupt() returns child output
+        # 7. Call sync_task_from_execution(task_id, execution)
+        # 8. Return formatted result
         return json.dumps(result, default=str)
 ```
 
@@ -738,8 +740,22 @@ The `agent_node` function in `platform/components/agent.py` needs to detect inte
 
 ```python
 def agent_node(state: dict) -> dict:
-    # Check if resuming from a spawn_and_await interrupt
-    child_result = state.get("_subworkflow_results", {}).get(node_id)
+    # Check if resuming from a spawn_and_await interrupt.
+    #
+    # IMPORTANT: Use .pop() not .get() to consume the result.
+    # Without this, a stale result from cycle N would be visible
+    # in cycle N+1's initial invocation, causing the agent to
+    # resume with the wrong child's output.
+    #
+    # Sequential spawn_and_await flow:
+    #   Cycle 1: orchestrator sets _subworkflow_results[node_id] = child_A_result
+    #            → agent_node .pop()s it, resumes agent with child_A_result
+    #            → key is now absent
+    #   Cycle 2: agent calls spawn_and_await again → interrupt → _subworkflow signal
+    #            → orchestrator sets _subworkflow_results[node_id] = child_B_result
+    #            → agent_node .pop()s it, resumes agent with child_B_result
+    subworkflow_results = state.get("_subworkflow_results", {})
+    child_result = subworkflow_results.pop(node_id, None)
     if child_result is not None:
         # Resume: pass child result back into the agent via Command
         from langgraph.types import Command

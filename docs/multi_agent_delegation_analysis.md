@@ -172,6 +172,14 @@ Dynamic subworkflows replace the worker pool and planning engine, but NOT the ta
    - Partial match (≥0.5) → fork+patch via `workflow_create` with `based_on` + `patches`
    - No match (<0.5) → create from scratch via `workflow_create` with full DSL
 
+6. **Epic ownership is optional** — `user_profile_id` on Epic is nullable. In nested delegation chains, workflow owners may be agent users, not humans. Set when a human is known (e.g., telegram trigger), null otherwise.
+
+7. **Workflow tags** — `Workflow` model gets a `tags` JSON column. Used by `workflow_discover` for matching, `workflow_create` for tagging, and the DSL for declaration.
+
+8. **Timeout enforcement** — `spawn_and_await` schedules an RQ watchdog job at `now + timeout_seconds`. If child execution is still running when the timer fires, cancel it and resume parent with timeout error.
+
+9. **Token-to-USD pricing** — Stored as `pricing` JSON metadata on `LLMProviderCredential` (e.g., `{"input_per_1k": 0.01, "output_per_1k": 0.03}`). Admin-configured. `compute_cost_from_credential()` reads pricing from the credential used.
+
 ---
 
 ## Next Steps

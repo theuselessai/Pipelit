@@ -36,7 +36,9 @@ class Epic(Base):
     # ── Ownership ─────────────────────────────────────────────
     created_by_node_id = Column(String, nullable=True)  # Node ID of the agent that created this epic
     workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=True)  # Parent workflow context
-    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False)
+    # Nullable: set when a human user is known (e.g., telegram trigger),
+    # left null when created by agents or in nested delegation chains.
+    user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=True)
     
     # ── Lifecycle ─────────────────────────────────────────────
     status = Column(String, default="planning")         # planning | active | paused | completed | failed | cancelled
@@ -496,7 +498,8 @@ async def sync_task_from_execution(task_id: str, execution: WorkflowExecution):
     task.llm_calls = sum(1 for log in logs if log.metadata.get("is_llm_call"))
     task.tool_invocations = sum(1 for log in logs if log.metadata.get("is_tool_call"))
     task.duration_ms = (execution.completed_at - execution.started_at).total_seconds() * 1000
-    task.actual_usd = compute_cost(task.actual_tokens, model_name)
+    # USD cost from credential pricing metadata: {"input_per_1k": 0.01, "output_per_1k": 0.03}
+    task.actual_usd = compute_cost_from_credential(task.actual_tokens, credential_id)
     
     if execution.status == "completed":
         task.status = "completed"
