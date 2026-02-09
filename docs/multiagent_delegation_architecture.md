@@ -1196,9 +1196,9 @@ def downgrade():
 
 5. ~~**Discovery ranking**~~ — **RESOLVED.** Gap-analysis scoring: `workflow_discover` accepts `requirements` (model, tools, trigger, memory), returns `match_score` + `has`/`missing`/`extra` per result. Three-tier decision: full match (≥0.95) → reuse, partial match (≥0.5) → fork+patch, no match (<0.5) → create from scratch. See section 7.3.
 
-6. **Garbage collection** — Old completed epics accumulate. Time-based archival (30 days?) or count-based (keep last N per tag).
+6. ~~**Garbage collection**~~ — **RESOLVED.** Manual management via a Kanban-style task board UI (like Jira). Epics and tasks are exposed in the frontend for users to archive, delete, or reorganize. No automated GC policy needed initially.
 
-7. **Inline task cost tracking** — When agent executes a task inline (no subworkflow), how to attribute token cost? The agent's own LLM calls during that tool sequence need to be metered and assigned to the task. Requires instrumentation in the agent component.
+7. ~~**Inline task cost tracking**~~ — **RESOLVED.** LangGraph callbacks track per-step token usage. Between `task_update(status="running")` and `task_update(status="completed")`, sum the tokens from callback reports and write to `task.actual_tokens`. The Epic's `agent_overhead_tokens` captures reasoning cost outside any task (decomposition, planning). Three cost categories: delegated task cost (from child execution), inline task cost (from callback delta), agent overhead (everything else).
 
 ---
 
