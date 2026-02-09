@@ -7,7 +7,7 @@
 
 ## Overview
 
-11 new components across 3 categories. Each follows the existing pattern:
+12 new components across 3 categories. Each follows the existing pattern:
 
 1. **Component file** (`platform/components/<name>.py`) — `@register("<type>")` factory returning a LangChain `@tool`
 2. **Polymorphic identity** (`platform/models/node.py`) — `_<Name>Config` class + entry in `COMPONENT_TYPE_MAP`
@@ -16,7 +16,7 @@
 
 ---
 
-## 1. Task Registry Tools (7 components)
+## 1. Task Registry Tools (8 components)
 
 ### 1.1 `epic_create`
 
@@ -62,7 +62,7 @@ register_node_type(NodeTypeSpec(
     component_type="epic_create",
     display_name="Create Epic",
     description="Create a tracked epic (top-level goal) in the task registry",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with epic_id and status")],
 ))
 ```
@@ -115,7 +115,7 @@ register_node_type(NodeTypeSpec(
     component_type="epic_status",
     display_name="Epic Status",
     description="Get progress, cost, and task breakdown for an epic",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with epic details and progress")],
 ))
 ```
@@ -170,7 +170,7 @@ register_node_type(NodeTypeSpec(
     component_type="epic_search",
     display_name="Search Epics",
     description="Search past epics by goal description and tags — find reusable patterns",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON array of matching epics with metrics")],
 ))
 ```
@@ -186,7 +186,69 @@ class _EpicSearchConfig(BaseComponentConfig):
 
 ---
 
-### 1.4 `task_create`
+### 1.4 `epic_update`
+
+**File:** `platform/components/epic_update.py`
+
+```python
+@register("epic_update")
+def epic_update_factory(node):
+
+    @tool
+    def update_epic(
+        epic_id: str,
+        status: str = "",
+        result_summary: str = "",
+        budget_tokens: int = 0,
+        budget_usd: float = 0.0,
+        priority: int = 0,
+    ) -> str:
+        """Update an epic's status, budget, or result summary.
+
+        Call this to transition epic status (e.g., planning → active → completed),
+        adjust budgets, or record the final outcome.
+
+        Args:
+            epic_id: The epic ID to update
+            status: New status (planning, active, paused, completed, failed, cancelled). Empty = no change.
+            result_summary: Agent-written summary of what was achieved (set on completion)
+            budget_tokens: New token ceiling (0 = no change)
+            budget_usd: New USD ceiling (0.0 = no change)
+            priority: New priority 1-4 (0 = no change)
+
+        Returns:
+            JSON with epic_id and updated status.
+        """
+        # Updates Epic fields via SessionLocal
+        # If status → "completed": sets completed_at, syncs final costs
+        # If status → "cancelled": cancels all running child tasks
+```
+
+**Node type registration:**
+
+```python
+register_node_type(NodeTypeSpec(
+    component_type="epic_update",
+    display_name="Update Epic",
+    description="Update an epic's status, budget, or result summary",
+    category="sub_component",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with epic_id and status")],
+))
+```
+
+**Polymorphic identity:**
+
+```python
+class _EpicUpdateConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "epic_update"}
+
+"epic_update": ToolComponentConfig,
+```
+
+---
+
+### 1.5 `task_create`
+
 
 **File:** `platform/components/task_create.py`
 
@@ -239,7 +301,7 @@ register_node_type(NodeTypeSpec(
     component_type="task_create",
     display_name="Create Task",
     description="Create a task under an epic with optional dependencies and workflow assignment",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with task_id and status")],
 ))
 ```
@@ -255,7 +317,7 @@ class _TaskCreateConfig(BaseComponentConfig):
 
 ---
 
-### 1.5 `task_list`
+### 1.6 `task_list`
 
 **File:** `platform/components/task_list.py`
 
@@ -290,7 +352,7 @@ register_node_type(NodeTypeSpec(
     component_type="task_list",
     display_name="List Tasks",
     description="List tasks filtered by epic, status, or tags",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON array of tasks")],
 ))
 ```
@@ -306,7 +368,7 @@ class _TaskListConfig(BaseComponentConfig):
 
 ---
 
-### 1.6 `task_update`
+### 1.7 `task_update`
 
 **File:** `platform/components/task_update.py`
 
@@ -346,7 +408,7 @@ register_node_type(NodeTypeSpec(
     component_type="task_update",
     display_name="Update Task",
     description="Update task status, result summary, or add notes",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with task_id and status")],
 ))
 ```
@@ -362,7 +424,7 @@ class _TaskUpdateConfig(BaseComponentConfig):
 
 ---
 
-### 1.7 `task_cancel`
+### 1.8 `task_cancel`
 
 **File:** `platform/components/task_cancel.py`
 
@@ -398,7 +460,7 @@ register_node_type(NodeTypeSpec(
     component_type="task_cancel",
     display_name="Cancel Task",
     description="Cancel a task and its running workflow execution",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with cancellation result")],
 ))
 ```
@@ -497,7 +559,7 @@ register_node_type(NodeTypeSpec(
     component_type="workflow_create_tool",
     display_name="Create Workflow",
     description="Create a new workflow from a YAML DSL (create from scratch or fork+patch)",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with workflow_id, slug, counts, mode")],
     config_schema={
         "type": "object",
@@ -593,7 +655,7 @@ register_node_type(NodeTypeSpec(
     component_type="workflow_discover",
     display_name="Discover Workflows",
     description="Search workflows by requirements with gap-analysis scoring for reuse decisions",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON array of workflows with match scores and gap analysis")],
 ))
 ```
@@ -705,7 +767,7 @@ register_node_type(NodeTypeSpec(
     component_type="spawn_and_await",
     display_name="Spawn & Await",
     description="Execute a subworkflow and wait for results — non-blocking via interrupt/resume",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with execution results")],
     config_schema={
         "type": "object",
@@ -828,6 +890,7 @@ def agent_node(state: dict) -> dict:
 | `platform/components/epic_create.py` | `epic_create` | `create_epic` |
 | `platform/components/epic_status.py` | `epic_status` | `epic_status` |
 | `platform/components/epic_search.py` | `epic_search` | `search_epics` |
+| `platform/components/epic_update.py` | `epic_update` | `update_epic` |
 | `platform/components/task_create.py` | `task_create` | `create_task` |
 | `platform/components/task_list.py` | `task_list` | `list_tasks` |
 | `platform/components/task_update.py` | `task_update` | `update_task` |
@@ -840,9 +903,9 @@ def agent_node(state: dict) -> dict:
 
 | File | Changes |
 |---|---|
-| `platform/components/__init__.py` | Add 10 imports to the import block |
-| `platform/models/node.py` | Add 10 `_*Config` classes + 10 entries in `COMPONENT_TYPE_MAP` |
-| `platform/schemas/node_type_defs.py` | Add 10 `register_node_type()` calls |
+| `platform/components/__init__.py` | Add 11 imports to the import block |
+| `platform/models/node.py` | Add 11 `_*Config` classes + 11 entries in `COMPONENT_TYPE_MAP` |
+| `platform/schemas/node_type_defs.py` | Add 11 `register_node_type()` calls |
 | `platform/components/agent.py` | Dual checkpointer, interrupt detection, Command resume |
 
 ### New dependency

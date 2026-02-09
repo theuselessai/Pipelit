@@ -325,11 +325,19 @@ Output: { task_id, status: "cancelled", execution_cancelled: bool }
 Side effects: Cancels associated workflow execution if running
 ```
 
+### `epic_update`
+
+```
+Input:  { epic_id, status?, result_summary?, budget_tokens?, budget_usd?, priority? }
+Output: { epic_id, status }
+Side effects: If cancelled → cancels all running child tasks
+```
+
 ### `epic_search`
 
 ```
 Input:  { query: "coverage analysis for auth", tags[]?, status? }
-Output: { epics: [{ id, title, tags, status, completed_tasks, total_tasks, 
+Output: { epics: [{ id, title, tags, status, completed_tasks, total_tasks,
                      success_rate, avg_cost_usd }] }
 ```
 
@@ -589,7 +597,7 @@ def upgrade():
 With this registry in place, the main agent can:
 
 1. **"What am I working on?"** → `epic_status(epic_id)` — full picture of progress, cost, blockers
-2. **"Which tasks are ready to run?"** → `GET /tasks/blocked/` — dependencies resolved, ready to spawn
+2. **"Which tasks are ready to run?"** → `GET /tasks/actionable/` — dependencies resolved, ready to spawn
 3. **"Am I over budget?"** → `check_budget()` — before spawning, verify the epic can afford it
 4. **"Has anyone solved this before?"** → `epic_search("coverage analysis auth")` — find past successful epics and reuse their workflows
 5. **"This subtask failed, what now?"** → Check `retry_count < max_retries`, auto-retry or cancel dependents
@@ -600,15 +608,15 @@ With this registry in place, the main agent can:
 
 ## Open Questions
 
-1. **Should `execution_id` be a proper FK to `workflow_executions`?** Soft reference (string) is more resilient to execution cleanup, but loses referential integrity.
+1. **Should `execution_id` be a proper FK to `workflow_executions`?** Soft reference (string) is more resilient to execution cleanup, but loses referential integrity. Starting with soft reference.
 
-2. **Tag-based search vs. full-text search on descriptions?** Tags are fast and explicit, but description search is more flexible. Could start with tags + LIKE queries, add proper FTS later.
+2. **Tag-based search vs. full-text search on descriptions?** Tags are fast and explicit, but description search is more flexible. Starting with tags + LIKE queries, add proper FTS later.
 
 3. **Should tasks support re-assignment to a different workflow mid-lifecycle?** Current design allows updating `workflow_slug`, but the semantics of switching workflows on a running task need thought.
 
-4. **Epic nesting?** Current design is flat (epics contain tasks). If an agent decomposes an epic into sub-epics, we'd need `parent_epic_id`. Starting flat is simpler — can add later if needed.
+4. ~~**Epic nesting?**~~ — **Deferred.** Starting flat (epics contain tasks). Add `parent_epic_id` later if agents decompose epics into sub-epics.
 
-5. **Garbage collection?** Old completed epics and tasks accumulate. Policy for archiving or purging? Could be time-based (archive after 30 days) or count-based (keep last N per tag).
+5. ~~**Garbage collection?**~~ — **RESOLVED.** Manual management via a Kanban-style task board UI. No automated GC policy needed initially.
 
 ---
 

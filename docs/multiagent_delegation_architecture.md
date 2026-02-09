@@ -37,9 +37,9 @@ User message
 │                                                             │
 │  Tools:                                                     │
 │  ├── Core: memory_read, memory_write, http_request          │
-│  ├── Registry: epic_create, epic_status, epic_search,       │
-│  │            task_create, task_list, task_update,           │
-│  │            task_cancel                                   │
+│  ├── Registry: epic_create, epic_status, epic_update,       │
+│  │            epic_search, task_create, task_list,           │
+│  │            task_update, task_cancel                       │
 │  ├── Workflow: workflow_create, workflow_discover,           │
 │  │            spawn_and_await                                │
 │  └── Self: whoami, platform_api                             │
@@ -450,6 +450,14 @@ Output: {
     cost: { spent_tokens, spent_usd, budget_tokens, budget_usd, overhead_tokens },
     tasks: [{ id, title, status, workflow_slug, duration_ms }]
 }
+```
+
+#### `epic_update`
+
+```
+Input:  { epic_id, status?, result_summary?, budget_tokens?, budget_usd?, priority? }
+Output: { epic_id, status }
+Side effects: If cancelled → cancels all running child tasks
 ```
 
 #### `epic_search`
@@ -940,19 +948,22 @@ This task needs a persistent artifact — a webhook endpoint. Agent creates a ne
 Tool call: task_update({ task_id: "tk_01JKGHI", status: "running" })
 
 Tool call: workflow_create({
-    name: "Moltbook Webhook Verification",
-    slug: "moltbook-verify",
-    description: "Receives Moltbook verification ping, responds with token",
-    nodes: [
-        { node_id: "trigger_wh_1", component_type: "trigger_webhook" },
-        { node_id: "code_1", component_type: "code", config: { extra_config: { snippet: "..." } } }
-    ],
-    edges: [
-        { source: "trigger_wh_1", target: "code_1", edge_type: "direct" }
-    ],
-    tags: ["webhook", "verification", "moltbook"]
+    dsl: """
+      name: "Moltbook Webhook Verification"
+      description: "Receives Moltbook verification ping, responds with token"
+      tags: ["webhook", "verification", "moltbook"]
+      trigger:
+        type: webhook
+      steps:
+        - id: verify
+          type: code
+          snippet: |
+            import json
+            payload = json.loads(input_data)
+            return {"token": payload["verify_token"], "status": "ok"}
+    """
 })
-→ { workflow_id: 42, slug: "moltbook-verify" }
+→ { workflow_id: 42, slug: "moltbook-verify", mode: "created" }
 
 Tool call: task_update({
     task_id: "tk_01JKGHI",
@@ -1037,6 +1048,14 @@ register_node_type(NodeTypeSpec(
     component_type="epic_status",
     display_name="Epic Status",
     description="Get progress, cost, and task breakdown for an epic",
+    category="sub_component",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="epic_update",
+    display_name="Update Epic",
+    description="Update an epic's status, budget, or result summary",
     category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
 ))
