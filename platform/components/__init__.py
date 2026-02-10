@@ -38,6 +38,7 @@ from components import (  # noqa: E402, F401
     create_agent_user,
     epic_tools,
     platform_api,
+    spawn_and_await,
     task_tools,
     whoami,
     data_ops,

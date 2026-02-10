@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -14,9 +15,13 @@ from services.llm import resolve_llm_for_node
 
 logger = logging.getLogger(__name__)
 
-# Lazy singleton for SqliteSaver checkpointer
+# Lazy singleton for SqliteSaver checkpointer (permanent — conversation memory)
 _checkpointer = None
 _checkpointer_lock = threading.Lock()
+
+# Lazy singleton for RedisSaver checkpointer (ephemeral — interrupt/resume)
+_redis_checkpointer = None
+_redis_checkpointer_lock = threading.Lock()
 
 
 def _get_checkpointer():
@@ -38,6 +43,20 @@ def _get_checkpointer():
     return _checkpointer
 
 
+def _get_redis_checkpointer():
+    global _redis_checkpointer
+    if _redis_checkpointer is None:
+        with _redis_checkpointer_lock:
+            if _redis_checkpointer is None:
+                from langgraph.checkpoint.redis import RedisSaver
+                from config import settings
+
+                _redis_checkpointer = RedisSaver(redis_url=settings.REDIS_URL)
+                _redis_checkpointer.setup()
+                logger.info("Initialized RedisSaver checkpointer at %s", settings.REDIS_URL)
+    return _redis_checkpointer
+
+
 @register("agent")
 def agent_factory(node):
     """Build an agent graph node."""
@@ -56,14 +75,29 @@ def agent_factory(node):
 
     tools = _resolve_tools(node)
 
+    # Detect spawn_and_await tool
+    has_spawn_tool = any(
+        getattr(t, "name", "") == "spawn_and_await" for t in tools
+    )
+
+    # Dual checkpointer selection:
+    #   conversation_memory=True → SqliteSaver (permanent, also supports interrupt/resume)
+    #   has_spawn_tool=True (no conversation_memory) → RedisSaver (ephemeral)
+    #   Neither → None (one-shot, no checkpointer)
+    checkpointer = None
+    if conversation_memory:
+        checkpointer = _get_checkpointer()
+    elif has_spawn_tool:
+        checkpointer = _get_redis_checkpointer()
+
     agent_kwargs = dict(
         model=llm,
         tools=tools,
         # SystemMessage applied as pre-LLM transform (not stored in checkpoint)
         prompt=SystemMessage(content=system_prompt) if system_prompt else None,
     )
-    if conversation_memory:
-        agent_kwargs["checkpointer"] = _get_checkpointer()
+    if checkpointer is not None:
+        agent_kwargs["checkpointer"] = checkpointer
 
     agent = create_react_agent(**agent_kwargs)
 
@@ -79,6 +113,9 @@ def agent_factory(node):
     )
 
     def agent_node(state: dict) -> dict:
+        from datetime import datetime, timezone
+        from langgraph.types import Command
+
         messages = list(state.get("messages", []))
 
         # If this agent has no tools, strip tool-related messages from upstream
@@ -98,21 +135,46 @@ def agent_factory(node):
             messages = [_prompt_fallback] + messages
         logger.warning("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))
 
+        # Build thread config for checkpointer
         config = None
-        if conversation_memory:
-            user_ctx = state.get("user_context", {})
-            user_id = user_ctx.get("user_profile_id", "anon")
-            chat_id = user_ctx.get("telegram_chat_id", "")
-            thread_id = (
-                f"{user_id}:{chat_id}:{workflow_id}"
-                if chat_id
-                else f"{user_id}:{workflow_id}"
-            )
+        if checkpointer is not None:
+            if conversation_memory:
+                user_ctx = state.get("user_context", {})
+                user_id = user_ctx.get("user_profile_id", "anon")
+                chat_id = user_ctx.get("telegram_chat_id", "")
+                thread_id = (
+                    f"{user_id}:{chat_id}:{workflow_id}"
+                    if chat_id
+                    else f"{user_id}:{workflow_id}"
+                )
+            else:
+                # Ephemeral thread for spawn_and_await interrupt/resume
+                execution_id = state.get("execution_id", "unknown")
+                thread_id = f"exec:{execution_id}:{node_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
-        from datetime import datetime, timezone
+        # Check if we're resuming from a child workflow result
+        child_result = state.get("_subworkflow_results", {}).get(node_id)
+        if child_result is not None and has_spawn_tool and checkpointer is not None:
+            # Resume: agent graph restores from checkpoint, interrupt() returns child_result
+            logger.info("Agent %s: resuming from child result", node_id)
+            result = agent.invoke(Command(resume=child_result), config=config)
+        else:
+            try:
+                result = agent.invoke({"messages": messages}, config=config)
+            except Exception as exc:
+                # Check if this is a GraphInterrupt from spawn_and_await
+                from langgraph.errors import GraphInterrupt
+                if isinstance(exc, GraphInterrupt) and exc.interrupts:
+                    interrupt_data = exc.interrupts[0].value if exc.interrupts else {}
+                    logger.info(
+                        "Agent %s: interrupted by spawn_and_await, creating child execution: %s",
+                        node_id, interrupt_data,
+                    )
+                    child_id = _create_child_from_interrupt(interrupt_data, state, node_id)
+                    return {"_subworkflow": {"child_execution_id": child_id}}
+                raise
 
-        result = agent.invoke({"messages": messages}, config=config)
         out_messages = result.get("messages", [])
 
         # Add timestamps to AI messages that don't have one
@@ -134,6 +196,101 @@ def agent_factory(node):
         }
 
     return agent_node
+
+
+def _create_child_from_interrupt(
+    interrupt_data: dict,
+    state: dict,
+    parent_node_id: str,
+) -> str:
+    """Create a child WorkflowExecution from a spawn_and_await interrupt payload."""
+    from database import SessionLocal
+    from models.execution import WorkflowExecution
+    from models.workflow import Workflow
+
+    workflow_slug = interrupt_data.get("workflow_slug", "")
+    input_text = interrupt_data.get("input_text", "")
+    task_id = interrupt_data.get("task_id")
+    input_data = interrupt_data.get("input_data", {})
+
+    db = SessionLocal()
+    try:
+        target_workflow = (
+            db.query(Workflow)
+            .filter(Workflow.slug == workflow_slug, Workflow.deleted_at.is_(None))
+            .first()
+        )
+        if not target_workflow:
+            raise ValueError(f"spawn_and_await: target workflow not found: slug={workflow_slug!r}")
+
+        parent_execution_id = state.get("execution_id", "")
+        user_context = state.get("user_context", {})
+        user_profile_id = user_context.get("user_profile_id")
+
+        if not user_profile_id and parent_execution_id:
+            parent_exec = (
+                db.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == parent_execution_id)
+                .first()
+            )
+            if parent_exec:
+                user_profile_id = parent_exec.user_profile_id
+
+        if not user_profile_id:
+            raise ValueError("spawn_and_await: cannot determine user_profile_id")
+
+        trigger_payload = {
+            "text": input_text,
+            "payload": input_data,
+        }
+
+        child_execution = WorkflowExecution(
+            workflow_id=target_workflow.id,
+            user_profile_id=user_profile_id,
+            thread_id=uuid.uuid4().hex,
+            trigger_payload=trigger_payload,
+            parent_execution_id=parent_execution_id,
+            parent_node_id=parent_node_id,
+        )
+        db.add(child_execution)
+        db.commit()
+        db.refresh(child_execution)
+
+        child_id = str(child_execution.execution_id)
+
+        # Link task if provided
+        if task_id:
+            try:
+                from models.epic import Task
+                task = db.query(Task).filter(Task.id == task_id).first()
+                if task:
+                    task.execution_id = child_id
+                    task.status = "running"
+                    db.commit()
+                    logger.info("spawn_and_await: linked task %s to child execution %s", task_id, child_id)
+            except Exception:
+                logger.exception("spawn_and_await: failed to link task %s", task_id)
+
+        # Enqueue child execution on RQ
+        import redis
+        from rq import Queue
+        from config import settings
+
+        conn = redis.from_url(settings.REDIS_URL)
+        q = Queue("workflows", connection=conn)
+        from tasks import execute_workflow_job
+
+        q.enqueue(execute_workflow_job, child_id)
+
+        logger.info(
+            "spawn_and_await: created child execution %s for workflow '%s' "
+            "(parent=%s, node=%s)",
+            child_id, target_workflow.slug, parent_execution_id, parent_node_id,
+        )
+        return child_id
+
+    finally:
+        db.close()
 
 
 def _resolve_tools(node) -> list:

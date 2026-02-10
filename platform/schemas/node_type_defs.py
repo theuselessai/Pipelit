@@ -241,6 +241,14 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="spawn_and_await",
+    display_name="Spawn & Await",
+    description="Spawn a child workflow and wait for its result inside an agent's reasoning loop",
+    category="agent",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON result from child workflow")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",
