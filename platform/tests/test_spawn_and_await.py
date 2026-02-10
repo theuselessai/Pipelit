@@ -847,8 +847,7 @@ class TestAgentNodeSpawnResume:
 
         # Verify create_react_agent was called with checkpointer
         create_kwargs = mock_create_agent.call_args
-        assert create_kwargs.kwargs.get("checkpointer") is mock_checkpointer or \
-            create_kwargs[1].get("checkpointer") is mock_checkpointer
+        assert create_kwargs.kwargs.get("checkpointer") is mock_checkpointer
 
         # Invoke with _subworkflow_results present (resume path)
         state = {

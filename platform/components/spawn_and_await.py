@@ -51,7 +51,7 @@ def spawn_and_await_factory(node):
             "workflow_slug": workflow_slug,
             "input_text": input_text,
             "task_id": task_id,
-            "input_data": input_data or {},
+            "input_data": input_data if input_data is not None else {},
         })
 
         # On resume, interrupt() returns the child's output

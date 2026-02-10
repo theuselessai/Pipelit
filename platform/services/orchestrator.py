@@ -1089,6 +1089,9 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
         if not execution:
             return
 
+        if execution.status not in ("completed", "failed"):
+            return
+
         if execution.status == "completed":
             task.status = "completed"
             if execution.final_output:
