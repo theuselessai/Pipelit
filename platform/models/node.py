@@ -180,6 +180,14 @@ class _WhoamiConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "whoami"}
 
 
+class _EpicToolsConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "epic_tools"}
+
+
+class _TaskToolsConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "task_tools"}
+
+
 class OtherComponentConfig(BaseComponentConfig):
     """Config for human_confirmation, aggregator, workflow, output_parser."""
     __mapper_args__ = {"polymorphic_identity": "human_confirmation"}
@@ -264,6 +272,8 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "create_agent_user": ToolComponentConfig,
     "platform_api": ToolComponentConfig,
     "whoami": ToolComponentConfig,
+    "epic_tools": ToolComponentConfig,
+    "task_tools": ToolComponentConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

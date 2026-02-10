@@ -240,5 +240,5 @@ class TestSubComponentTypes:
         expected = {"ai_model", "run_command", "http_request", "web_search",
                     "calculator", "datetime", "output_parser", "memory_read",
                     "memory_write", "code_execute", "create_agent_user",
-                    "platform_api", "whoami"}
+                    "platform_api", "whoami", "epic_tools", "task_tools"}
         assert SUB_COMPONENT_TYPES == expected

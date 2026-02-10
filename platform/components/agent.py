@@ -167,9 +167,14 @@ def _resolve_tools(node) -> list:
                 )
                 if tool_db_node:
                     factory = get_component_factory(tool_db_node.component_type)
-                    lc_tool = factory(tool_db_node)
-                    logger.info("Agent %s: wrapping tool %s (%s)", node.node_id, tool_db_node.node_id, tool_db_node.component_type)
-                    tools.append(_wrap_tool_with_events(lc_tool, tool_db_node.node_id, node))
+                    result = factory(tool_db_node)
+                    if isinstance(result, list):
+                        for lc_tool in result:
+                            logger.info("Agent %s: wrapping tool %s from %s (%s)", node.node_id, lc_tool.name, tool_db_node.node_id, tool_db_node.component_type)
+                            tools.append(_wrap_tool_with_events(lc_tool, tool_db_node.node_id, node))
+                    else:
+                        logger.info("Agent %s: wrapping tool %s (%s)", node.node_id, tool_db_node.node_id, tool_db_node.component_type)
+                        tools.append(_wrap_tool_with_events(result, tool_db_node.node_id, node))
         finally:
             db.close()
     except Exception:
