@@ -9,15 +9,22 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from services.dsl_compiler import (
+    MODEL_PREFERENCE_TABLE,
     STEP_TYPE_MAP,
     TOOL_TYPE_MAP,
     TRIGGER_TYPE_MAP,
     _build_graph,
+    _build_step_config,
+    _discover_model,
     _parse_dsl,
+    _parse_over_expression,
     _resolve_model,
+    _resolve_tool_inherit,
+    _score_model,
     _slugify,
     _unique_slug,
     compile_dsl,
+    validate_dsl,
 )
 
 
@@ -147,6 +154,26 @@ class TestParseDsl:
             parsed = _parse_dsl(yaml_str)
             assert parsed["steps"][0]["type"] == step_type
 
+    def test_parse_duplicate_step_ids(self):
+        yaml_str = (
+            "name: Test\n"
+            "steps:\n"
+            "  - type: code\n"
+            "    id: my_step\n"
+            "    snippet: pass\n"
+            "  - type: code\n"
+            "    id: my_step\n"
+            "    snippet: pass\n"
+        )
+        with pytest.raises(ValueError, match="Duplicate step ID 'my_step'"):
+            _parse_dsl(yaml_str)
+
+    def test_parse_duplicate_auto_ids(self):
+        """Two code steps without explicit IDs get auto-IDs code_1/code_2 — no collision."""
+        yaml_str = "name: Test\nsteps:\n  - type: code\n  - type: code"
+        parsed = _parse_dsl(yaml_str)
+        assert len(parsed["steps"]) == 2
+
 
 # ── Build graph tests ────────────────────────────────────────────────────────
 
@@ -160,7 +187,7 @@ class TestBuildGraph:
         assert len(nodes) == 2  # trigger + code
         assert nodes[0]["component_type"] == "trigger_webhook"
         assert nodes[1]["component_type"] == "code"
-        assert nodes[1]["config"]["code_snippet"] == "print('hello')"
+        assert nodes[1]["config"]["extra_config"]["code"] == "print('hello')"
         assert nodes[1]["is_entry_point"] is True
 
         assert len(edges) == 1
@@ -451,7 +478,7 @@ class TestForkPatches:
              "config": {"component_type": "agent", "system_prompt": "Original prompt"}},
             {"node_id": "code_1", "component_type": "code",
              "is_entry_point": False, "position_x": 600, "position_y": 200,
-             "config": {"component_type": "code", "code_snippet": "print(1)"}},
+             "config": {"component_type": "code", "extra_config": {"code": "print(1)", "language": "python"}}},
         ]
 
     def _make_edge_dicts(self):
@@ -468,6 +495,13 @@ class TestForkPatches:
         _patch_update_prompt(nodes, {"step_id": "agent_1", "prompt": "New prompt"})
         agent = next(n for n in nodes if n["node_id"] == "agent_1")
         assert agent["config"]["system_prompt"] == "New prompt"
+
+    def test_patch_update_prompt_snippet(self):
+        from services.dsl_compiler import _patch_update_prompt
+        nodes = self._make_node_dicts()
+        _patch_update_prompt(nodes, {"step_id": "code_1", "snippet": "print(2)"})
+        code = next(n for n in nodes if n["node_id"] == "code_1")
+        assert code["config"]["extra_config"]["code"] == "print(2)"
 
     def test_patch_update_prompt_missing_step(self):
         from services.dsl_compiler import _patch_update_prompt
@@ -499,6 +533,9 @@ class TestForkPatches:
             e["source_node_id"] == "inserted_code" and e["target_node_id"] == "code_1"
             for e in edges
         )
+        # Verify added code step uses extra_config
+        inserted = next(n for n in nodes if n["node_id"] == "inserted_code")
+        assert inserted["config"]["extra_config"]["code"] == "print(2)"
 
     def test_patch_remove_step(self):
         from services.dsl_compiler import _patch_remove_step
@@ -585,6 +622,608 @@ class TestForkPatches:
         }
         with pytest.raises(ValueError, match="must be a mapping"):
             _compile_fork(parsed, 1, mock_db)
+
+
+# ── Switch step tests ────────────────────────────────────────────────────────
+
+
+class TestSwitchStep:
+    def test_switch_basic_rules(self):
+        yaml_str = """\
+name: Switch Test
+steps:
+  - type: switch
+    id: my_switch
+    rules:
+      - field: category
+        operator: equals
+        value: A
+        route: handle_a
+      - field: category
+        operator: equals
+        value: B
+        route: handle_b
+  - type: code
+    id: handle_a
+    snippet: "print('A')"
+  - type: code
+    id: handle_b
+    snippet: "print('B')"
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        switch_node = next(n for n in nodes if n["component_type"] == "switch")
+        rules = switch_node["config"]["extra_config"]["rules"]
+        assert len(rules) == 2
+        assert rules[0]["id"] == "handle_a"
+        assert rules[0]["field"] == "category"
+
+    def test_switch_conditional_edges(self):
+        yaml_str = """\
+name: Switch Edges
+steps:
+  - type: switch
+    id: sw
+    rules:
+      - field: x
+        operator: equals
+        value: "1"
+        route: branch_a
+      - field: x
+        operator: equals
+        value: "2"
+        route: branch_b
+  - type: code
+    id: branch_a
+  - type: code
+    id: branch_b
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        cond_edges = [e for e in edges if e["edge_type"] == "conditional"]
+        assert len(cond_edges) == 2
+        assert any(e["condition_value"] == "branch_a" and e["target_node_id"] == "branch_a" for e in cond_edges)
+        assert any(e["condition_value"] == "branch_b" and e["target_node_id"] == "branch_b" for e in cond_edges)
+
+    def test_switch_default_fallback(self):
+        yaml_str = """\
+name: Switch Default
+steps:
+  - type: switch
+    id: sw
+    rules:
+      - field: x
+        operator: equals
+        value: "1"
+        route: branch_a
+    default: fallback
+  - type: code
+    id: branch_a
+  - type: code
+    id: fallback
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        switch_node = next(n for n in nodes if n["component_type"] == "switch")
+        assert switch_node["config"]["extra_config"]["enable_fallback"] is True
+
+        other_edges = [e for e in edges if e.get("condition_value") == "__other__"]
+        assert len(other_edges) == 1
+        assert other_edges[0]["target_node_id"] == "fallback"
+
+    def test_switch_claimed_targets_skip_linear_edge(self):
+        yaml_str = """\
+name: Switch Skip
+steps:
+  - type: switch
+    id: sw
+    rules:
+      - field: x
+        operator: equals
+        value: "1"
+        route: target_a
+  - type: code
+    id: target_a
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        # target_a should NOT have a direct linear edge from switch (switch uses conditional)
+        # and target_a should not have a linear edge from trigger since it's claimed
+        direct_edges_to_target = [
+            e for e in edges
+            if e["target_node_id"] == "target_a" and e["edge_type"] == "direct" and e["edge_label"] == ""
+        ]
+        assert len(direct_edges_to_target) == 0
+
+    def test_switch_breaks_linear_chain(self):
+        yaml_str = """\
+name: Switch Chain Break
+steps:
+  - type: code
+    id: before
+  - type: switch
+    id: sw
+    rules:
+      - field: x
+        operator: equals
+        value: "1"
+        route: target_a
+  - type: code
+    id: target_a
+  - type: code
+    id: after
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        # Switch breaks the chain: no direct linear edge from switch → target_a
+        # (target_a is reached via conditional edge only)
+        direct_sw_to_target = [
+            e for e in edges
+            if e["source_node_id"] == "sw" and e["target_node_id"] == "target_a"
+            and e["edge_type"] == "direct" and e["edge_label"] == ""
+        ]
+        assert len(direct_sw_to_target) == 0
+
+        # But after target_a resumes the chain: target_a → after
+        edges_to_after = [
+            e for e in edges
+            if e["source_node_id"] == "target_a" and e["target_node_id"] == "after"
+        ]
+        assert len(edges_to_after) == 1
+
+
+# ── Loop step tests ──────────────────────────────────────────────────────────
+
+
+class TestLoopStep:
+    def test_loop_body_edges(self):
+        yaml_str = """\
+name: Loop Test
+steps:
+  - type: loop
+    id: my_loop
+    over: "{{ data_source.items }}"
+    body:
+      - type: code
+        id: process_item
+        snippet: "print(item)"
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        loop_node = next(n for n in nodes if n["component_type"] == "loop")
+        assert loop_node["config"]["extra_config"]["source_node"] == "data_source"
+        assert loop_node["config"]["extra_config"]["field"] == "items"
+
+        # Check loop_body edge
+        body_edges = [e for e in edges if e["edge_label"] == "loop_body"]
+        assert len(body_edges) == 1
+        assert body_edges[0]["source_node_id"] == "my_loop"
+        assert body_edges[0]["target_node_id"] == "process_item"
+
+        # Check loop_return edge
+        return_edges = [e for e in edges if e["edge_label"] == "loop_return"]
+        assert len(return_edges) == 1
+        assert return_edges[0]["source_node_id"] == "process_item"
+        assert return_edges[0]["target_node_id"] == "my_loop"
+
+    def test_loop_multi_body_steps(self):
+        yaml_str = """\
+name: Loop Multi Body
+steps:
+  - type: loop
+    id: my_loop
+    over: source.items
+    body:
+      - type: code
+        id: step_a
+      - type: code
+        id: step_b
+      - type: code
+        id: step_c
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        # loop_body: loop → step_a
+        body_edges = [e for e in edges if e["edge_label"] == "loop_body"]
+        assert body_edges[0]["target_node_id"] == "step_a"
+
+        # step_a → step_b, step_b → step_c (direct body edges)
+        assert any(e["source_node_id"] == "step_a" and e["target_node_id"] == "step_b" for e in edges)
+        assert any(e["source_node_id"] == "step_b" and e["target_node_id"] == "step_c" for e in edges)
+
+        # loop_return: step_c → loop
+        return_edges = [e for e in edges if e["edge_label"] == "loop_return"]
+        assert return_edges[0]["source_node_id"] == "step_c"
+
+    def test_loop_empty_body_raises(self):
+        yaml_str = """\
+name: Empty Loop
+steps:
+  - type: loop
+    id: my_loop
+    over: source.items
+    body: []
+"""
+        parsed = _parse_dsl(yaml_str)
+        with pytest.raises(ValueError, match="non-empty `body`"):
+            _build_graph(parsed, (None, None, None), MagicMock())
+
+    def test_loop_continues_chain(self):
+        yaml_str = """\
+name: Loop Chain
+steps:
+  - type: loop
+    id: my_loop
+    over: source.items
+    body:
+      - type: code
+        id: body_step
+  - type: code
+    id: after_loop
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        # Loop continues chain: my_loop → after_loop
+        assert any(
+            e["source_node_id"] == "my_loop" and e["target_node_id"] == "after_loop"
+            and e["edge_label"] == ""
+            for e in edges
+        )
+
+    def test_loop_body_positions(self):
+        yaml_str = """\
+name: Loop Positions
+steps:
+  - type: loop
+    id: my_loop
+    over: source.items
+    body:
+      - type: code
+        id: body_a
+      - type: code
+        id: body_b
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        body_a = next(n for n in nodes if n["node_id"] == "body_a")
+        body_b = next(n for n in nodes if n["node_id"] == "body_b")
+        # Body nodes should be below loop (y=350) and spread horizontally
+        assert body_a["position_y"] == 350
+        assert body_b["position_y"] == 350
+        assert body_b["position_x"] > body_a["position_x"]
+
+
+# ── Over expression parsing tests ────────────────────────────────────────────
+
+
+class TestParseOverExpression:
+    def test_jinja2_expression(self):
+        assert _parse_over_expression("{{ node_id.field }}") == ("node_id", "field")
+
+    def test_plain_expression(self):
+        assert _parse_over_expression("node_id.field") == ("node_id", "field")
+
+    def test_no_field(self):
+        assert _parse_over_expression("node_id") == ("node_id", "output")
+
+    def test_empty(self):
+        assert _parse_over_expression("") == ("", "")
+
+    def test_jinja2_no_spaces(self):
+        assert _parse_over_expression("{{node.items}}") == ("node", "items")
+
+
+# ── Workflow step tests ──────────────────────────────────────────────────────
+
+
+class TestWorkflowStep:
+    def test_workflow_config(self):
+        yaml_str = """\
+name: Workflow Step Test
+steps:
+  - type: workflow
+    id: call_sub
+    workflow: my-subworkflow
+    payload:
+      key: value
+"""
+        parsed = _parse_dsl(yaml_str)
+        mock_db = MagicMock()
+        # Mock subworkflow lookup
+        sub_wf = SimpleNamespace(id=42)
+        mock_db.query.return_value.filter_by.return_value.first.return_value = sub_wf
+
+        nodes, edges = _build_graph(parsed, (None, None, None), mock_db)
+
+        wf_node = next(n for n in nodes if n["component_type"] == "workflow")
+        assert wf_node["config"]["extra_config"]["target_workflow"] == "my-subworkflow"
+        assert wf_node["config"]["extra_config"]["input_mapping"] == {"key": "value"}
+        assert wf_node["subworkflow_id"] == 42
+
+    def test_workflow_subworkflow_not_found(self):
+        yaml_str = """\
+name: WF Missing
+steps:
+  - type: workflow
+    id: call_sub
+    workflow: nonexistent
+"""
+        parsed = _parse_dsl(yaml_str)
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = None
+
+        nodes, edges = _build_graph(parsed, (None, None, None), mock_db)
+
+        wf_node = next(n for n in nodes if n["component_type"] == "workflow")
+        # No subworkflow_id set when not found
+        assert "subworkflow_id" not in wf_node
+
+
+# ── Human step tests ─────────────────────────────────────────────────────────
+
+
+class TestHumanStep:
+    def test_human_config(self):
+        yaml_str = """\
+name: Human Step Test
+steps:
+  - type: human
+    id: confirm
+    message: "Are you sure?"
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        human_node = next(n for n in nodes if n["component_type"] == "human_confirmation")
+        assert human_node["config"]["extra_config"]["prompt"] == "Are you sure?"
+        assert human_node["interrupt_before"] is True
+
+    def test_human_linear_chain(self):
+        yaml_str = """\
+name: Human Chain
+steps:
+  - type: code
+    id: before
+  - type: human
+    id: confirm
+    message: "OK?"
+  - type: code
+    id: after
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        # Standard linear edges: before → confirm → after
+        assert any(e["source_node_id"] == "before" and e["target_node_id"] == "confirm" for e in edges)
+        assert any(e["source_node_id"] == "confirm" and e["target_node_id"] == "after" for e in edges)
+
+
+# ── Transform step tests ─────────────────────────────────────────────────────
+
+
+class TestTransformStep:
+    def test_transform_maps_to_code(self):
+        yaml_str = """\
+name: Transform Test
+steps:
+  - type: transform
+    id: fmt
+    template: "Hello {name}"
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        # Transform maps to code component
+        transform_node = next(n for n in nodes if n["node_id"] == "fmt")
+        assert transform_node["component_type"] == "code"
+        code = transform_node["config"]["extra_config"]["code"]
+        assert "Hello {name}" in code
+        assert transform_node["config"]["extra_config"]["language"] == "python"
+
+
+# ── Discover model tests ─────────────────────────────────────────────────────
+
+
+class TestDiscoverModel:
+    def test_cheapest_preference(self):
+        mock_cred = SimpleNamespace(
+            base_credentials_id=1,
+            provider_type="anthropic",
+            api_key="test",
+            base_url=None,
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
+
+        cred_id, model_name, temp = _discover_model("cheapest", 0.5, mock_db)
+        assert cred_id == 1
+        assert model_name is not None
+        assert temp == 0.5
+        # Cheapest anthropic model should be haiku (lowest cost)
+        assert "haiku" in model_name.lower()
+
+    def test_most_capable_preference(self):
+        mock_cred = SimpleNamespace(
+            base_credentials_id=1,
+            provider_type="anthropic",
+            api_key="test",
+            base_url=None,
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
+
+        cred_id, model_name, temp = _discover_model("most_capable", None, mock_db)
+        assert cred_id == 1
+        # Most capable anthropic model should be opus
+        assert "opus" in model_name.lower()
+
+    def test_fastest_preference(self):
+        mock_cred = SimpleNamespace(
+            base_credentials_id=1,
+            provider_type="anthropic",
+            api_key="test",
+            base_url=None,
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
+
+        cred_id, model_name, temp = _discover_model("fastest", None, mock_db)
+        assert cred_id == 1
+        # Fastest anthropic model should be haiku
+        assert "haiku" in model_name.lower()
+
+    def test_no_credentials_raises(self):
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = []
+
+        with pytest.raises(ValueError, match="No LLM credentials"):
+            _discover_model("cheapest", None, mock_db)
+
+    def test_score_model_cheapest(self):
+        score_cheap = _score_model("gpt-3.5-turbo-latest", "cheapest")
+        score_expensive = _score_model("gpt-4-turbo-2024", "cheapest")
+        assert score_cheap > score_expensive  # Cheaper model scores higher
+
+    def test_score_model_most_capable(self):
+        score_capable = _score_model("claude-opus-4-0", "most_capable")
+        score_less = _score_model("claude-3-haiku-20240307", "most_capable")
+        assert score_capable > score_less
+
+    def test_score_model_unknown_returns_zero(self):
+        score = _score_model("totally-unknown-model", "cheapest")
+        assert score == 0.0
+
+    def test_discover_via_resolve_model(self):
+        mock_cred = SimpleNamespace(
+            base_credentials_id=1,
+            provider_type="anthropic",
+            api_key="test",
+            base_url=None,
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
+
+        result = _resolve_model({"discover": True, "preference": "cheapest"}, None, mock_db)
+        assert result[0] == 1
+        assert result[1] is not None
+
+
+# ── Tool inherit tests ───────────────────────────────────────────────────────
+
+
+class TestToolInherit:
+    def _make_parent_with_tool(self):
+        """Create mock parent node with a connected web_search tool."""
+        parent_node = SimpleNamespace(
+            workflow_id=1, node_id="agent_1",
+        )
+        tool_config = SimpleNamespace(
+            extra_config={"searxng_url": "http://localhost:8888"},
+        )
+        tool_node = SimpleNamespace(
+            component_type="web_search",
+            component_config=tool_config,
+        )
+        mock_edge = SimpleNamespace(source_node_id="web_search_1")
+        return parent_node, tool_node, mock_edge
+
+    def test_resolves_from_parent(self):
+        parent_node, tool_node, mock_edge = self._make_parent_with_tool()
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter_by.return_value.all.return_value = [mock_edge]
+        mock_db.query.return_value.filter_by.return_value.first.return_value = tool_node
+
+        result = _resolve_tool_inherit("web_search", "searxng_url", parent_node, mock_db)
+        assert result == "http://localhost:8888"
+
+    def test_no_parent_raises(self):
+        with pytest.raises(ValueError, match="no parent node"):
+            _resolve_tool_inherit("web_search", "searxng_url", None, MagicMock())
+
+    def test_no_matching_tool_raises(self):
+        parent_node = SimpleNamespace(workflow_id=1, node_id="agent_1")
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter_by.return_value.all.return_value = []
+
+        with pytest.raises(ValueError, match="No matching tool"):
+            _resolve_tool_inherit("web_search", "searxng_url", parent_node, mock_db)
+
+    def test_no_matching_key_raises(self):
+        parent_node = SimpleNamespace(workflow_id=1, node_id="agent_1")
+        tool_config = SimpleNamespace(extra_config={"other_key": "value"})
+        tool_node = SimpleNamespace(
+            component_type="web_search", component_config=tool_config,
+        )
+        mock_edge = SimpleNamespace(source_node_id="web_search_1")
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter_by.return_value.all.return_value = [mock_edge]
+        mock_db.query.return_value.filter_by.return_value.first.return_value = tool_node
+
+        with pytest.raises(ValueError, match="no key"):
+            _resolve_tool_inherit("web_search", "searxng_url", parent_node, mock_db)
+
+
+# ── Validate DSL tests ───────────────────────────────────────────────────────
+
+
+class TestValidateDsl:
+    def test_valid_dsl_returns_counts(self):
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = None
+        result = validate_dsl(MINIMAL_YAML, mock_db)
+        assert result["valid"] is True
+        assert result["errors"] == []
+        assert result["node_count"] == 2  # trigger + code
+        assert result["edge_count"] == 1
+
+    def test_invalid_yaml_returns_errors(self):
+        result = validate_dsl("{{bad yaml", MagicMock())
+        assert result["valid"] is False
+        assert len(result["errors"]) > 0
+        assert "Parse error" in result["errors"][0]
+
+    def test_missing_steps_detected(self):
+        result = validate_dsl("name: Test\ntrigger: webhook", MagicMock())
+        assert result["valid"] is False
+        assert any("steps" in e for e in result["errors"])
+
+    def test_model_error_still_builds_graph(self):
+        yaml_str = """\
+name: Model Error
+model:
+  capability: nonexistent
+steps:
+  - type: code
+    snippet: pass
+"""
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = []
+        mock_db.query.return_value.filter_by.return_value.first.return_value = None
+
+        result = validate_dsl(yaml_str, mock_db)
+        # Model error, but graph can still be partially built
+        assert result["valid"] is False
+        assert any("Model resolution" in e for e in result["errors"])
+        # Graph was still built with fallback model_info
+        assert result["node_count"] >= 2
+
+    def test_fork_mode_validates_source(self):
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = None
+
+        yaml_str = "based_on: nonexistent\npatches:\n  - action: update_prompt\n    step_id: x\n    prompt: y"
+        result = validate_dsl(yaml_str, mock_db)
+        assert result["valid"] is False
+        assert any("not found" in e for e in result["errors"])
 
 
 # ── compile_dsl integration (mocked DB) ─────────────────────────────────────

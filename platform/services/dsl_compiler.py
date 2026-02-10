@@ -12,6 +12,7 @@ Model resolution strategies:
   ``inherit: true``  — copy from a parent agent node (caller context)
   ``capability: "gpt-4"`` — find first LLMProviderCredential matching substring
   ``credential_id: N``  — direct pass-through
+  ``discover: true``  — auto-discover best model from available credentials
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import re
 from typing import Any
 
 import yaml
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from models.credential import BaseCredential, LLMProviderCredential
@@ -41,6 +43,11 @@ STEP_TYPE_MAP: dict[str, str] = {
     "code": "code",
     "agent": "agent",
     "http": "http_request",
+    "switch": "switch",
+    "loop": "loop",
+    "workflow": "workflow",
+    "human": "human_confirmation",
+    "transform": "code",
 }
 
 TRIGGER_TYPE_MAP: dict[str, str] = {
@@ -57,6 +64,39 @@ TOOL_TYPE_MAP: dict[str, str] = {
     "web_search": "web_search",
     "calculator": "calculator",
     "datetime": "datetime",
+}
+
+# ── Model preference table for discover mode ─────────────────────────────────
+
+# Maps model name substrings to (cost, speed, capability) scores (0-100).
+# Higher = more expensive / slower / more capable.
+MODEL_PREFERENCE_TABLE: dict[str, tuple[int, int, int]] = {
+    # OpenAI
+    "gpt-4o-mini": (20, 90, 60),
+    "gpt-4o": (50, 70, 85),
+    "gpt-4-turbo": (60, 60, 82),
+    "gpt-4": (70, 50, 80),
+    "gpt-3.5-turbo": (10, 95, 50),
+    "o1-mini": (30, 80, 75),
+    "o1": (80, 40, 90),
+    # Anthropic
+    "claude-3-haiku": (15, 95, 55),
+    "claude-haiku-3-5": (18, 90, 60),
+    "claude-3-5-sonnet": (40, 70, 85),
+    "claude-sonnet-4": (45, 65, 88),
+    "claude-opus": (90, 30, 95),
+    # Open-source
+    "llama-3.1-8b": (5, 95, 45),
+    "llama-3.1-70b": (25, 60, 70),
+    "llama-3.1-405b": (50, 40, 80),
+    "mixtral-8x7b": (15, 80, 55),
+    "mixtral-8x22b": (30, 60, 65),
+    "mistral-large": (35, 55, 70),
+    "mistral-small": (10, 90, 45),
+    "qwen-2.5-72b": (25, 60, 70),
+    "deepseek-v3": (15, 75, 72),
+    "deepseek-r1": (20, 50, 78),
+    "gemma-2-27b": (15, 70, 58),
 }
 
 
@@ -85,7 +125,7 @@ def compile_dsl(
         model_spec = parsed.get("model", {})
         model_info = _resolve_model(model_spec, parent_node, db)
 
-        nodes, edges = _build_graph(parsed, model_info, db)
+        nodes, edges = _build_graph(parsed, model_info, db, parent_node)
 
         return _persist_workflow(
             name=parsed["name"],
@@ -99,6 +139,53 @@ def compile_dsl(
     except Exception as exc:
         logger.exception("DSL compilation failed")
         return {"success": False, "error": str(exc)}
+
+
+def validate_dsl(
+    yaml_str: str,
+    db: Session,
+    parent_node: WorkflowNode | None = None,
+) -> dict:
+    """Validate a YAML DSL string without persisting.
+
+    Returns ``{"valid": bool, "errors": list[str], "node_count": int, "edge_count": int}``.
+    """
+    errors: list[str] = []
+    node_count = 0
+    edge_count = 0
+
+    # Stage 1: Parse
+    try:
+        parsed = _parse_dsl(yaml_str)
+    except Exception as exc:
+        errors.append(f"Parse error: {exc}")
+        return {"valid": False, "errors": errors, "node_count": 0, "edge_count": 0}
+
+    if "based_on" in parsed:
+        # Fork mode — validate source exists
+        source_slug = parsed["based_on"]
+        source = db.query(Workflow).filter_by(slug=source_slug).first()
+        if not source:
+            errors.append(f"Source workflow '{source_slug}' not found")
+        return {"valid": len(errors) == 0, "errors": errors, "node_count": 0, "edge_count": 0}
+
+    # Stage 2: Model resolution
+    model_spec = parsed.get("model", {})
+    try:
+        model_info = _resolve_model(model_spec, parent_node, db)
+    except Exception as exc:
+        errors.append(f"Model resolution error: {exc}")
+        model_info = (None, None, None)
+
+    # Stage 3: Build graph
+    try:
+        nodes, edges = _build_graph(parsed, model_info, db, parent_node)
+        node_count = len(nodes)
+        edge_count = len(edges)
+    except Exception as exc:
+        errors.append(f"Graph build error: {exc}")
+
+    return {"valid": len(errors) == 0, "errors": errors, "node_count": node_count, "edge_count": edge_count}
 
 
 # ── Stage 1: Parse ───────────────────────────────────────────────────────────
@@ -141,6 +228,7 @@ def _parse_dsl(yaml_str: str) -> dict:
         )
 
     # Validate each step
+    seen_ids: set[str] = set()
     for i, step in enumerate(parsed["steps"]):
         if not isinstance(step, dict):
             raise ValueError(f"Step {i} must be a mapping")
@@ -152,6 +240,10 @@ def _parse_dsl(yaml_str: str) -> dict:
                 f"Unknown step type '{step_type}' in step {i}. "
                 f"Valid: {', '.join(STEP_TYPE_MAP)}"
             )
+        step_id = step.get("id", f"{STEP_TYPE_MAP[step_type]}_{i + 1}")
+        if step_id in seen_ids:
+            raise ValueError(f"Duplicate step ID '{step_id}' in step {i}")
+        seen_ids.add(step_id)
 
     return parsed
 
@@ -170,6 +262,7 @@ def _resolve_model(
       inherit   — copy from parent_node's linked ai_model
       capability — substring-match against available LLM credentials
       credential_id — direct pass-through
+      discover — auto-discover best model from available credentials
     """
     if not model_spec:
         return (None, None, None)
@@ -197,6 +290,12 @@ def _resolve_model(
             # Fallback: check the agent config itself
             return (config.llm_credential_id, config.model_name, config.temperature)
         raise ValueError("Cannot inherit model: parent node has no config")
+
+    # Discover mode — auto-select best model from available credentials
+    if model_spec.get("discover"):
+        preference = model_spec.get("preference", "cheapest")
+        temperature = model_spec.get("temperature")
+        return _discover_model(preference, temperature, db)
 
     # Capability-based resolution
     if "capability" in model_spec:
@@ -227,13 +326,252 @@ def _resolve_model(
     return (None, None, None)
 
 
+def _discover_model(
+    preference: str,
+    temperature: float | None,
+    db: Session,
+) -> tuple[int, str, float | None]:
+    """Auto-discover the best model from available LLM credentials.
+
+    Preference can be "cheapest", "fastest", or "most_capable".
+    """
+    creds = (
+        db.query(LLMProviderCredential)
+        .join(BaseCredential, LLMProviderCredential.base_credentials_id == BaseCredential.id)
+        .all()
+    )
+    if not creds:
+        raise ValueError("No LLM credentials available for model discovery")
+
+    best_score: float = -1
+    best_cred_id: int | None = None
+    best_model: str | None = None
+
+    for cred in creds:
+        model_ids = _fetch_model_ids(cred)
+        for model_id in model_ids:
+            score = _score_model(model_id, preference)
+            if score > best_score:
+                best_score = score
+                best_cred_id = cred.base_credentials_id
+                best_model = model_id
+
+    if best_cred_id is None or best_model is None:
+        # Fallback: use first credential with a generic model name
+        raise ValueError("No scoreable models found across available credentials")
+
+    return (best_cred_id, best_model, temperature)
+
+
+def _fetch_model_ids(cred: LLMProviderCredential) -> list[str]:
+    """Fetch available model IDs from a credential. Best-effort, silent on failure."""
+    if cred.provider_type == "anthropic":
+        return [
+            "claude-sonnet-4-20250514",
+            "claude-opus-4-0-20250514",
+            "claude-haiku-3-5-20241022",
+            "claude-3-5-sonnet-20241022",
+        ]
+    # For OpenAI-compatible providers, try the /models endpoint
+    try:
+        import httpx
+        base_url = (cred.base_url or "https://api.openai.com/v1").rstrip("/")
+        resp = httpx.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {cred.api_key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        return [m["id"] for m in data if "id" in m]
+    except Exception:
+        return []
+
+
+def _score_model(model_id: str, preference: str) -> float:
+    """Score a model ID based on preference using substring matching."""
+    model_lower = model_id.lower()
+    best_match_score = 0.0
+
+    for substring, (cost, speed, capability) in MODEL_PREFERENCE_TABLE.items():
+        if substring.lower() in model_lower:
+            if preference == "cheapest":
+                score = 100 - cost  # Lower cost = higher score
+            elif preference == "fastest":
+                score = speed
+            elif preference == "most_capable":
+                score = capability
+            else:
+                score = 100 - cost  # Default to cheapest
+            if score > best_match_score:
+                best_match_score = score
+    return best_match_score
+
+
 # ── Stage 3: Build graph ─────────────────────────────────────────────────────
+
+
+def _build_step_config(
+    step: dict,
+    step_type: str,
+    model_info: tuple[int | None, str | None, float | None],
+    db: Session,
+    parent_node: WorkflowNode | None = None,
+) -> dict[str, Any]:
+    """Build the config dict for a single step based on its type.
+
+    Returns a config dict suitable for node creation.
+    """
+    cred_id, model_name, temperature = model_info
+    config: dict[str, Any] = {}
+
+    if step_type == "code":
+        config["extra_config"] = {
+            "code": step.get("snippet", ""),
+            "language": step.get("language", "python"),
+        }
+
+    elif step_type == "agent":
+        config["system_prompt"] = step.get("prompt", "")
+        # Model: step-level override or workflow-level default
+        step_model = step.get("model", {})
+        if step_model:
+            s_cred, s_model, s_temp = _resolve_model(step_model, parent_node, db)
+            config["llm_credential_id"] = s_cred
+            config["model_name"] = s_model
+            config["temperature"] = s_temp
+        elif cred_id is not None:
+            config["llm_credential_id"] = cred_id
+            config["model_name"] = model_name
+            config["temperature"] = temperature
+        # Memory
+        extra = {}
+        if step.get("memory"):
+            extra["conversation_memory"] = True
+        config["extra_config"] = extra
+
+    elif step_type == "http":
+        config["extra_config"] = {
+            "url": step.get("url", ""),
+            "method": step.get("method", "GET"),
+            "headers": step.get("headers", {}),
+            "body": step.get("body", ""),
+            "timeout": step.get("timeout", 30),
+        }
+
+    elif step_type == "switch":
+        rules = []
+        for rule in step.get("rules", []):
+            rules.append({
+                "id": rule.get("route", ""),
+                "field": rule.get("field", ""),
+                "operator": rule.get("operator", "equals"),
+                "value": rule.get("value", ""),
+            })
+        config["extra_config"] = {
+            "rules": rules,
+            "enable_fallback": bool(step.get("default")),
+        }
+
+    elif step_type == "loop":
+        over_expr = step.get("over", "")
+        source_node, field = _parse_over_expression(over_expr)
+        config["extra_config"] = {
+            "source_node": source_node,
+            "field": field,
+            "max_iterations": step.get("max_iterations", 100),
+        }
+
+    elif step_type == "workflow":
+        config["extra_config"] = {
+            "target_workflow": step.get("workflow", ""),
+            "trigger_mode": "implicit",
+            "input_mapping": step.get("payload", {}),
+        }
+
+    elif step_type == "human":
+        config["extra_config"] = {
+            "prompt": step.get("message", ""),
+        }
+
+    elif step_type == "transform":
+        template = step.get("template", "")
+        config["extra_config"] = {
+            "code": f'return f"""{template}"""',
+            "language": "python",
+        }
+
+    return config
+
+
+def _parse_over_expression(expr: str) -> tuple[str, str]:
+    """Parse a loop ``over`` expression like ``{{ node_id.field }}`` or ``node_id.field``.
+
+    Returns (source_node, field) tuple.
+    """
+    if not expr:
+        return ("", "")
+    # Strip Jinja2 delimiters
+    cleaned = expr.strip()
+    cleaned = re.sub(r"^\{\{\s*", "", cleaned)
+    cleaned = re.sub(r"\s*\}\}$", "", cleaned)
+    cleaned = cleaned.strip()
+    parts = cleaned.split(".", 1)
+    if len(parts) == 2:
+        return (parts[0], parts[1])
+    return (parts[0], "output")
+
+
+def _resolve_tool_inherit(
+    tool_component_type: str,
+    config_key: str,
+    parent_node: WorkflowNode | None,
+    db: Session,
+) -> Any:
+    """Resolve a tool config value by inheriting from parent node's connected tools.
+
+    Looks up edges with edge_label="tool" targeting the parent node, finds a source
+    node whose component_type matches, and returns the specified key from its extra_config.
+    """
+    if not parent_node:
+        raise ValueError("Cannot inherit tool config: no parent node")
+
+    edges = (
+        db.query(WorkflowEdge)
+        .filter_by(
+            workflow_id=parent_node.workflow_id,
+            target_node_id=parent_node.node_id,
+            edge_label="tool",
+        )
+        .all()
+    )
+
+    for edge in edges:
+        tool_node = (
+            db.query(WorkflowNode)
+            .filter_by(workflow_id=parent_node.workflow_id, node_id=edge.source_node_id)
+            .first()
+        )
+        if tool_node and tool_node.component_type == tool_component_type:
+            tool_cfg = tool_node.component_config
+            if tool_cfg and tool_cfg.extra_config:
+                val = tool_cfg.extra_config.get(config_key)
+                if val is not None:
+                    return val
+                raise ValueError(
+                    f"Parent tool '{tool_component_type}' has no key '{config_key}' in extra_config"
+                )
+
+    raise ValueError(
+        f"No matching tool '{tool_component_type}' found on parent node '{parent_node.node_id}'"
+    )
 
 
 def _build_graph(
     parsed: dict,
     model_info: tuple[int | None, str | None, float | None],
     db: Session,
+    parent_node: WorkflowNode | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Convert parsed DSL steps into node/edge dicts.
 
@@ -265,6 +603,18 @@ def _build_graph(
     prev_node_id = trigger_node_id
     x_offset = 300
 
+    # ── Pre-scan: collect claimed step IDs (switch route targets) ─────
+    claimed_step_ids: set[str] = set()
+    for step in parsed["steps"]:
+        if step["type"] == "switch":
+            for rule in step.get("rules", []):
+                route_target = rule.get("route", "")
+                if route_target:
+                    claimed_step_ids.add(route_target)
+            default_target = step.get("default", "")
+            if default_target:
+                claimed_step_ids.add(default_target)
+
     # ── Step nodes ───────────────────────────────────────────────────────
     for i, step in enumerate(parsed["steps"]):
         step_type = step["type"]
@@ -272,41 +622,17 @@ def _build_graph(
         step_id = step.get("id", f"{step_component}_{i + 1}")
         is_first_exec = i == 0
 
-        config: dict[str, Any] = {}
+        config = _build_step_config(step, step_type, model_info, db, parent_node)
 
-        if step_type == "code":
-            config["code_snippet"] = step.get("snippet", "")
-            config["code_language"] = step.get("language", "python")
+        # Resolve tool config inheritance (value == "inherit")
+        if isinstance(config.get("extra_config"), dict):
+            for key, val in list(config["extra_config"].items()):
+                if val == "inherit":
+                    config["extra_config"][key] = _resolve_tool_inherit(
+                        step_component, key, parent_node, db,
+                    )
 
-        elif step_type == "agent":
-            config["system_prompt"] = step.get("prompt", "")
-            # Model: step-level override or workflow-level default
-            step_model = step.get("model", {})
-            if step_model:
-                s_cred, s_model, s_temp = _resolve_model(step_model, None, db)
-                config["llm_credential_id"] = s_cred
-                config["model_name"] = s_model
-                config["temperature"] = s_temp
-            elif cred_id is not None:
-                config["llm_credential_id"] = cred_id
-                config["model_name"] = model_name
-                config["temperature"] = temperature
-            # Memory
-            extra = {}
-            if step.get("memory"):
-                extra["conversation_memory"] = True
-            config["extra_config"] = extra
-
-        elif step_type == "http":
-            config["extra_config"] = {
-                "url": step.get("url", ""),
-                "method": step.get("method", "GET"),
-                "headers": step.get("headers", {}),
-                "body": step.get("body", ""),
-                "timeout": step.get("timeout", 30),
-            }
-
-        node_dict = {
+        node_dict: dict[str, Any] = {
             "node_id": step_id,
             "component_type": step_component,
             "is_entry_point": is_first_exec,
@@ -314,17 +640,108 @@ def _build_graph(
             "position_y": 200,
             "config": config,
         }
+
+        # Human step needs interrupt_before
+        if step_type == "human":
+            node_dict["interrupt_before"] = True
+
+        # Workflow step needs subworkflow_id resolution
+        if step_type == "workflow":
+            target_slug = step.get("workflow", "")
+            if target_slug:
+                target_wf = db.query(Workflow).filter_by(slug=target_slug).first()
+                if target_wf:
+                    node_dict["subworkflow_id"] = target_wf.id
+
         nodes.append(node_dict)
 
-        # Linear edge: prev → current
-        edges.append({
-            "source_node_id": prev_node_id,
-            "target_node_id": step_id,
-            "edge_type": "direct",
-            "edge_label": "",
-        })
+        # Linear edge: prev → current (skip for claimed step IDs)
+        if prev_node_id is not None and step_id not in claimed_step_ids:
+            edges.append({
+                "source_node_id": prev_node_id,
+                "target_node_id": step_id,
+                "edge_type": "direct",
+                "edge_label": "",
+            })
 
-        # ── Agent sub-components ─────────────────────────────────────────
+        # ── Switch step: conditional edges ───────────────────────────
+        if step_type == "switch":
+            for rule in step.get("rules", []):
+                route_target = rule.get("route", "")
+                if route_target:
+                    edges.append({
+                        "source_node_id": step_id,
+                        "target_node_id": route_target,
+                        "edge_type": "conditional",
+                        "edge_label": "",
+                        "condition_value": route_target,
+                    })
+            default_target = step.get("default", "")
+            if default_target:
+                edges.append({
+                    "source_node_id": step_id,
+                    "target_node_id": default_target,
+                    "edge_type": "conditional",
+                    "edge_label": "",
+                    "condition_value": "__other__",
+                })
+            # Break linear chain after switch — routes via conditional edges
+            prev_node_id = None
+            x_offset += 300
+            continue
+
+        # ── Loop step: body nodes and edges ──────────────────────────
+        if step_type == "loop":
+            body_steps = step.get("body", [])
+            if not body_steps:
+                raise ValueError(f"Loop step '{step_id}' requires a non-empty `body` list")
+
+            body_prev_id: str | None = None
+            for bi, body_step in enumerate(body_steps):
+                body_type = body_step.get("type", "code")
+                if body_type not in STEP_TYPE_MAP:
+                    raise ValueError(f"Unknown step type '{body_type}' in loop body")
+                body_component = STEP_TYPE_MAP[body_type]
+                body_id = body_step.get("id", f"{step_id}_body_{bi + 1}")
+                body_config = _build_step_config(body_step, body_type, model_info, db, parent_node)
+
+                nodes.append({
+                    "node_id": body_id,
+                    "component_type": body_component,
+                    "is_entry_point": False,
+                    "position_x": x_offset + (bi * 200),
+                    "position_y": 350,
+                    "config": body_config,
+                })
+
+                if bi == 0:
+                    # loop → first body (loop_body edge)
+                    edges.append({
+                        "source_node_id": step_id,
+                        "target_node_id": body_id,
+                        "edge_type": "direct",
+                        "edge_label": "loop_body",
+                    })
+                else:
+                    # body[n-1] → body[n]
+                    edges.append({
+                        "source_node_id": body_prev_id,
+                        "target_node_id": body_id,
+                        "edge_type": "direct",
+                        "edge_label": "",
+                    })
+                body_prev_id = body_id
+
+            # last body → loop (loop_return edge)
+            if body_prev_id:
+                edges.append({
+                    "source_node_id": body_prev_id,
+                    "target_node_id": step_id,
+                    "edge_type": "direct",
+                    "edge_label": "loop_return",
+                })
+
+        # ── Agent sub-components ─────────────────────────────────────
         if step_type == "agent":
             # ai_model node (if model is specified)
             if config.get("llm_credential_id"):
@@ -434,6 +851,8 @@ def _persist_workflow(
             component_type=comp_type,
             component_config_id=config.id,
             is_entry_point=nd.get("is_entry_point", False),
+            interrupt_before=nd.get("interrupt_before", False),
+            subworkflow_id=nd.get("subworkflow_id"),
             position_x=nd.get("position_x", 0),
             position_y=nd.get("position_y", 0),
         )
@@ -493,20 +912,18 @@ def _compile_fork(parsed: dict, owner_id: int, db: Session) -> dict:
     node_dicts: list[dict] = []
     old_config_to_new: dict[int, dict] = {}  # old config id → config kwargs
 
+    _SKIP_CONFIG_COLUMNS = {"id", "updated_at"}
+
     for sn in source_nodes:
         cfg = sn.component_config
-        config_kwargs: dict[str, Any] = {"component_type": cfg.component_type}
-        # Copy config fields
-        for field in (
-            "extra_config", "llm_credential_id", "model_name", "temperature",
-            "max_tokens", "frequency_penalty", "presence_penalty", "top_p",
-            "timeout", "max_retries", "response_format", "system_prompt",
-            "code_language", "code_snippet", "credential_id", "is_active",
-            "priority", "trigger_config",
-        ):
-            val = getattr(cfg, field, None)
+        config_kwargs: dict[str, Any] = {}
+        # Copy all column attributes via SQLAlchemy inspect (future-proof)
+        for col in sa_inspect(type(cfg)).columns:
+            if col.key in _SKIP_CONFIG_COLUMNS:
+                continue
+            val = getattr(cfg, col.key, None)
             if val is not None:
-                config_kwargs[field] = copy.deepcopy(val) if isinstance(val, (dict, list)) else val
+                config_kwargs[col.key] = copy.deepcopy(val) if isinstance(val, (dict, list)) else val
 
         nd = {
             "node_id": sn.node_id,
@@ -586,7 +1003,11 @@ def _patch_update_prompt(node_dicts: list[dict], patch: dict) -> None:
     if "prompt" in patch:
         config["system_prompt"] = patch["prompt"]
     if "snippet" in patch:
-        config["code_snippet"] = patch["snippet"]
+        extra = config.get("extra_config", {})
+        if not isinstance(extra, dict):
+            extra = {}
+        extra["code"] = patch["snippet"]
+        config["extra_config"] = extra
     nd["config"] = config
 
 
@@ -607,8 +1028,10 @@ def _patch_add_step(
 
     config: dict[str, Any] = {}
     if step_type == "code":
-        config["code_snippet"] = step.get("snippet", "")
-        config["code_language"] = step.get("language", "python")
+        config["extra_config"] = {
+            "code": step.get("snippet", ""),
+            "language": step.get("language", "python"),
+        }
     elif step_type == "agent":
         config["system_prompt"] = step.get("prompt", "")
     elif step_type == "http":
