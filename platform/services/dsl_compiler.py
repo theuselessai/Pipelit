@@ -132,8 +132,8 @@ def _parse_dsl(yaml_str: str) -> dict:
     if not isinstance(parsed["steps"], list) or len(parsed["steps"]) == 0:
         raise ValueError("`steps` must be a non-empty list")
 
-    # Validate trigger
-    trigger = parsed.get("trigger", "manual")
+    # Normalize and validate trigger
+    trigger = parsed.setdefault("trigger", "manual")
     if isinstance(trigger, str) and trigger not in TRIGGER_TYPE_MAP:
         raise ValueError(
             f"Unknown trigger type '{trigger}'. "

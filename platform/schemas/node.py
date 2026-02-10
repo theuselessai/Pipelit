@@ -110,7 +110,7 @@ class EdgeOut(BaseModel):
     source_node_id: str
     target_node_id: str
     edge_type: EdgeTypeStr
-    edge_label: str = ""
+    edge_label: EdgeLabelStr = ""
     condition_mapping: dict | None = None
     condition_value: str = ""
     priority: int
