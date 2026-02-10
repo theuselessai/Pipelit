@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -37,8 +40,8 @@ def list_tasks(
         q = q.filter(Task.status == status)
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-        for tag in tag_list:
-            q = q.filter(Task.tags.contains(tag))
+        if tag_list:
+            q = q.filter(or_(*[Task.tags.contains(tag) for tag in tag_list]))
     total = q.count()
     tasks = q.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
     return {"items": [serialize_task(t) for t in tasks], "total": total}
@@ -199,7 +202,10 @@ def batch_delete_tasks(
         .filter(Task.id.in_(payload.task_ids), Epic.user_profile_id == profile.id)
         .all()
     )
-    affected_epic_ids = {t.epic_id for t in affected_tasks}
+    epic_to_task_ids: dict[str, list[str]] = defaultdict(list)
+    for t in affected_tasks:
+        epic_to_task_ids[t.epic_id].append(t.id)
+    affected_epic_ids = set(epic_to_task_ids.keys())
     deleted_task_ids = [t.id for t in affected_tasks]
 
     remove_from_depends_on(deleted_task_ids, db)
@@ -219,8 +225,8 @@ def batch_delete_tasks(
 
     db.commit()
 
-    for epic_id in affected_epic_ids:
+    for epic_id, task_ids in epic_to_task_ids.items():
         try:
-            broadcast(f"epic:{epic_id}", "tasks_deleted", {"task_ids": deleted_task_ids})
+            broadcast(f"epic:{epic_id}", "tasks_deleted", {"task_ids": task_ids})
         except Exception:
             logger.exception("Failed to broadcast task event")

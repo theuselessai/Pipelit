@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -33,10 +34,9 @@ def list_epics(
     if status:
         q = q.filter(Epic.status == status)
     if tags:
-        # Filter epics that contain any of the comma-separated tags
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-        for tag in tag_list:
-            q = q.filter(Epic.tags.contains(tag))
+        if tag_list:
+            q = q.filter(or_(*[Epic.tags.contains(tag) for tag in tag_list]))
     total = q.count()
     epics = q.order_by(Epic.created_at.desc()).offset(offset).limit(limit).all()
     return {"items": [serialize_epic(e) for e in epics], "total": total}

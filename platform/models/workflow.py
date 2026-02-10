@@ -32,7 +32,7 @@ class Workflow(Base):
     error_handler_workflow_id: Mapped[int | None] = mapped_column(
         ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True
     )
-    tags: Mapped[list | None] = mapped_column(JSON, default=list)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     input_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     output_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
