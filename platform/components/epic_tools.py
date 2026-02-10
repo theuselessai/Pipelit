@@ -22,10 +22,10 @@ def epic_tools_factory(node):
     try:
         workflow = db.query(Workflow).filter(Workflow.id == node.workflow_id).first()
         if not workflow:
-            raise ValueError(f"epic_tools: workflow {node.workflow_id} not found — cannot resolve owner")
+            raise ValueError(f"epic_tools: workflow {node.workflow_id} not found - cannot resolve owner")
         user_profile_id = workflow.owner_id
         if not user_profile_id:
-            raise ValueError(f"epic_tools: workflow {node.workflow_id} has no owner_id — cannot resolve owner")
+            raise ValueError(f"epic_tools: workflow {node.workflow_id} has no owner_id - cannot resolve owner")
     finally:
         db.close()
 
@@ -260,6 +260,8 @@ def epic_tools_factory(node):
         from sqlalchemy import or_
 
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        if len(tag_list) > 20:
+            return json.dumps({"success": False, "error": "Too many tags specified. Maximum is 20."})
         limit = max(1, min(limit, 100))
         db = SessionLocal()
         try:

@@ -374,6 +374,19 @@ class TestSearchEpics:
         assert len(result["results"]) == 1
         assert result["results"][0]["title"] == "Active One"
 
+    def test_search_too_many_tags(self, mock_session, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        search_tool = next(t for t in tools if t.name == "search_epics")
+        many_tags = ",".join(f"tag{i}" for i in range(21))
+        result = json.loads(search_tool.invoke({"tags": many_tags}))
+
+        assert result["success"] is False
+        assert "Maximum is 20" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # Task tools
@@ -619,6 +632,24 @@ class TestListTasks:
         result = json.loads(list_tool.invoke({"epic_id": epic.id, "limit": 999999}))
         assert result["success"] is True
         assert result["total"] == 1
+
+    def test_list_tasks_too_many_tags(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Tag Cap Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        list_tool = next(t for t in tools if t.name == "list_tasks")
+        many_tags = ",".join(f"tag{i}" for i in range(21))
+        result = json.loads(list_tool.invoke({"epic_id": epic.id, "tags": many_tags}))
+
+        assert result["success"] is False
+        assert "Maximum is 20" in result["error"]
 
     def test_list_tasks_epic_not_found(self, mock_session, workflow, user_profile):
         from components.task_tools import task_tools_factory

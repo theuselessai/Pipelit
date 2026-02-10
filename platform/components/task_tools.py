@@ -22,10 +22,10 @@ def task_tools_factory(node):
     try:
         workflow = db.query(Workflow).filter(Workflow.id == node.workflow_id).first()
         if not workflow:
-            raise ValueError(f"task_tools: workflow {node.workflow_id} not found — cannot resolve owner")
+            raise ValueError(f"task_tools: workflow {node.workflow_id} not found - cannot resolve owner")
         user_profile_id = workflow.owner_id
         if not user_profile_id:
-            raise ValueError(f"task_tools: workflow {node.workflow_id} has no owner_id — cannot resolve owner")
+            raise ValueError(f"task_tools: workflow {node.workflow_id} has no owner_id - cannot resolve owner")
     finally:
         db.close()
 
@@ -173,6 +173,8 @@ def task_tools_factory(node):
                 q = q.filter(Task.status == status)
             if tags:
                 tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+                if len(tag_list) > 20:
+                    return json.dumps({"success": False, "error": "Too many tags specified. Maximum is 20."})
                 if tag_list:
                     q = q.filter(or_(*[Task.tags.contains(tag) for tag in tag_list]))
 
