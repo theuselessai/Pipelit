@@ -51,6 +51,13 @@ class TestEpicToolsFactory:
         names = {t.name for t in tools}
         assert names == {"create_epic", "epic_status", "update_epic", "search_epics"}
 
+    def test_factory_raises_on_missing_workflow(self, mock_session):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow_id=99999)
+        with pytest.raises(ValueError, match="workflow 99999 not found"):
+            epic_tools_factory(node)
+
 
 class TestCreateEpic:
     def test_create_epic_success(self, mock_session, workflow, user_profile):
@@ -240,6 +247,40 @@ class TestSearchEpics:
         assert len(result["results"]) == 1
         assert result["results"][0]["title"] == "Deploy backend"
 
+    def test_search_includes_zero_cost_in_avg(self, mock_session, workflow, user_profile):
+        """Verify epics with $0.00 spent_usd are included in avg_cost."""
+        from components.epic_tools import epic_tools_factory
+
+        e1 = Epic(title="Free", user_profile_id=user_profile.id, spent_usd=0.0)
+        e2 = Epic(title="Paid", user_profile_id=user_profile.id, spent_usd=2.0)
+        mock_session.add_all([e1, e2])
+        mock_session.commit()
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        search_tool = next(t for t in tools if t.name == "search_epics")
+        result = json.loads(search_tool.invoke({}))
+
+        assert result["success"] is True
+        # avg_cost should be (0.0 + 2.0) / 2 = 1.0, not 2.0/1 = 2.0
+        assert result["avg_cost"] == 1.0
+
+    def test_search_clamps_limit(self, mock_session, workflow, user_profile):
+        """Verify limit is clamped to [1, 100]."""
+        from components.epic_tools import epic_tools_factory
+
+        mock_session.add(Epic(title="One", user_profile_id=user_profile.id))
+        mock_session.commit()
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        search_tool = next(t for t in tools if t.name == "search_epics")
+        # Huge limit should still work (clamped to 100)
+        result = json.loads(search_tool.invoke({"limit": 999999}))
+        assert result["success"] is True
+
     def test_search_by_status_and_tags(self, mock_session, workflow, user_profile):
         """Cover status filter and tag filter branches in search_epics."""
         from components.epic_tools import epic_tools_factory
@@ -276,6 +317,13 @@ class TestTaskToolsFactory:
         assert len(tools) == 4
         names = {t.name for t in tools}
         assert names == {"create_task", "list_tasks", "update_task", "cancel_task"}
+
+    def test_factory_raises_on_missing_workflow(self, mock_session):
+        from components.task_tools import task_tools_factory
+
+        node = _make_node("task_tools", workflow_id=99999)
+        with pytest.raises(ValueError, match="workflow 99999 not found"):
+            task_tools_factory(node)
 
 
 class TestCreateTask:
@@ -415,6 +463,25 @@ class TestListTasks:
         assert result["success"] is True
         assert result["total"] == 1
         assert result["tasks"][0]["title"] == "Tagged"
+
+    def test_list_tasks_clamps_limit(self, mock_session, workflow, user_profile):
+        """Verify limit is clamped to [1, 100]."""
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Limit Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.flush()
+        mock_session.add(Task(epic_id=epic.id, title="T1", status="pending"))
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        list_tool = next(t for t in tools if t.name == "list_tasks")
+        result = json.loads(list_tool.invoke({"epic_id": epic.id, "limit": 999999}))
+        assert result["success"] is True
+        assert result["total"] == 1
 
     def test_list_tasks_epic_not_found(self, mock_session, workflow, user_profile):
         from components.task_tools import task_tools_factory

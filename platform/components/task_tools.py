@@ -21,7 +21,9 @@ def task_tools_factory(node):
     db = SessionLocal()
     try:
         workflow = db.query(Workflow).filter(Workflow.id == node.workflow_id).first()
-        user_profile_id = workflow.owner_id if workflow else None
+        if not workflow:
+            raise ValueError(f"task_tools: workflow {node.workflow_id} not found — cannot resolve owner")
+        user_profile_id = workflow.owner_id
     finally:
         db.close()
 
@@ -133,6 +135,7 @@ def task_tools_factory(node):
         from models.epic import Epic, Task
         from sqlalchemy import or_
 
+        limit = max(1, min(limit, 100))
         db = SessionLocal()
         try:
             epic = (

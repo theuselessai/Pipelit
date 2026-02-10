@@ -21,7 +21,9 @@ def epic_tools_factory(node):
     db = SessionLocal()
     try:
         workflow = db.query(Workflow).filter(Workflow.id == node.workflow_id).first()
-        user_profile_id = workflow.owner_id if workflow else None
+        if not workflow:
+            raise ValueError(f"epic_tools: workflow {node.workflow_id} not found — cannot resolve owner")
+        user_profile_id = workflow.owner_id
     finally:
         db.close()
 
@@ -234,6 +236,7 @@ def epic_tools_factory(node):
         from sqlalchemy import or_
 
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        limit = max(1, min(limit, 100))
         db = SessionLocal()
         try:
             q = db.query(Epic).filter(Epic.user_profile_id == user_profile_id)
@@ -253,7 +256,7 @@ def epic_tools_factory(node):
             failed_count = sum(1 for e in epics if e.status == "failed")
             finished = completed_count + failed_count
             success_rate = (completed_count / finished) if finished > 0 else None
-            costs = [float(e.spent_usd) for e in epics if e.spent_usd]
+            costs = [float(e.spent_usd) for e in epics if e.spent_usd is not None]
             avg_cost = (sum(costs) / len(costs)) if costs else 0.0
 
             results = [
