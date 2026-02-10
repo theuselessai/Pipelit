@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,8 @@ from models.user import UserProfile
 from schemas.epic import BatchDeleteEpicsIn, EpicCreate, EpicOut, EpicUpdate, TaskOut
 from api.epic_helpers import serialize_epic, serialize_task, sync_epic_progress
 from ws.broadcast import broadcast
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -60,7 +64,7 @@ def create_epic(
     try:
         broadcast(f"epic:{epic.id}", "epic_created", serialize_epic(epic))
     except Exception:
-        pass
+        logger.exception("Failed to broadcast epic event")
     return serialize_epic(epic)
 
 
@@ -118,7 +122,7 @@ def update_epic(
     try:
         broadcast(f"epic:{epic.id}", "epic_updated", serialize_epic(epic))
     except Exception:
-        pass
+        logger.exception("Failed to broadcast epic event")
     return serialize_epic(epic)
 
 
@@ -140,7 +144,7 @@ def delete_epic(
     try:
         broadcast(f"epic:{epic_id}", "epic_deleted", {"id": epic_id})
     except Exception:
-        pass
+        logger.exception("Failed to broadcast epic event")
 
 
 @router.post("/batch-delete/", status_code=204)
@@ -151,8 +155,11 @@ def batch_delete_epics(
 ):
     if not payload.epic_ids:
         return
-    # Delete tasks first (CASCADE would handle it but be explicit)
-    db.query(Task).filter(Task.epic_id.in_(payload.epic_ids)).delete(
+    # Only delete tasks belonging to the user's epics
+    user_epic_ids = db.query(Epic.id).filter(
+        Epic.id.in_(payload.epic_ids), Epic.user_profile_id == profile.id
+    )
+    db.query(Task).filter(Task.epic_id.in_(user_epic_ids)).delete(
         synchronize_session=False
     )
     db.query(Epic).filter(

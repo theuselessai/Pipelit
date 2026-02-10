@@ -35,11 +35,11 @@ def upgrade() -> None:
         sa.Column('status', sa.String(20), server_default='planning'),
         sa.Column('priority', sa.Integer(), server_default='2'),
         sa.Column('budget_tokens', sa.Integer(), nullable=True),
-        sa.Column('budget_usd', sa.Float(), nullable=True),
+        sa.Column('budget_usd', sa.Numeric(12, 6), nullable=True),
         sa.Column('spent_tokens', sa.Integer(), server_default='0'),
-        sa.Column('spent_usd', sa.Float(), server_default='0.0'),
+        sa.Column('spent_usd', sa.Numeric(12, 6), server_default='0.0'),
         sa.Column('agent_overhead_tokens', sa.Integer(), server_default='0'),
-        sa.Column('agent_overhead_usd', sa.Float(), server_default='0.0'),
+        sa.Column('agent_overhead_usd', sa.Numeric(12, 6), server_default='0.0'),
         sa.Column('total_tasks', sa.Integer(), server_default='0'),
         sa.Column('completed_tasks', sa.Integer(), server_default='0'),
         sa.Column('failed_tasks', sa.Integer(), server_default='0'),
@@ -49,6 +49,7 @@ def upgrade() -> None:
         sa.Column('result_summary', sa.Text(), nullable=True),
     )
     op.create_index('ix_epics_status', 'epics', ['status'])
+    op.create_index('ix_epics_workflow_id', 'epics', ['workflow_id'])
     op.create_index('ix_epics_user_profile_id', 'epics', ['user_profile_id'])
 
     # Tasks table
@@ -72,7 +73,7 @@ def upgrade() -> None:
         sa.Column('requirements', sa.JSON(), nullable=True),
         sa.Column('estimated_tokens', sa.Integer(), nullable=True),
         sa.Column('actual_tokens', sa.Integer(), server_default='0'),
-        sa.Column('actual_usd', sa.Float(), server_default='0.0'),
+        sa.Column('actual_usd', sa.Numeric(12, 6), server_default='0.0'),
         sa.Column('llm_calls', sa.Integer(), server_default='0'),
         sa.Column('tool_invocations', sa.Integer(), server_default='0'),
         sa.Column('duration_ms', sa.Integer(), server_default='0'),
@@ -102,5 +103,6 @@ def downgrade() -> None:
     op.drop_index('ix_tasks_epic_id', 'tasks')
     op.drop_table('tasks')
     op.drop_index('ix_epics_user_profile_id', 'epics')
+    op.drop_index('ix_epics_workflow_id', 'epics')
     op.drop_index('ix_epics_status', 'epics')
     op.drop_table('epics')

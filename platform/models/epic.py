@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -24,7 +24,7 @@ class Epic(Base):
     # Ownership
     created_by_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workflow_id: Mapped[int | None] = mapped_column(
-        ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True, index=True
     )
     user_profile_id: Mapped[int | None] = mapped_column(
         ForeignKey("user_profiles.id", ondelete="SET NULL"), nullable=True
@@ -36,11 +36,11 @@ class Epic(Base):
 
     # Budget
     budget_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    budget_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    budget_usd: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)
     spent_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    spent_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    spent_usd: Mapped[float] = mapped_column(Numeric(12, 6), default=0.0)
     agent_overhead_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    agent_overhead_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    agent_overhead_usd: Mapped[float] = mapped_column(Numeric(12, 6), default=0.0)
 
     # Progress
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)
@@ -103,7 +103,7 @@ class Task(Base):
     # Cost
     estimated_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     actual_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    actual_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    actual_usd: Mapped[float] = mapped_column(Numeric(12, 6), default=0.0)
     llm_calls: Mapped[int] = mapped_column(Integer, default=0)
     tool_invocations: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)

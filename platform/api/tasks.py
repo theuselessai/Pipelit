@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,8 @@ from models.user import UserProfile
 from schemas.epic import BatchDeleteTasksIn, TaskCreate, TaskOut, TaskUpdate
 from api.epic_helpers import serialize_task, sync_epic_progress
 from ws.broadcast import broadcast
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -89,7 +93,7 @@ def create_task(
     try:
         broadcast(f"epic:{task.epic_id}", "task_created", serialize_task(task))
     except Exception:
-        pass
+        logger.exception("Failed to broadcast task event")
     return serialize_task(task)
 
 
@@ -143,7 +147,7 @@ def update_task(
     try:
         broadcast(f"epic:{task.epic_id}", "task_updated", serialize_task(task))
     except Exception:
-        pass
+        logger.exception("Failed to broadcast task event")
     return serialize_task(task)
 
 
@@ -175,7 +179,7 @@ def delete_task(
     try:
         broadcast(f"epic:{epic_id}", "task_deleted", {"id": task_id})
     except Exception:
-        pass
+        logger.exception("Failed to broadcast task event")
 
 
 @router.post("/batch-delete/", status_code=204)
@@ -187,7 +191,7 @@ def batch_delete_tasks(
     if not payload.task_ids:
         return
 
-    # Find affected epic IDs before deleting
+    # Find affected epic IDs and task IDs before deleting
     affected_tasks = (
         db.query(Task)
         .join(Epic)
@@ -195,6 +199,7 @@ def batch_delete_tasks(
         .all()
     )
     affected_epic_ids = {t.epic_id for t in affected_tasks}
+    deleted_task_ids = [t.id for t in affected_tasks]
 
     db.query(Task).filter(
         Task.id.in_(payload.task_ids),
@@ -210,3 +215,9 @@ def batch_delete_tasks(
             sync_epic_progress(epic, db)
 
     db.commit()
+
+    for epic_id in affected_epic_ids:
+        try:
+            broadcast(f"epic:{epic_id}", "tasks_deleted", {"task_ids": deleted_task_ids})
+        except Exception:
+            logger.exception("Failed to broadcast task event")
