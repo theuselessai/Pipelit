@@ -297,7 +297,11 @@ def _resolve_model(
         temperature = model_spec.get("temperature")
         return _discover_model(preference, temperature, db)
 
-    # Capability-based resolution
+    # Capability-based resolution — the capability string is treated as the
+    # desired model name.  We first try to match it against provider_type
+    # (e.g. capability: "anthropic"), then fall back to the first available
+    # credential, passing capability through as model_name for the provider
+    # to resolve.
     if "capability" in model_spec:
         capability = model_spec["capability"]
         creds = (
@@ -305,15 +309,15 @@ def _resolve_model(
             .join(BaseCredential, LLMProviderCredential.base_credentials_id == BaseCredential.id)
             .all()
         )
+        if not creds:
+            raise ValueError(f"No LLM credential found for capability '{capability}'")
+        # Prefer a credential whose provider_type matches (e.g. "anthropic")
         for cred in creds:
-            # Simple substring match on model name for v1
             if capability.lower() in (cred.provider_type or "").lower():
                 return (cred.base_credentials_id, capability, model_spec.get("temperature"))
-        # If no match on provider_type, return first available credential with the
-        # capability as the model_name (the user knows which model they want)
-        if creds:
-            return (creds[0].base_credentials_id, capability, model_spec.get("temperature"))
-        raise ValueError(f"No LLM credential found for capability '{capability}'")
+        # Otherwise use the first credential — the user-supplied capability
+        # string is passed as model_name for the provider API to resolve.
+        return (creds[0].base_credentials_id, capability, model_spec.get("temperature"))
 
     # Direct credential_id
     if "credential_id" in model_spec:
@@ -767,6 +771,8 @@ def _build_graph(
 
             # Inline tools
             for j, tool_spec in enumerate(step.get("tools", [])):
+                if not isinstance(tool_spec, (str, dict)):
+                    raise ValueError(f"Tool {j} in step '{step_id}' must be a string or mapping, got {type(tool_spec).__name__}")
                 tool_type = tool_spec if isinstance(tool_spec, str) else tool_spec.get("type", "")
                 tool_component = TOOL_TYPE_MAP.get(tool_type)
                 if not tool_component:

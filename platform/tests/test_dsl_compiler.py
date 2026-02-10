@@ -300,6 +300,19 @@ steps:
         with pytest.raises(ValueError, match="Unknown inline tool"):
             _build_graph(parsed, (None, None, None), MagicMock())
 
+    def test_null_inline_tool_raises(self):
+        yaml_str = """\
+name: Null Tool
+steps:
+  - type: agent
+    id: my_agent
+    tools:
+      - null
+"""
+        parsed = _parse_dsl(yaml_str)
+        with pytest.raises(ValueError, match="must be a string or mapping"):
+            _build_graph(parsed, (None, None, None), MagicMock())
+
     def test_tool_with_config(self):
         yaml_str = """\
 name: Tool Config
@@ -414,6 +427,16 @@ class TestResolveModel:
         result = _resolve_model({"capability": "gpt-4", "temperature": 0.5}, None, mock_db)
         # First credential returned since it's the first available
         assert result == (5, "gpt-4", 0.5)
+
+    def test_capability_matches_provider_type(self):
+        """When capability matches provider_type, prefer that credential."""
+        cred_openai = SimpleNamespace(base_credentials_id=5, provider_type="openai_compatible")
+        cred_anthropic = SimpleNamespace(base_credentials_id=9, provider_type="anthropic")
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [cred_openai, cred_anthropic]
+
+        result = _resolve_model({"capability": "anthropic"}, None, mock_db)
+        assert result == (9, "anthropic", None)
 
     def test_capability_no_credentials_raises(self):
         mock_db = MagicMock()
