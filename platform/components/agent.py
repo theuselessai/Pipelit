@@ -37,8 +37,9 @@ def _get_checkpointer():
                     "checkpoints.db",
                 )
                 conn = sqlite3.connect(db_path, check_same_thread=False)
-                _checkpointer = SqliteSaver(conn)
-                _checkpointer.setup()
+                saver = SqliteSaver(conn)
+                saver.setup()
+                _checkpointer = saver
                 logger.info("Initialized SqliteSaver checkpointer at %s", db_path)
     return _checkpointer
 
@@ -51,8 +52,9 @@ def _get_redis_checkpointer():
                 from langgraph.checkpoint.redis import RedisSaver
                 from config import settings
 
-                _redis_checkpointer = RedisSaver(redis_url=settings.REDIS_URL)
-                _redis_checkpointer.setup()
+                saver = RedisSaver(redis_url=settings.REDIS_URL)
+                saver.setup()
+                _redis_checkpointer = saver
                 logger.info("Initialized RedisSaver checkpointer at %s", settings.REDIS_URL)
     return _redis_checkpointer
 
@@ -269,6 +271,7 @@ def _create_child_from_interrupt(
                     db.commit()
                     logger.info("spawn_and_await: linked task %s to child execution %s", task_id, child_id)
             except Exception:
+                db.rollback()
                 logger.exception("spawn_and_await: failed to link task %s", task_id)
 
         # Enqueue child execution on RQ
@@ -289,6 +292,9 @@ def _create_child_from_interrupt(
         )
         return child_id
 
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
