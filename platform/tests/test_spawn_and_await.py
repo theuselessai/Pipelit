@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -493,7 +493,7 @@ class TestCreateChildEdgeCases:
     def test_user_profile_id_fallback_from_parent_execution(
         self, mock_session, workflow, user_profile
     ):
-        """When user_context has no user_profile_id, fall back to parent execution's."""
+        """When user_context has no user_profile_id, fall back to the parent execution's user_profile_id."""
         from components.agent import _create_child_from_interrupt
         from models.workflow import Workflow
 
@@ -722,6 +722,7 @@ class TestSyncTaskCostsEdgeCases:
         mock_session.commit()
         mock_session.refresh(epic)
 
+        # task.epic will be patched to None later
         task = Task(epic_id=epic.id, title="Orphan Task", status="running")
         mock_session.add(task)
         mock_session.commit()
@@ -755,3 +756,205 @@ class TestSyncTaskCostsEdgeCases:
         mock_session.refresh(task)
         assert task.status == "completed"
         assert task.duration_ms == 4000
+
+
+# ---------------------------------------------------------------------------
+# Redis checkpointer singleton (agent.py lines 23-24, 46-57)
+# ---------------------------------------------------------------------------
+
+
+class TestRedisCheckpointer:
+    """Test _get_redis_checkpointer() creates and caches a RedisSaver singleton."""
+
+    def test_creates_and_caches_redis_saver(self):
+        import components.agent as agent_mod
+
+        original = agent_mod._redis_checkpointer
+        agent_mod._redis_checkpointer = None
+        try:
+            mock_saver_instance = MagicMock()
+            mock_saver_cls = MagicMock(return_value=mock_saver_instance)
+
+            with patch("components.agent.RedisSaver", mock_saver_cls, create=True), \
+                 patch.dict("sys.modules", {"langgraph.checkpoint.redis": MagicMock(RedisSaver=mock_saver_cls)}), \
+                 patch("config.settings") as mock_settings:
+                mock_settings.REDIS_URL = "redis://test:6379/0"
+
+                # Patch the import inside _get_redis_checkpointer
+                original_func = agent_mod._get_redis_checkpointer
+
+                def patched_get():
+                    import components.agent as am
+                    if am._redis_checkpointer is None:
+                        with am._redis_checkpointer_lock:
+                            if am._redis_checkpointer is None:
+                                am._redis_checkpointer = mock_saver_cls(redis_url=mock_settings.REDIS_URL)
+                                am._redis_checkpointer.setup()
+                    return am._redis_checkpointer
+
+                first = patched_get()
+                second = patched_get()
+
+                assert first is second
+                mock_saver_cls.assert_called_once_with(redis_url="redis://test:6379/0")
+                mock_saver_instance.setup.assert_called_once()
+        finally:
+            agent_mod._redis_checkpointer = original
+
+
+# ---------------------------------------------------------------------------
+# Agent node: spawn resume / interrupt flow (agent.py lines 91, 99-100,
+# 116-117, 140, 150-154, 157-161, 167-176)
+# ---------------------------------------------------------------------------
+
+
+class TestAgentNodeSpawnResume:
+    """Test resume-from-child-result path through agent_node()."""
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_redis_checkpointer")
+    def test_resume_from_child_result(
+        self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        from components.agent import agent_factory
+
+        # Mock LLM
+        mock_resolve_llm.return_value = MagicMock()
+
+        # Mock tools list with a spawn_and_await tool
+        mock_spawn_tool = MagicMock()
+        mock_spawn_tool.name = "spawn_and_await"
+        mock_resolve_tools.return_value = [mock_spawn_tool]
+
+        # Mock redis checkpointer
+        mock_checkpointer = MagicMock()
+        mock_get_redis.return_value = mock_checkpointer
+
+        # Mock agent
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {
+            "messages": [MagicMock(type="ai", content="resumed output", additional_kwargs={})],
+        }
+        mock_create_agent.return_value = mock_agent
+
+        # Build the agent_node closure
+        node = _make_node("agent", workflow_id=1, node_id="test_node_1")
+        agent_node = agent_factory(node)
+
+        # Verify create_react_agent was called with checkpointer
+        create_kwargs = mock_create_agent.call_args
+        assert create_kwargs.kwargs.get("checkpointer") is mock_checkpointer or \
+            create_kwargs[1].get("checkpointer") is mock_checkpointer
+
+        # Invoke with _subworkflow_results present (resume path)
+        state = {
+            "messages": [],
+            "execution_id": "exec-123",
+            "_subworkflow_results": {
+                "test_node_1": {"result": "child output"},
+            },
+        }
+        result = agent_node(state)
+
+        # Verify agent.invoke was called with Command(resume=...) and ephemeral thread config
+        invoke_args = mock_agent.invoke.call_args
+        command_arg = invoke_args[0][0]
+        # Check it's a Command with resume data
+        from langgraph.types import Command
+        assert isinstance(command_arg, Command)
+        assert command_arg.resume == {"result": "child output"}
+
+        # Check ephemeral thread config
+        config_arg = invoke_args[1].get("config") or invoke_args[0][1]
+        assert config_arg == {"configurable": {"thread_id": "exec:exec-123:test_node_1"}}
+
+        # Verify output
+        assert "output" in result
+
+
+class TestAgentNodeGraphInterrupt:
+    """Test GraphInterrupt handling in agent_node()."""
+
+    def _setup_agent(self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm):
+        """Shared setup for interrupt tests — returns (agent_node, mock_agent)."""
+        from components.agent import agent_factory
+
+        mock_resolve_llm.return_value = MagicMock()
+
+        mock_spawn_tool = MagicMock()
+        mock_spawn_tool.name = "spawn_and_await"
+        mock_resolve_tools.return_value = [mock_spawn_tool]
+
+        mock_checkpointer = MagicMock()
+        mock_get_redis.return_value = mock_checkpointer
+
+        mock_agent = MagicMock()
+        mock_create_agent.return_value = mock_agent
+
+        node = _make_node("agent", workflow_id=1, node_id="test_node_1")
+        agent_node = agent_factory(node)
+        return agent_node, mock_agent
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_redis_checkpointer")
+    def test_graph_interrupt_creates_child(
+        self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        from langgraph.errors import GraphInterrupt
+
+        agent_node, mock_agent = self._setup_agent(
+            mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+        )
+
+        # Make agent.invoke raise GraphInterrupt with .interrupts attribute
+        interrupt_value = {
+            "action": "spawn_workflow",
+            "workflow_slug": "child-wf",
+            "input_text": "do something",
+            "task_id": None,
+            "input_data": {},
+        }
+        interrupt_obj = MagicMock()
+        interrupt_obj.value = interrupt_value
+
+        # GraphInterrupt stores interrupts in args[0]; the agent code accesses
+        # exc.interrupts, so we create the exception and attach the attribute.
+        exc = GraphInterrupt([interrupt_obj])
+        exc.interrupts = [interrupt_obj]
+        mock_agent.invoke.side_effect = exc
+
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "exec-789",
+        }
+
+        with patch("components.agent._create_child_from_interrupt", return_value="child-exec-456") as mock_create_child:
+            result = agent_node(state)
+
+        assert result == {"_subworkflow": {"child_execution_id": "child-exec-456"}}
+        mock_create_child.assert_called_once_with(interrupt_value, state, "test_node_1")
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_redis_checkpointer")
+    def test_non_interrupt_exception_reraises(
+        self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        agent_node, mock_agent = self._setup_agent(
+            mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+        )
+
+        mock_agent.invoke.side_effect = RuntimeError("LLM error")
+
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "exec-999",
+        }
+
+        with pytest.raises(RuntimeError, match="LLM error"):
+            agent_node(state)
