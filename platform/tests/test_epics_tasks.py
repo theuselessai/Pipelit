@@ -261,6 +261,24 @@ class TestTaskCRUD:
         })
         assert resp.status_code == 204
 
+    @patch("api.tasks.broadcast")
+    def test_delete_task_cleans_depends_on(self, mock_broadcast, auth_client, epic, task):
+        # Create a second task that depends on the first
+        resp = auth_client.post("/api/v1/tasks/", json={
+            "epic_id": epic.id,
+            "title": "Dependent Task",
+            "depends_on": [task.id],
+        })
+        dep_task_id = resp.json()["id"]
+        assert resp.json()["depends_on"] == [task.id]
+
+        # Delete the dependency
+        auth_client.delete(f"/api/v1/tasks/{task.id}/")
+
+        # Verify depends_on was cleaned up
+        resp2 = auth_client.get(f"/api/v1/tasks/{dep_task_id}/")
+        assert resp2.json()["depends_on"] == []
+
     def test_create_task_epic_not_found(self, auth_client):
         resp = auth_client.post("/api/v1/tasks/", json={
             "epic_id": "nonexistent",

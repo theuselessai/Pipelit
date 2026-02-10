@@ -12,7 +12,7 @@ from database import get_db
 from models.epic import Epic, Task
 from models.user import UserProfile
 from schemas.epic import BatchDeleteTasksIn, TaskCreate, TaskOut, TaskUpdate
-from api.epic_helpers import serialize_task, sync_epic_progress
+from api.epic_helpers import remove_from_depends_on, serialize_task, sync_epic_progress
 from ws.broadcast import broadcast
 
 logger = logging.getLogger(__name__)
@@ -167,6 +167,7 @@ def delete_task(
         raise HTTPException(status_code=404, detail="Task not found.")
 
     epic_id = task.epic_id
+    remove_from_depends_on([task.id], db)
     db.delete(task)
     db.flush()
 
@@ -200,6 +201,8 @@ def batch_delete_tasks(
     )
     affected_epic_ids = {t.epic_id for t in affected_tasks}
     deleted_task_ids = [t.id for t in affected_tasks]
+
+    remove_from_depends_on(deleted_task_ids, db)
 
     db.query(Task).filter(
         Task.id.in_(payload.task_ids),

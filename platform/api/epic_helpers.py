@@ -7,6 +7,17 @@ from sqlalchemy.orm import Session
 from models.epic import Epic, Task
 
 
+def remove_from_depends_on(task_ids: list[str], db: Session) -> None:
+    """Remove deleted task IDs from other tasks' depends_on lists."""
+    id_set = set(task_ids)
+    dependents = db.query(Task).filter(Task.depends_on.isnot(None)).all()
+    for t in dependents:
+        deps = t.depends_on or []
+        cleaned = [d for d in deps if d not in id_set]
+        if len(cleaned) != len(deps):
+            t.depends_on = cleaned
+
+
 def sync_epic_progress(epic: Epic, db: Session) -> None:
     """Recount total/completed/failed tasks from DB and update the epic."""
     epic.total_tasks = db.query(Task).filter(Task.epic_id == epic.id).count()
