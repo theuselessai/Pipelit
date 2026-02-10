@@ -879,46 +879,45 @@ class TestBroadcastExceptions:
 class TestDBErrorBranches:
     """Cover except Exception: db.rollback() branches by forcing DB errors."""
 
-    def _make_broken_session(self, db):
-        """Return a session factory that raises on commit."""
+    def _make_broken_session(self, db, original_close):
+        """Patch db to raise on commit. Returns (db, original_commit)."""
         original_commit = db.commit
-        original_close = db.close
-        call_count = {"n": 0}
-
-        def breaking_commit():
-            call_count["n"] += 1
-            # Let the factory's initial commit work, break on the tool's commit
-            if call_count["n"] > 0:
-                raise RuntimeError("DB commit failed")
-            return original_commit()
+        original_rollback = db.rollback
 
         db.close = lambda: None
-        db.commit = breaking_commit
-        db.rollback = lambda: None  # no-op so rollback doesn't error
-        return db, original_commit, original_close
+        db.commit = lambda: (_ for _ in ()).throw(RuntimeError("DB commit failed"))
+        db.rollback = lambda: None
+        return db, original_commit, original_rollback, original_close
+
+    def _restore_session(self, db, original_commit, original_rollback, original_close):
+        db.commit = original_commit
+        db.rollback = original_rollback
+        db.close = original_close
 
     def test_create_epic_db_error(self, db, workflow, user_profile):
         from components.epic_tools import epic_tools_factory
 
+        original_close = db.close
+
         node = _make_node("epic_tools", workflow.id)
-        # First call to SessionLocal in factory succeeds
         with patch("database.SessionLocal", return_value=db):
             db.close = lambda: None
             tools = epic_tools_factory(node)
 
         create_tool = next(t for t in tools if t.name == "create_epic")
 
-        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        broken_db, orig_commit, orig_rb, orig_close = self._make_broken_session(db, original_close)
         with patch("database.SessionLocal", return_value=broken_db):
             result = json.loads(create_tool.invoke({"title": "Will fail"}))
 
-        db.commit = orig_commit
-        db.close = orig_close
+        self._restore_session(db, orig_commit, orig_rb, orig_close)
         assert result["success"] is False
         assert "error" in result
 
     def test_epic_status_db_error(self, db, workflow, user_profile):
         from components.epic_tools import epic_tools_factory
+
+        original_close = db.close
 
         node = _make_node("epic_tools", workflow.id)
         with patch("database.SessionLocal", return_value=db):
@@ -927,18 +926,20 @@ class TestDBErrorBranches:
 
         status_tool = next(t for t in tools if t.name == "epic_status")
 
-        # Make query raise
         with patch("database.SessionLocal") as mock_sl:
             mock_db = mock_sl.return_value
             mock_db.query.side_effect = RuntimeError("DB query failed")
             mock_db.close = lambda: None
             result = json.loads(status_tool.invoke({"epic_id": "ep-x"}))
 
+        db.close = original_close
         assert result["success"] is False
         assert "error" in result
 
     def test_update_epic_db_error(self, db, workflow, user_profile):
         from components.epic_tools import epic_tools_factory
+
+        original_close = db.close
 
         epic = Epic(title="Will Error", user_profile_id=user_profile.id)
         db.add(epic)
@@ -952,17 +953,18 @@ class TestDBErrorBranches:
 
         update_tool = next(t for t in tools if t.name == "update_epic")
 
-        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        broken_db, orig_commit, orig_rb, orig_close = self._make_broken_session(db, original_close)
         with patch("database.SessionLocal", return_value=broken_db):
             result = json.loads(update_tool.invoke({"epic_id": epic.id, "title": "New"}))
 
-        db.commit = orig_commit
-        db.close = orig_close
+        self._restore_session(db, orig_commit, orig_rb, orig_close)
         assert result["success"] is False
         assert "error" in result
 
     def test_search_epics_db_error(self, db, workflow, user_profile):
         from components.epic_tools import epic_tools_factory
+
+        original_close = db.close
 
         node = _make_node("epic_tools", workflow.id)
         with patch("database.SessionLocal", return_value=db):
@@ -977,11 +979,14 @@ class TestDBErrorBranches:
             mock_db.close = lambda: None
             result = json.loads(search_tool.invoke({}))
 
+        db.close = original_close
         assert result["success"] is False
         assert "error" in result
 
     def test_create_task_db_error(self, db, workflow, user_profile):
         from components.task_tools import task_tools_factory
+
+        original_close = db.close
 
         epic = Epic(title="Task Error", user_profile_id=user_profile.id)
         db.add(epic)
@@ -995,17 +1000,18 @@ class TestDBErrorBranches:
 
         create_tool = next(t for t in tools if t.name == "create_task")
 
-        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        broken_db, orig_commit, orig_rb, orig_close = self._make_broken_session(db, original_close)
         with patch("database.SessionLocal", return_value=broken_db):
             result = json.loads(create_tool.invoke({"epic_id": epic.id, "title": "Fail"}))
 
-        db.commit = orig_commit
-        db.close = orig_close
+        self._restore_session(db, orig_commit, orig_rb, orig_close)
         assert result["success"] is False
         assert "error" in result
 
     def test_list_tasks_db_error(self, db, workflow, user_profile):
         from components.task_tools import task_tools_factory
+
+        original_close = db.close
 
         node = _make_node("task_tools", workflow.id)
         with patch("database.SessionLocal", return_value=db):
@@ -1020,11 +1026,14 @@ class TestDBErrorBranches:
             mock_db.close = lambda: None
             result = json.loads(list_tool.invoke({"epic_id": "ep-x"}))
 
+        db.close = original_close
         assert result["success"] is False
         assert "error" in result
 
     def test_update_task_db_error(self, db, workflow, user_profile):
         from components.task_tools import task_tools_factory
+
+        original_close = db.close
 
         epic = Epic(title="UTask Error", user_profile_id=user_profile.id)
         db.add(epic)
@@ -1041,17 +1050,18 @@ class TestDBErrorBranches:
 
         update_tool = next(t for t in tools if t.name == "update_task")
 
-        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        broken_db, orig_commit, orig_rb, orig_close = self._make_broken_session(db, original_close)
         with patch("database.SessionLocal", return_value=broken_db):
             result = json.loads(update_tool.invoke({"task_id": task.id, "status": "running"}))
 
-        db.commit = orig_commit
-        db.close = orig_close
+        self._restore_session(db, orig_commit, orig_rb, orig_close)
         assert result["success"] is False
         assert "error" in result
 
     def test_cancel_task_db_error(self, db, workflow, user_profile):
         from components.task_tools import task_tools_factory
+
+        original_close = db.close
 
         epic = Epic(title="CTask Error", user_profile_id=user_profile.id)
         db.add(epic)
@@ -1068,11 +1078,10 @@ class TestDBErrorBranches:
 
         cancel_tool = next(t for t in tools if t.name == "cancel_task")
 
-        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        broken_db, orig_commit, orig_rb, orig_close = self._make_broken_session(db, original_close)
         with patch("database.SessionLocal", return_value=broken_db):
             result = json.loads(cancel_tool.invoke({"task_id": task.id}))
 
-        db.commit = orig_commit
-        db.close = orig_close
+        self._restore_session(db, orig_commit, orig_rb, orig_close)
         assert result["success"] is False
         assert "error" in result

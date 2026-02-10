@@ -122,7 +122,7 @@ def epic_tools_factory(node):
                 "completed_tasks": epic.completed_tasks,
                 "failed_tasks": epic.failed_tasks,
                 "spent_tokens": epic.spent_tokens,
-                "spent_usd": float(epic.spent_usd),
+                "spent_usd": float(epic.spent_usd) if epic.spent_usd is not None else 0.0,
                 "tasks": task_list,
             })
         except Exception as e:
