@@ -1176,7 +1176,7 @@ class TestDBErrorBranches:
     """Cover except Exception: db.rollback() branches by forcing DB errors."""
 
     def _make_broken_session(self, db, original_close):
-        """Patch db to raise on commit. Returns (db, original_commit)."""
+        """Patch db to raise on commit. Returns (db, original_commit, original_rollback, original_close)."""
         original_commit = db.commit
         original_rollback = db.rollback
 
