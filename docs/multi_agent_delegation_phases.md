@@ -9,34 +9,35 @@
 
 ## Phase 1: Task Registry (Models + API)
 
-**Status:** Not started
+**Status:** Complete
 **Branch:** `feature/delegation-phase1-task-registry`
 **Scope:** Database foundation — no agent tools yet
 
 ### Deliverables
 
-- [ ] `platform/models/epic.py` — Epic + Task SQLAlchemy models
+- [x] `platform/models/epic.py` — Epic + Task SQLAlchemy models
   - Epic: id (ULID), title, description, tags, status lifecycle (planning→active→completed/failed/cancelled), priority, budget tracking (tokens/usd), progress counters, ownership (created_by_node_id, workflow_id, user_profile_id)
   - Task: id (ULID), epic_id (FK), title, description, tags, status lifecycle (pending→blocked→running→completed/failed/cancelled), priority, workflow linkage (workflow_id, workflow_slug, execution_id soft ref, workflow_source), depends_on (JSON list), requirements (JSON), cost tracking, retry logic, notes (JSON list)
-- [ ] Export Epic/Task from `platform/models/__init__.py`
-- [ ] Alembic migration creating `epics` and `tasks` tables
-- [ ] `platform/schemas/epic.py` — Pydantic schemas
-  - EpicCreate, EpicUpdate, EpicOut, EpicListOut (paginated)
-  - TaskCreate, TaskUpdate, TaskOut, TaskListOut (paginated)
-  - EpicProgressOut (progress + cost summary)
-- [ ] `platform/api/epics.py` — REST endpoints
+- [x] Export Epic/Task from `platform/models/__init__.py`
+- [x] Alembic migration creating `epics` and `tasks` tables
+- [x] `platform/schemas/epic.py` — Pydantic schemas
+  - EpicCreate, EpicUpdate, EpicOut, TaskCreate, TaskUpdate, TaskOut, BatchDeleteEpicsIn, BatchDeleteTasksIn
+  - ~~EpicListOut, TaskListOut~~ (not needed — list endpoints use standard `{"items": [...], "total": N}` pattern)
+  - ~~EpicProgressOut~~ (not needed — epic fields already include progress counters)
+- [x] `platform/api/epics.py` — REST endpoints
   - `GET/POST /api/v1/epics/`
   - `GET/PATCH/DELETE /api/v1/epics/{epic_id}/`
-  - `GET /api/v1/epics/{epic_id}/progress/`
+  - `GET /api/v1/epics/{epic_id}/tasks/` (lists tasks for an epic)
   - `POST /api/v1/epics/batch-delete/`
-- [ ] `platform/api/tasks.py` — REST endpoints
+  - ~~`GET /api/v1/epics/{epic_id}/progress/`~~ (not needed — GET epic already returns progress counters)
+- [x] `platform/api/tasks.py` — REST endpoints
   - `GET/POST /api/v1/tasks/` (filterable by epic_id, status, tags)
   - `GET/PATCH/DELETE /api/v1/tasks/{task_id}/`
   - `POST /api/v1/tasks/batch-delete/`
-- [ ] Register routers in `platform/main.py`
-- [ ] WebSocket broadcast events: `task_created`, `task_updated`, `epic_updated`
-- [ ] Add `tags = Column(JSON, default=list)` to Workflow model + migration
-- [ ] Tests for models, schemas, and API endpoints
+- [x] Register routers in `platform/api/__init__.py` (follows existing pattern)
+- [x] WebSocket broadcast events: `epic_created`, `epic_updated`, `epic_deleted`, `task_created`, `task_updated`, `task_deleted`, `tasks_deleted`
+- [x] Add `tags = Column(JSON, default=list)` to Workflow model + migration
+- [x] Tests for models, schemas, and API endpoints (`test_epics_tasks.py`)
 
 ### Notes
 
@@ -53,31 +54,37 @@ None — this is the foundation.
 
 ## Phase 2: Registry Agent Tools
 
-**Status:** Not started
-**Branch:** `feature/delegation-phase2-registry-tools`
+**Status:** Complete
+**Branch:** `feat/registry-agent-tools`
 **Scope:** Let agents create/manage epics and tasks via tool calls
 
 ### Deliverables
 
-- [ ] `platform/components/epic_create.py` — Create tracked epic, return epic_id
-- [ ] `platform/components/epic_status.py` — Get progress, cost, task breakdown
-- [ ] `platform/components/epic_update.py` — Update status/budget/result_summary; cancel cascades to tasks
-- [ ] `platform/components/epic_search.py` — Search past epics by description + tags; returns success_rate, avg_cost
-- [ ] `platform/components/task_create.py` — Create task under epic with optional dependencies
-- [ ] `platform/components/task_list.py` — List tasks filtered by epic, status, tags
-- [ ] `platform/components/task_update.py` — Update task status, notes, result_summary
-- [ ] `platform/components/task_cancel.py` — Cancel task and its running execution
-- [ ] Register all 8 in `SUB_COMPONENT_TYPES` (builder.py + topology.py)
-- [ ] Register all 8 in `NODE_TYPE_REGISTRY` (node_type_defs.py)
-- [ ] Add polymorphic_identity entries in ComponentConfig hierarchy if needed
-- [ ] Frontend: add new tool node types to NodePalette and type definitions
-- [ ] Tests for each tool component
+Consolidated into 2 files (instead of 8 separate) following the compound tool factory pattern:
+
+- [x] `platform/components/epic_tools.py` — Factory returning 4 LangChain tools:
+  - `create_epic` — Create tracked epic, return epic_id
+  - `epic_status` — Get progress, cost, task breakdown
+  - `update_epic` — Update status/budget/result_summary; cancel cascades to tasks
+  - `search_epics` — Search past epics by description + tags; returns success_rate, avg_cost
+- [x] `platform/components/task_tools.py` — Factory returning 4 LangChain tools:
+  - `create_task` — Create task under epic with optional dependencies
+  - `list_tasks` — List tasks filtered by epic, status, tags
+  - `update_task` — Update task status, notes, result_summary
+  - `cancel_task` — Cancel task and its running execution
+- [x] Register `epic_tools` and `task_tools` in `SUB_COMPONENT_TYPES` (builder.py + topology.py)
+- [x] Register in `NODE_TYPE_REGISTRY` (node_type_defs.py)
+- [x] Add polymorphic_identity entries (`_EpicToolsConfig`, `_TaskToolsConfig`) in models/node.py
+- [x] Frontend: NodePalette (ClipboardList/ListChecks icons), type definitions, NodeDetailsPanel
+- [x] Tests: `test_epic_task_tools.py` (60+ tests, 1383 lines)
+- [x] Helper module: `api/epic_helpers.py` (sync_epic_progress, serialize_epic/task)
 
 ### Notes
 
 - These are LangChain `@tool` factories, same pattern as existing tools (http_request, platform_api, etc.)
 - Each tool component returns a factory function that the builder wires into the agent's tool list
-- Tools interact with the DB directly (get_db session) — same pattern as platform_api tool
+- Tools interact with the DB directly (SessionLocal) — same pattern as platform_api tool
+- All operations scoped to user_profile_id from workflow owner for security
 
 ### Dependencies
 
