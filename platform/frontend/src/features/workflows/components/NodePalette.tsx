@@ -10,7 +10,7 @@ import {
   Repeat, Pause, Merge, Filter,
   Code, UserCheck, Layers, ShieldAlert, FileText,
   Database, DatabaseZap, UserSearch, SquareTerminal, UserPlus, Plug, Fingerprint,
-  ClipboardList, ListChecks,
+  ClipboardList, ListChecks, Rocket,
   type LucideIcon,
 } from "lucide-react"
 
@@ -38,6 +38,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   whoami: Fingerprint,
   epic_tools: ClipboardList,
   task_tools: ListChecks,
+  spawn_and_await: Rocket,
   loop: Repeat,
   wait: Pause,
   merge: Merge,
@@ -59,7 +60,7 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "AI", types: ["ai_model", "agent"] },
   { label: "Routing", types: ["categorizer", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
-  { label: "Agent", types: ["whoami", "create_agent_user", "platform_api", "epic_tools", "task_tools"] },
+  { label: "Agent", types: ["whoami", "create_agent_user", "platform_api", "epic_tools", "task_tools", "spawn_and_await"] },
   { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute"] },
   { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "aggregator", "error_handler", "output_parser"] },

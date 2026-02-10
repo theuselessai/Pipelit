@@ -392,6 +392,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             execution.error_message = f"Node {node_id}: {str(exc)[:1900]}"
             execution.completed_at = datetime.now(timezone.utc)
             db.commit()
+            _sync_task_costs(execution_id, db)
             _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=slug)
             _complete_episode(
                 execution_id=execution_id,
@@ -527,6 +528,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 execution.error_message = str(exc)[:2000]
                 execution.completed_at = datetime.now(timezone.utc)
                 db.commit()
+                _sync_task_costs(execution_id, db)
         except Exception:
             pass
         _ws_slug = topo_data.get("workflow_slug", "") if "topo_data" in locals() else None
@@ -875,6 +877,8 @@ def _finalize(execution_id: str, db: Session) -> None:
     execution.completed_at = datetime.now(timezone.utc)
     db.commit()
 
+    _sync_task_costs(execution_id, db)
+
     logger.info("Execution %s completed", execution_id)
     slug = _get_workflow_slug(execution_id, db)
     _publish_event(execution_id, "execution_completed", {"output": execution.final_output}, workflow_slug=slug)
@@ -1064,6 +1068,57 @@ def _get_workflow_slug(execution_id: str, db: Session | None = None) -> str | No
             if wf:
                 return wf.slug
     return None
+
+
+def _sync_task_costs(execution_id: str, db: Session) -> None:
+    """Sync Task status and duration from a completed/failed execution."""
+    try:
+        from models.epic import Task
+        from models.execution import WorkflowExecution
+        from api.epic_helpers import sync_epic_progress
+
+        task = db.query(Task).filter(Task.execution_id == execution_id).first()
+        if not task:
+            return
+
+        execution = (
+            db.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == execution_id)
+            .first()
+        )
+        if not execution:
+            return
+
+        if execution.status not in ("completed", "failed"):
+            return
+
+        if execution.status == "completed":
+            task.status = "completed"
+            if execution.final_output:
+                summary = str(execution.final_output)
+                task.result_summary = summary[:500]
+        elif execution.status == "failed":
+            task.status = "failed"
+            task.error_message = (execution.error_message or "")[:500]
+
+        if execution.started_at and execution.completed_at:
+            delta = execution.completed_at - execution.started_at
+            task.duration_ms = int(delta.total_seconds() * 1000)
+
+        task.completed_at = execution.completed_at
+        db.commit()
+        logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
+
+        # Sync epic progress counters (best-effort — task status already committed)
+        if task.epic:
+            try:
+                sync_epic_progress(task.epic, db)
+                db.commit()
+            except Exception:
+                logger.exception("Failed to sync epic progress for task %s", task.id)
+
+    except Exception:
+        logger.exception("Failed to sync task costs for execution %s", execution_id)
 
 
 def _cleanup_redis(execution_id: str) -> None:

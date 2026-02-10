@@ -14,7 +14,7 @@ from services.state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
-SUB_COMPONENT_TYPES = {"ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools"}
+SUB_COMPONENT_TYPES = {"ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await"}
 
 
 def _reachable_node_ids(
@@ -71,7 +71,7 @@ class WorkflowBuilder:
             if trigger_node:
                 reachable = _reachable_node_ids(trigger_node.node_id, all_edges)
                 all_nodes = [n for n in all_nodes if n.node_id in reachable]
-                all_edges = [e for e in all_edges if e.source_node_id in reachable and e.target_node_id in reachable]
+                all_edges = [e for e in all_edges if e.source_node_id in reachable and (e.target_node_id in reachable or e.target_node_id == "__end__")]
 
         trigger_nodes = {n.node_id for n in all_nodes if n.component_type.startswith("trigger_")}
         skip_nodes = trigger_nodes | {n.node_id for n in all_nodes if n.component_type in SUB_COMPONENT_TYPES}

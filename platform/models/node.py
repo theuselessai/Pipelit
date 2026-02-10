@@ -188,6 +188,10 @@ class _TaskToolsConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "task_tools"}
 
 
+class _SpawnAndAwaitConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "spawn_and_await"}
+
+
 class OtherComponentConfig(BaseComponentConfig):
     """Config for human_confirmation, aggregator, workflow, output_parser."""
     __mapper_args__ = {"polymorphic_identity": "human_confirmation"}
@@ -274,6 +278,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "whoami": ToolComponentConfig,
     "epic_tools": _EpicToolsConfig,
     "task_tools": _TaskToolsConfig,
+    "spawn_and_await": _SpawnAndAwaitConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

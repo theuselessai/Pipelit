@@ -94,39 +94,55 @@ Consolidated into 2 files (instead of 8 separate) following the compound tool fa
 
 ## Phase 3: `spawn_and_await` Tool + Dual Checkpointer
 
-**Status:** Not started
-**Branch:** `feature/delegation-phase3-spawn-and-await`
+**Status:** Complete
+**Branch:** `feat/spawn-and-await`
 **Scope:** The core delegation primitive — non-blocking subworkflow execution
 
 ### Deliverables
 
-- [ ] Add `langgraph-checkpoint-redis` to dependencies
-- [ ] Implement Redis checkpointer factory (lazy singleton, similar to existing SqliteSaver)
-- [ ] Dual checkpointer selection logic in `platform/components/agent.py`:
+- [x] Add `langgraph-checkpoint-redis>=0.3` to `platform/requirements.txt`
+- [x] `platform/components/spawn_and_await.py` — Tool factory using `@register("spawn_and_await")`:
+  - Returns a single `@tool` function: `spawn_and_await(workflow_slug, input_text, task_id, input_data)`
+  - Calls `interrupt({"action": "spawn_workflow", ...})` from `langgraph.types`
+  - On resume, `interrupt()` returns the child's output → tool returns it as JSON string to LLM
+- [x] `_get_redis_checkpointer()` lazy singleton in `platform/components/agent.py`:
+  - Uses `RedisSaver(redis_url=settings.REDIS_URL)` from `langgraph.checkpoint.redis`
+- [x] Dual checkpointer selection logic in `platform/components/agent.py`:
   - conversation_memory=ON → SqliteSaver (permanent, thread_id = `{user_id}:{chat_id}:{workflow_id}`)
-  - has spawn_and_await tool → Redis checkpointer (ephemeral, TTL 1h, thread_id = `exec:{execution_id}:{node_id}`)
-  - Neither → None (one-shot)
-- [ ] `platform/components/spawn_and_await.py` — Tool using LangGraph `interrupt()`:
-  - Calls `interrupt({"action": "spawn_workflow", ...})`
-  - Orchestrator detects `_subworkflow` signal, spawns child execution, releases RQ worker
-  - On child completion, orchestrator resumes parent via `Command(resume=result)`
-  - `interrupt()` returns child result to tool, LLM continues reasoning
-- [ ] Orchestrator changes (if any needed beyond existing `_subworkflow` pattern)
-- [ ] Cost sync hook: after execution completes, update linked Task with actual_tokens, actual_usd, duration_ms, llm_calls, tool_invocations
-- [ ] Register spawn_and_await in SUB_COMPONENT_TYPES, NODE_TYPE_REGISTRY
-- [ ] Tests (interrupt/resume flow, cost sync, checkpointer selection)
+  - has spawn_and_await tool → RedisSaver (ephemeral, thread_id = `exec:{execution_id}:{node_id}`)
+  - Neither → None (one-shot, no checkpointer)
+- [x] Interrupt/resume flow in agent_node():
+  - On `GraphInterrupt`: extracts interrupt payload, calls `_create_child_from_interrupt()`, returns `{"_subworkflow": {"child_execution_id": id}}`
+  - On resume (child result in `_subworkflow_results[node_id]`): calls `agent.invoke(Command(resume=child_result), config)`
+  - Reuses existing orchestrator `_subworkflow` / `_resume_from_child` infrastructure — no orchestrator changes needed
+- [x] `_create_child_from_interrupt()` helper in `platform/components/agent.py`:
+  - Resolves target workflow by slug, creates `WorkflowExecution` with parent linkage
+  - Links Task record when `task_id` provided (sets `task.execution_id`, `task.status = "running"`)
+  - Enqueues child on RQ
+- [x] `_sync_task_costs()` in `platform/services/orchestrator.py`:
+  - After execution completes/fails, syncs linked Task: `status`, `duration_ms`, `result_summary`/`error_message`, `completed_at`
+  - Calls `sync_epic_progress()` to update epic counters
+  - Called in `_finalize()` and both failure paths
+  - Token fields (`actual_tokens`, `actual_usd`, `llm_calls`, `tool_invocations`) left at 0 — future work
+- [x] Registration in all required places:
+  - `_SpawnAndAwaitConfig` polymorphic identity + `COMPONENT_TYPE_TO_CONFIG` entry in `models/node.py`
+  - `SUB_COMPONENT_TYPES` in `services/builder.py` and `services/topology.py`
+  - `COMPONENT_REGISTRY` via import in `components/__init__.py`
+  - `NodeTypeSpec` in `schemas/node_type_defs.py` (category="agent", single string output port)
+- [x] Frontend: `ComponentType` union, NodePalette (Rocket icon, Agent category), WorkflowCanvas (color + FA icon + tool/sub-component lists), NodeDetailsPanel SUB_TYPES
+- [x] Tests: `platform/tests/test_spawn_and_await.py` (18 tests):
+  - Tool factory, checkpointer selection, interrupt flow, child creation, task linkage, cost sync, registration
 
 ### Notes
 
-- This reuses the existing `_subworkflow` / `_handle_child_completion` / `_subworkflow_results` orchestrator infrastructure
-- Zero new orchestration code needed if existing pattern works — verify first
-- The key innovation is using `interrupt()` so no RQ worker blocks while waiting
-- Need to verify LangGraph version supports `interrupt()` primitive
+- Confirmed: LangGraph 1.0.8 installed — `interrupt()`, `Command`, `GraphInterrupt` all available
+- Reuses existing orchestrator `_subworkflow` / `_resume_from_child` / `_subworkflow_results` infrastructure with zero orchestrator routing changes
+- The key difference from the standalone `subworkflow` component: `spawn_and_await` runs *inside* an agent's `create_react_agent` execution — the agent's full internal state (messages, pending tool calls) is checkpointed via LangGraph's `interrupt()` so the LLM can continue reasoning after the child returns
+- No migration needed — uses existing `component_configs` STI table (polymorphic_identity is just a discriminator value)
 
 ### Dependencies
 
-- Phase 2 (task_id linkage for cost sync)
-- Verify LangGraph version compatibility
+- Phase 2 (task_id linkage for cost sync) ✓
 
 ---
 
