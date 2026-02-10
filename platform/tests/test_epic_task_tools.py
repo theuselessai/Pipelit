@@ -175,6 +175,52 @@ class TestUpdateEpic:
         assert t3.status == "completed"  # completed tasks stay completed
 
 
+class TestUpdateEpicAllFields:
+    def test_update_all_optional_fields(self, mock_session, workflow, user_profile):
+        """Cover description, budget_tokens, budget_usd, result_summary branches."""
+        from components.epic_tools import epic_tools_factory
+
+        epic = Epic(title="Full Update", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_epic")
+        with patch("ws.broadcast.broadcast"):
+            result = json.loads(update_tool.invoke({
+                "epic_id": epic.id,
+                "description": "New desc",
+                "budget_tokens": 5000,
+                "budget_usd": 1.50,
+                "result_summary": "Done well",
+            }))
+
+        assert result["success"] is True
+        mock_session.refresh(epic)
+        assert epic.description == "New desc"
+        assert epic.budget_tokens == 5000
+        assert float(epic.budget_usd) == 1.50
+        assert epic.result_summary == "Done well"
+
+    def test_update_epic_not_found(self, mock_session, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_epic")
+        result = json.loads(update_tool.invoke({
+            "epic_id": "ep-nonexistent",
+            "title": "X",
+        }))
+
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+
 class TestSearchEpics:
     def test_search_by_text(self, mock_session, workflow, user_profile):
         from components.epic_tools import epic_tools_factory
@@ -193,6 +239,26 @@ class TestSearchEpics:
         assert result["success"] is True
         assert len(result["results"]) == 1
         assert result["results"][0]["title"] == "Deploy backend"
+
+    def test_search_by_status_and_tags(self, mock_session, workflow, user_profile):
+        """Cover status filter and tag filter branches in search_epics."""
+        from components.epic_tools import epic_tools_factory
+
+        e1 = Epic(title="Active One", user_profile_id=user_profile.id, status="active", tags=["deploy"])
+        e2 = Epic(title="Active Two", user_profile_id=user_profile.id, status="active", tags=["test"])
+        e3 = Epic(title="Done", user_profile_id=user_profile.id, status="completed", tags=["deploy"])
+        mock_session.add_all([e1, e2, e3])
+        mock_session.commit()
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        search_tool = next(t for t in tools if t.name == "search_epics")
+        result = json.loads(search_tool.invoke({"status": "active", "tags": "deploy"}))
+
+        assert result["success"] is True
+        assert len(result["results"]) == 1
+        assert result["results"][0]["title"] == "Active One"
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +392,42 @@ class TestListTasks:
         assert result["total"] == 1
         assert result["tasks"][0]["title"] == "Pending"
 
+    def test_list_tasks_filter_tags(self, mock_session, workflow, user_profile):
+        """Cover tags filter branch in list_tasks."""
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Tag Filter Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.flush()
+        mock_session.add_all([
+            Task(epic_id=epic.id, title="Tagged", status="pending", tags=["api"]),
+            Task(epic_id=epic.id, title="Untagged", status="pending", tags=["ui"]),
+        ])
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        list_tool = next(t for t in tools if t.name == "list_tasks")
+        result = json.loads(list_tool.invoke({"epic_id": epic.id, "tags": "api"}))
+
+        assert result["success"] is True
+        assert result["total"] == 1
+        assert result["tasks"][0]["title"] == "Tagged"
+
+    def test_list_tasks_epic_not_found(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        list_tool = next(t for t in tools if t.name == "list_tasks")
+        result = json.loads(list_tool.invoke({"epic_id": "ep-nonexistent"}))
+
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
 
 class TestUpdateTask:
     def test_update_task_fields(self, mock_session, workflow, user_profile):
@@ -356,6 +458,40 @@ class TestUpdateTask:
         mock_session.refresh(task)
         assert task.title == "Updated"
         assert task.notes == ["Started work"]
+
+    def test_update_task_all_optional_fields(self, mock_session, workflow, user_profile):
+        """Cover description, priority, result_summary, error_message branches."""
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="All Fields", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.flush()
+        task = Task(epic_id=epic.id, title="Full Update", status="pending")
+        mock_session.add(task)
+        mock_session.commit()
+        mock_session.refresh(task)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_task")
+        with patch("ws.broadcast.broadcast"):
+            result = json.loads(update_tool.invoke({
+                "task_id": task.id,
+                "description": "New desc",
+                "priority": 1,
+                "result_summary": "Great work",
+                "error_message": "Minor issue",
+                "status": "completed",
+            }))
+
+        assert result["success"] is True
+        mock_session.refresh(task)
+        assert task.description == "New desc"
+        assert task.priority == 1
+        assert task.result_summary == "Great work"
+        assert task.error_message == "Minor issue"
+        assert task.status == "completed"
 
     def test_update_task_not_found(self, mock_session, workflow, user_profile):
         from components.task_tools import task_tools_factory
@@ -399,6 +535,18 @@ class TestCancelTask:
         mock_session.refresh(task)
         assert task.status == "cancelled"
         assert "Cancelled: No longer needed" in task.notes
+
+    def test_cancel_task_not_found(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        cancel_tool = next(t for t in tools if t.name == "cancel_task")
+        result = json.loads(cancel_tool.invoke({"task_id": "tk-nonexistent"}))
+
+        assert result["success"] is False
+        assert "not found" in result["error"]
 
     def test_cancel_with_execution(self, mock_session, workflow, user_profile):
         from components.task_tools import task_tools_factory
@@ -493,3 +641,371 @@ class TestAgentListFactorySupport:
         tool_names = {t.name for t in tools}
         assert "create_epic" in tool_names
         assert "epic_status" in tool_names
+
+    def test_resolve_tools_single_tool_factory(self, mock_session, workflow):
+        """Cover the else branch (L176-177) — single tool from factory."""
+        from components.agent import _resolve_tools
+        from models.node import BaseComponentConfig, WorkflowEdge, WorkflowNode
+
+        agent_config = BaseComponentConfig(component_type="agent", system_prompt="test")
+        mock_session.add(agent_config)
+        mock_session.flush()
+        agent_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="agent_single",
+            component_type="agent",
+            component_config_id=agent_config.id,
+        )
+        mock_session.add(agent_node)
+
+        # calculator returns a single tool (not a list)
+        tool_config = BaseComponentConfig(component_type="calculator")
+        mock_session.add(tool_config)
+        mock_session.flush()
+        tool_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="calc_1",
+            component_type="calculator",
+            component_config_id=tool_config.id,
+        )
+        mock_session.add(tool_node)
+
+        edge = WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="calc_1",
+            target_node_id="agent_single",
+            edge_label="tool",
+        )
+        mock_session.add(edge)
+        mock_session.commit()
+        mock_session.refresh(agent_node)
+
+        tools = _resolve_tools(agent_node)
+
+        assert len(tools) == 1
+        assert tools[0].name == "calculator"
+
+    def test_resolve_tools_exception_returns_empty(self, db, workflow):
+        """Cover the except branch in _resolve_tools (L176-177)."""
+        from components.agent import _resolve_tools
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        agent_config = BaseComponentConfig(component_type="agent", system_prompt="test")
+        db.add(agent_config)
+        db.flush()
+        agent_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="agent_err",
+            component_type="agent",
+            component_config_id=agent_config.id,
+        )
+        db.add(agent_node)
+        db.commit()
+        db.refresh(agent_node)
+
+        # Force an exception by making SessionLocal raise
+        with patch("database.SessionLocal", side_effect=RuntimeError("DB down")):
+            tools = _resolve_tools(agent_node)
+
+        assert tools == []
+
+
+# ---------------------------------------------------------------------------
+# Broadcast exception handling (catch-and-log branches)
+# ---------------------------------------------------------------------------
+
+class TestBroadcastExceptions:
+    """Cover the except branches where broadcast fails but tool returns success."""
+
+    def test_create_epic_broadcast_failure(self, mock_session, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_epic")
+        with patch("ws.broadcast.broadcast", side_effect=RuntimeError("Redis down")):
+            result = json.loads(create_tool.invoke({"title": "Broadcast Fail"}))
+
+        # Tool should still succeed despite broadcast failure
+        assert result["success"] is True
+
+    def test_update_epic_broadcast_failure(self, mock_session, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        epic = Epic(title="Bcast Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_epic")
+        with patch("ws.broadcast.broadcast", side_effect=RuntimeError("Redis down")):
+            result = json.loads(update_tool.invoke({"epic_id": epic.id, "status": "active"}))
+
+        assert result["success"] is True
+
+    def test_create_task_broadcast_failure(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Task Bcast", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_task")
+        with patch("ws.broadcast.broadcast", side_effect=RuntimeError("Redis down")):
+            result = json.loads(create_tool.invoke({"epic_id": epic.id, "title": "Bcast fail"}))
+
+        assert result["success"] is True
+
+    def test_update_task_broadcast_failure(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Update Bcast", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.flush()
+        task = Task(epic_id=epic.id, title="Bcast", status="pending")
+        mock_session.add(task)
+        mock_session.commit()
+        mock_session.refresh(task)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_task")
+        with patch("ws.broadcast.broadcast", side_effect=RuntimeError("Redis down")):
+            result = json.loads(update_tool.invoke({"task_id": task.id, "status": "running"}))
+
+        assert result["success"] is True
+
+    def test_cancel_task_broadcast_failure(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Cancel Bcast", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.flush()
+        task = Task(epic_id=epic.id, title="Bcast Cancel", status="running")
+        mock_session.add(task)
+        mock_session.commit()
+        mock_session.refresh(task)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        cancel_tool = next(t for t in tools if t.name == "cancel_task")
+        with patch("ws.broadcast.broadcast", side_effect=RuntimeError("Redis down")):
+            result = json.loads(cancel_tool.invoke({"task_id": task.id}))
+
+        assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# DB error handling (outer except branches with rollback)
+# ---------------------------------------------------------------------------
+
+class TestDBErrorBranches:
+    """Cover except Exception: db.rollback() branches by forcing DB errors."""
+
+    def _make_broken_session(self, db):
+        """Return a session factory that raises on commit."""
+        original_commit = db.commit
+        original_close = db.close
+        call_count = {"n": 0}
+
+        def breaking_commit():
+            call_count["n"] += 1
+            # Let the factory's initial commit work, break on the tool's commit
+            if call_count["n"] > 0:
+                raise RuntimeError("DB commit failed")
+            return original_commit()
+
+        db.close = lambda: None
+        db.commit = breaking_commit
+        db.rollback = lambda: None  # no-op so rollback doesn't error
+        return db, original_commit, original_close
+
+    def test_create_epic_db_error(self, db, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        # First call to SessionLocal in factory succeeds
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = epic_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_epic")
+
+        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        with patch("database.SessionLocal", return_value=broken_db):
+            result = json.loads(create_tool.invoke({"title": "Will fail"}))
+
+        db.commit = orig_commit
+        db.close = orig_close
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_epic_status_db_error(self, db, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = epic_tools_factory(node)
+
+        status_tool = next(t for t in tools if t.name == "epic_status")
+
+        # Make query raise
+        with patch("database.SessionLocal") as mock_sl:
+            mock_db = mock_sl.return_value
+            mock_db.query.side_effect = RuntimeError("DB query failed")
+            mock_db.close = lambda: None
+            result = json.loads(status_tool.invoke({"epic_id": "ep-x"}))
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_update_epic_db_error(self, db, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        epic = Epic(title="Will Error", user_profile_id=user_profile.id)
+        db.add(epic)
+        db.commit()
+        db.refresh(epic)
+
+        node = _make_node("epic_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = epic_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_epic")
+
+        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        with patch("database.SessionLocal", return_value=broken_db):
+            result = json.loads(update_tool.invoke({"epic_id": epic.id, "title": "New"}))
+
+        db.commit = orig_commit
+        db.close = orig_close
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_search_epics_db_error(self, db, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = epic_tools_factory(node)
+
+        search_tool = next(t for t in tools if t.name == "search_epics")
+
+        with patch("database.SessionLocal") as mock_sl:
+            mock_db = mock_sl.return_value
+            mock_db.query.side_effect = RuntimeError("DB error")
+            mock_db.close = lambda: None
+            result = json.loads(search_tool.invoke({}))
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_create_task_db_error(self, db, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Task Error", user_profile_id=user_profile.id)
+        db.add(epic)
+        db.commit()
+        db.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = task_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_task")
+
+        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        with patch("database.SessionLocal", return_value=broken_db):
+            result = json.loads(create_tool.invoke({"epic_id": epic.id, "title": "Fail"}))
+
+        db.commit = orig_commit
+        db.close = orig_close
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_list_tasks_db_error(self, db, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        node = _make_node("task_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = task_tools_factory(node)
+
+        list_tool = next(t for t in tools if t.name == "list_tasks")
+
+        with patch("database.SessionLocal") as mock_sl:
+            mock_db = mock_sl.return_value
+            mock_db.query.side_effect = RuntimeError("DB error")
+            mock_db.close = lambda: None
+            result = json.loads(list_tool.invoke({"epic_id": "ep-x"}))
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_update_task_db_error(self, db, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="UTask Error", user_profile_id=user_profile.id)
+        db.add(epic)
+        db.flush()
+        task = Task(epic_id=epic.id, title="Will Error", status="pending")
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        node = _make_node("task_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = task_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_task")
+
+        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        with patch("database.SessionLocal", return_value=broken_db):
+            result = json.loads(update_tool.invoke({"task_id": task.id, "status": "running"}))
+
+        db.commit = orig_commit
+        db.close = orig_close
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_cancel_task_db_error(self, db, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="CTask Error", user_profile_id=user_profile.id)
+        db.add(epic)
+        db.flush()
+        task = Task(epic_id=epic.id, title="Will Error", status="running")
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        node = _make_node("task_tools", workflow.id)
+        with patch("database.SessionLocal", return_value=db):
+            db.close = lambda: None
+            tools = task_tools_factory(node)
+
+        cancel_tool = next(t for t in tools if t.name == "cancel_task")
+
+        broken_db, orig_commit, orig_close = self._make_broken_session(db)
+        with patch("database.SessionLocal", return_value=broken_db):
+            result = json.loads(cancel_tool.invoke({"task_id": task.id}))
+
+        db.commit = orig_commit
+        db.close = orig_close
+        assert result["success"] is False
+        assert "error" in result
