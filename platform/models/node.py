@@ -278,7 +278,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "whoami": ToolComponentConfig,
     "epic_tools": _EpicToolsConfig,
     "task_tools": _TaskToolsConfig,
-    "spawn_and_await": ToolComponentConfig,
+    "spawn_and_await": _SpawnAndAwaitConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

@@ -84,40 +84,52 @@ class TestCheckpointerSelection:
     """Test dual checkpointer selection logic in agent_factory."""
 
     def _build_agent(self, conversation_memory=False, has_spawn_tool=False):
-        """Helper to test checkpointer selection without a real LLM."""
-        from components.agent import _get_checkpointer, _get_redis_checkpointer
+        """Call real agent_factory and capture the checkpointer it selected."""
+        from components.agent import agent_factory
 
-        # Build mock tools list
         mock_tools = []
         if has_spawn_tool:
             mock_spawn = MagicMock()
             mock_spawn.name = "spawn_and_await"
             mock_tools.append(mock_spawn)
 
-        # Test the selection logic directly
-        checkpointer = None
-        if conversation_memory:
-            checkpointer = "sqlite"  # placeholder
-        elif has_spawn_tool:
-            checkpointer = "redis"  # placeholder
+        mock_sqlite = MagicMock(name="sqlite_checkpointer")
+        mock_redis = MagicMock(name="redis_checkpointer")
 
-        return checkpointer
+        node = _make_node("agent", workflow_id=1)
+        node.component_config.extra_config = {"conversation_memory": conversation_memory}
+        node.component_config.concrete.extra_config = {"conversation_memory": conversation_memory}
+
+        captured = {}
+
+        def capture_create_agent(**kwargs):
+            captured["checkpointer"] = kwargs.get("checkpointer")
+            return MagicMock()
+
+        with patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.agent._resolve_tools", return_value=mock_tools), \
+             patch("components.agent.create_react_agent", side_effect=capture_create_agent), \
+             patch("components.agent._get_checkpointer", return_value=mock_sqlite), \
+             patch("components.agent._get_redis_checkpointer", return_value=mock_redis):
+            agent_factory(node)
+
+        return captured.get("checkpointer"), mock_sqlite, mock_redis
 
     def test_no_memory_no_spawn_returns_none(self):
-        result = self._build_agent(conversation_memory=False, has_spawn_tool=False)
-        assert result is None
+        checkpointer, _, _ = self._build_agent(conversation_memory=False, has_spawn_tool=False)
+        assert checkpointer is None
 
     def test_conversation_memory_returns_sqlite(self):
-        result = self._build_agent(conversation_memory=True, has_spawn_tool=False)
-        assert result == "sqlite"
+        checkpointer, mock_sqlite, _ = self._build_agent(conversation_memory=True, has_spawn_tool=False)
+        assert checkpointer is mock_sqlite
 
     def test_spawn_tool_returns_redis(self):
-        result = self._build_agent(conversation_memory=False, has_spawn_tool=True)
-        assert result == "redis"
+        checkpointer, _, mock_redis = self._build_agent(conversation_memory=False, has_spawn_tool=True)
+        assert checkpointer is mock_redis
 
     def test_both_prefers_sqlite(self):
-        result = self._build_agent(conversation_memory=True, has_spawn_tool=True)
-        assert result == "sqlite"
+        checkpointer, mock_sqlite, _ = self._build_agent(conversation_memory=True, has_spawn_tool=True)
+        assert checkpointer is mock_sqlite
 
 
 # ---------------------------------------------------------------------------
@@ -767,33 +779,23 @@ class TestRedisCheckpointer:
     """Test _get_redis_checkpointer() creates and caches a RedisSaver singleton."""
 
     def test_creates_and_caches_redis_saver(self):
+        import sys
         import components.agent as agent_mod
+        from components.agent import _get_redis_checkpointer
 
         original = agent_mod._redis_checkpointer
         agent_mod._redis_checkpointer = None
         try:
             mock_saver_instance = MagicMock()
             mock_saver_cls = MagicMock(return_value=mock_saver_instance)
+            mock_redis_module = MagicMock(RedisSaver=mock_saver_cls)
 
-            with patch("components.agent.RedisSaver", mock_saver_cls, create=True), \
-                 patch.dict("sys.modules", {"langgraph.checkpoint.redis": MagicMock(RedisSaver=mock_saver_cls)}), \
+            with patch.dict(sys.modules, {"langgraph.checkpoint.redis": mock_redis_module}), \
                  patch("config.settings") as mock_settings:
                 mock_settings.REDIS_URL = "redis://test:6379/0"
 
-                # Patch the import inside _get_redis_checkpointer
-                original_func = agent_mod._get_redis_checkpointer
-
-                def patched_get():
-                    import components.agent as am
-                    if am._redis_checkpointer is None:
-                        with am._redis_checkpointer_lock:
-                            if am._redis_checkpointer is None:
-                                am._redis_checkpointer = mock_saver_cls(redis_url=mock_settings.REDIS_URL)
-                                am._redis_checkpointer.setup()
-                    return am._redis_checkpointer
-
-                first = patched_get()
-                second = patched_get()
+                first = _get_redis_checkpointer()
+                second = _get_redis_checkpointer()
 
                 assert first is second
                 mock_saver_cls.assert_called_once_with(redis_url="redis://test:6379/0")
