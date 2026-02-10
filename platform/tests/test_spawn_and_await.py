@@ -441,3 +441,317 @@ class TestRegistration:
         from models.node import COMPONENT_TYPE_TO_CONFIG
 
         assert "spawn_and_await" in COMPONENT_TYPE_TO_CONFIG
+
+
+# ---------------------------------------------------------------------------
+# Tool invocation (spawn_and_await.py lines 47–60)
+# ---------------------------------------------------------------------------
+
+
+class TestToolInvocation:
+    """Test spawn_and_await tool body: interrupt call and result serialization."""
+
+    def test_tool_returns_json_when_interrupt_returns_dict(self):
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        child_output = {"result": "done", "score": 42}
+
+        with patch("langgraph.types.interrupt", return_value=child_output):
+            result = tool.invoke({
+                "workflow_slug": "child-wf",
+                "input_text": "hello",
+            })
+
+        assert result == json.dumps(child_output, default=str)
+
+    def test_tool_returns_string_passthrough_when_interrupt_returns_string(self):
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        with patch("langgraph.types.interrupt", return_value="child completed"):
+            result = tool.invoke({
+                "workflow_slug": "child-wf",
+                "input_text": "hello",
+            })
+
+        assert result == "child completed"
+
+
+# ---------------------------------------------------------------------------
+# _create_child_from_interrupt edge cases (agent.py)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateChildEdgeCases:
+    """Cover uncovered branches in _create_child_from_interrupt."""
+
+    def test_user_profile_id_fallback_from_parent_execution(
+        self, mock_session, workflow, user_profile
+    ):
+        """When user_context has no user_profile_id, fall back to parent execution's."""
+        from components.agent import _create_child_from_interrupt
+        from models.workflow import Workflow
+
+        target_wf = Workflow(
+            name="Target", slug="target-wf", owner_id=user_profile.id, is_active=True,
+        )
+        mock_session.add(target_wf)
+        mock_session.commit()
+
+        parent_exec = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={},
+            thread_id="t",
+        )
+        mock_session.add(parent_exec)
+        mock_session.commit()
+        mock_session.refresh(parent_exec)
+
+        # user_context has NO user_profile_id — should fall back to parent exec
+        state = {
+            "execution_id": str(parent_exec.execution_id),
+            "user_context": {},
+        }
+        interrupt_data = {
+            "workflow_slug": "target-wf",
+            "input_text": "test fallback",
+            "task_id": None,
+            "input_data": {},
+        }
+
+        with patch("redis.from_url", return_value=MagicMock()), \
+             patch("rq.Queue", return_value=MagicMock()):
+            child_id = _create_child_from_interrupt(interrupt_data, state, "agent_1")
+
+        child_exec = (
+            mock_session.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == child_id)
+            .first()
+        )
+        assert child_exec is not None
+        assert child_exec.user_profile_id == user_profile.id
+
+    def test_raises_when_no_user_profile_id(self, mock_session, workflow, user_profile):
+        """Raises ValueError when user_profile_id cannot be determined at all."""
+        from components.agent import _create_child_from_interrupt
+        from models.workflow import Workflow
+
+        target_wf = Workflow(
+            name="Target", slug="target-wf2", owner_id=user_profile.id, is_active=True,
+        )
+        mock_session.add(target_wf)
+        mock_session.commit()
+
+        # No user_profile_id in context, no parent execution to fall back to
+        state = {
+            "execution_id": "nonexistent-exec-id",
+            "user_context": {},
+        }
+        interrupt_data = {
+            "workflow_slug": "target-wf2",
+            "input_text": "test",
+            "task_id": None,
+            "input_data": {},
+        }
+
+        with pytest.raises(ValueError, match="cannot determine user_profile_id"):
+            _create_child_from_interrupt(interrupt_data, state, "agent_1")
+
+    def test_task_linkage_exception_swallowed(
+        self, mock_session, workflow, user_profile
+    ):
+        """When task linkage fails, the exception is logged but not raised."""
+        from components.agent import _create_child_from_interrupt
+        from models.workflow import Workflow
+
+        target_wf = Workflow(
+            name="Target", slug="target-wf3", owner_id=user_profile.id, is_active=True,
+        )
+        mock_session.add(target_wf)
+        mock_session.commit()
+
+        parent_exec = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={},
+            thread_id="t",
+        )
+        mock_session.add(parent_exec)
+        mock_session.commit()
+        mock_session.refresh(parent_exec)
+
+        state = {
+            "execution_id": str(parent_exec.execution_id),
+            "user_context": {"user_profile_id": user_profile.id},
+        }
+        interrupt_data = {
+            "workflow_slug": "target-wf3",
+            "input_text": "test",
+            "task_id": "tk-fake123",
+            "input_data": {},
+        }
+
+        # Patch Task query inside the linkage try/except to raise
+        original_query = mock_session.query
+        call_count = {"task_queries": 0}
+
+        def patched_query(model):
+            from models.epic import Task as TaskModel
+            if model is TaskModel:
+                call_count["task_queries"] += 1
+                raise RuntimeError("DB error during task linkage")
+            return original_query(model)
+
+        with patch("redis.from_url", return_value=MagicMock()), \
+             patch("rq.Queue", return_value=MagicMock()):
+            # Temporarily replace mock_session.query so that the Task query
+            # inside the linkage block raises, while other queries still work.
+            # We swap it in only after the child execution is committed.
+            original_commit = mock_session.commit
+            commit_calls = {"count": 0}
+
+            def commit_then_patch():
+                commit_calls["count"] += 1
+                original_commit()
+                # After the child execution is committed (2nd commit inside the function),
+                # swap in the patched query for the task linkage block
+                if commit_calls["count"] == 1:
+                    mock_session.query = patched_query
+
+            mock_session.commit = commit_then_patch
+            try:
+                child_id = _create_child_from_interrupt(interrupt_data, state, "agent_1")
+            finally:
+                mock_session.commit = original_commit
+                mock_session.query = original_query
+
+        # Should succeed despite task linkage exception — child was still created
+        assert child_id is not None
+        assert call_count["task_queries"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _sync_task_costs edge cases (orchestrator.py)
+# ---------------------------------------------------------------------------
+
+
+class TestSyncTaskCostsEdgeCases:
+    """Cover uncovered branches in _sync_task_costs."""
+
+    def test_no_op_when_execution_not_found(self, mock_session, workflow, user_profile):
+        """Early return when execution_id has a linked task but no matching execution."""
+        from services.orchestrator import _sync_task_costs
+
+        epic = Epic(title="E", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        task = Task(
+            epic_id=epic.id,
+            title="T",
+            status="running",
+            execution_id="orphan-exec-id",
+        )
+        mock_session.add(task)
+        mock_session.commit()
+
+        # Call with the task's execution_id, but no WorkflowExecution row exists
+        _sync_task_costs("orphan-exec-id", mock_session)
+
+        mock_session.refresh(task)
+        assert task.status == "running"  # unchanged
+
+    def test_task_committed_when_epic_sync_raises(
+        self, mock_session, workflow, user_profile
+    ):
+        """Task status is persisted even if sync_epic_progress raises."""
+        from services.orchestrator import _sync_task_costs
+
+        epic = Epic(title="E", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        task = Task(epic_id=epic.id, title="T", status="running")
+        mock_session.add(task)
+        mock_session.commit()
+        mock_session.refresh(task)
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={},
+            thread_id="t",
+            status="completed",
+            started_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2025, 1, 1, 0, 0, 2, tzinfo=timezone.utc),
+        )
+        mock_session.add(execution)
+        mock_session.commit()
+        mock_session.refresh(execution)
+
+        task.execution_id = str(execution.execution_id)
+        mock_session.commit()
+
+        with patch(
+            "api.epic_helpers.sync_epic_progress",
+            side_effect=RuntimeError("boom"),
+        ):
+            _sync_task_costs(str(execution.execution_id), mock_session)
+
+        mock_session.refresh(task)
+        # Task status should still be committed despite epic sync failure
+        assert task.status == "completed"
+        assert task.duration_ms == 2000
+
+    def test_no_epic_sync_when_task_has_no_epic(
+        self, mock_session, workflow, user_profile
+    ):
+        """When task.epic is falsy, sync_epic_progress is not called."""
+        from services.orchestrator import _sync_task_costs
+
+        epic = Epic(title="Placeholder", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        task = Task(epic_id=epic.id, title="Orphan Task", status="running")
+        mock_session.add(task)
+        mock_session.commit()
+        mock_session.refresh(task)
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={},
+            thread_id="t",
+            status="completed",
+            started_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2025, 1, 1, 0, 0, 4, tzinfo=timezone.utc),
+        )
+        mock_session.add(execution)
+        mock_session.commit()
+        mock_session.refresh(execution)
+
+        task.execution_id = str(execution.execution_id)
+        mock_session.commit()
+
+        with patch(
+            "api.epic_helpers.sync_epic_progress",
+        ) as mock_sync:
+            # Override the epic relationship at class level so task.epic is None
+            with patch.object(Task, "epic", None):
+                _sync_task_costs(str(execution.execution_id), mock_session)
+
+        mock_sync.assert_not_called()
+
+        mock_session.refresh(task)
+        assert task.status == "completed"
+        assert task.duration_ms == 4000

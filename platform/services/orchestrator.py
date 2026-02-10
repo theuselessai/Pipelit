@@ -1103,14 +1103,16 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
             task.duration_ms = int(delta.total_seconds() * 1000)
 
         task.completed_at = execution.completed_at
-        db.flush()
-
-        # Sync epic progress counters
-        if task.epic:
-            sync_epic_progress(task.epic, db)
-
         db.commit()
         logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
+
+        # Sync epic progress counters (best-effort — task status already committed)
+        if task.epic:
+            try:
+                sync_epic_progress(task.epic, db)
+                db.commit()
+            except Exception:
+                logger.exception("Failed to sync epic progress for task %s", task.id)
 
     except Exception:
         logger.exception("Failed to sync task costs for execution %s", execution_id)
