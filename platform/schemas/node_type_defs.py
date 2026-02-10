@@ -249,6 +249,14 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="workflow_create",
+    display_name="Workflow Create",
+    description="Create workflows programmatically from a YAML DSL specification",
+    category="agent",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with workflow_id, slug, and counts")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",

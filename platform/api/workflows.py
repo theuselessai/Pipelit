@@ -18,6 +18,20 @@ from ws.broadcast import broadcast
 router = APIRouter()
 
 
+class ValidateDslIn(BaseModel):
+    yaml_str: str
+
+
+@router.post("/validate-dsl/")
+def validate_dsl_endpoint(
+    payload: ValidateDslIn,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    from services.dsl_compiler import validate_dsl
+    return validate_dsl(payload.yaml_str, db)
+
+
 @router.get("/node-types/")
 def list_node_types():
     from schemas import node_type_defs  # noqa: F401 — triggers registration

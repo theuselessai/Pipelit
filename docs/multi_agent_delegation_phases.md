@@ -148,37 +148,55 @@ Consolidated into 2 files (instead of 8 separate) following the compound tool fa
 
 ## Phase 4: `workflow_create` Tool (DSL Compiler)
 
-**Status:** Not started
-**Branch:** `feature/delegation-phase4-workflow-dsl`
+**Status:** Complete
+**Branch:** `feat/workflow-create-dsl`
 **Scope:** Let agents create workflows programmatically via YAML DSL
 
 ### Deliverables
 
-- [ ] `platform/services/dsl_compiler.py` — YAML DSL → platform API calls:
-  - Parse YAML spec (name, description, tags, trigger, model, steps)
-  - Create workflow via existing API/service
-  - Create nodes for each step + trigger + model
-  - Create edges (implicit linear flow from step order)
-  - Inline tool declarations → create tool nodes + edges
-- [ ] Fork+patch mode:
-  - `based_on: <slug>` clones existing workflow
-  - `patches` list applies mutations: add_step, remove_step, update_prompt, add_tool, remove_tool, update_config
-- [ ] Capability-based model resolution:
-  - `inherit` → use parent workflow's model
-  - `capability: "gpt-4"` → find matching LLMProviderCredential
-- [ ] `platform/components/workflow_create.py` — Tool wrapper around DSL compiler
-- [ ] Register in SUB_COMPONENT_TYPES, NODE_TYPE_REGISTRY
-- [ ] Tests (DSL parsing, compilation, fork+patch, error cases)
+- [x] `platform/services/dsl_compiler.py` — YAML DSL → DB objects (4-stage pipeline):
+  - `_parse_dsl()` — parse YAML, validate top-level keys, step types, trigger types
+  - `_resolve_model()` — `inherit` (from parent agent), `capability` (substring match), `credential_id` (direct)
+  - `_build_graph()` — convert steps to node/edge dicts with trigger, linear edges, sub-components
+  - `_persist_workflow()` — create Workflow + WorkflowNode + BaseComponentConfig + WorkflowEdge in single transaction
+  - Step type mapping: `code` → `code`, `agent` → `agent`, `http` → `http_request`
+  - Trigger mapping: `webhook/telegram/chat/none/manual` → `trigger_*`
+  - Inline tool mapping: `code/http_request/web_search/calculator/datetime` → tool nodes + `tool` edges
+  - Agent sub-components: `ai_model` node + `llm` edge, conversation memory via `extra_config`
+- [x] Fork+patch mode (`_compile_fork`):
+  - `based_on: <slug>` clones existing workflow (deep copy configs)
+  - `patches` list applies mutations: `update_prompt`, `add_step`, `remove_step`, `add_tool`, `remove_tool`, `update_config`
+  - Edge reconnection on add/remove steps
+  - `forked_from_id` linkage preserved
+- [x] Capability-based model resolution:
+  - `inherit: true` → copy from parent agent's linked ai_model config (via `llm` edge)
+  - `capability: "gpt-4"` → query LLMProviderCredential, first-available match
+  - `credential_id: N` → direct pass-through
+- [x] `platform/components/workflow_create.py` — LangChain `@tool` factory:
+  - Single `workflow_create(dsl, tags)` tool
+  - Resolves parent node for `inherit` model resolution
+  - Appends comma-separated tags to created workflow
+- [x] Registration in all required places:
+  - `_WorkflowCreateConfig` polymorphic identity + `COMPONENT_TYPE_TO_CONFIG` entry in `models/node.py`
+  - `"workflow_create"` + `"spawn_and_await"` added to `ComponentTypeStr` in `schemas/node.py`
+  - `SUB_COMPONENT_TYPES` in `services/builder.py` and `services/topology.py`
+  - `COMPONENT_REGISTRY` via import in `components/__init__.py`
+  - `NodeTypeSpec` in `schemas/node_type_defs.py` (category="agent", single string output port)
+  - Frontend: `ComponentType` union, NodePalette (PencilRuler icon, Agent category), WorkflowCanvas (teal color + faPenRuler icon + tool/sub-component lists)
+- [x] Tests:
+  - `platform/tests/test_dsl_compiler.py` (54 tests): parse, build graph, model resolution, slugify, fork patches, error cases
+  - `platform/tests/test_workflow_create.py` (23 tests): tool factory, registration, end-to-end DB compilation, fork DB, model resolution DB, tool invocation
 
 ### Notes
 
-- See `docs/workflow_dsl_spec.md` for full DSL specification
-- The compiler should use existing workflow/node/edge creation services, not raw SQL
-- Validation: compiled workflow should pass existing `POST /workflows/{slug}/validate/`
+- Compiler uses `BaseComponentConfig` directly (same as API `nodes.py`) — STI discriminator set via `component_type` kwarg
+- Slug auto-generation: `_slugify(name)` + uniqueness check with `-2`, `-3` suffix
+- WS broadcast of `workflow_created` event is best-effort (non-blocking)
+- Deferred: switch/loop/subworkflow step types, `discover: true` model resolution, tool config inheritance, DSL validation endpoint
 
 ### Dependencies
 
-- Phase 1 (Workflow.tags column needed for tagging created workflows)
+- Phase 1 (Workflow.tags column needed for tagging created workflows) ✓
 - Independent of Phase 3
 
 ---
