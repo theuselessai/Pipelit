@@ -66,65 +66,72 @@ def task_tools_factory(node):
 
         db = SessionLocal()
         try:
-            epic = (
-                db.query(Epic)
-                .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
-                .first()
-            )
-            if not epic:
-                return json.dumps({"success": False, "error": "Epic not found"})
-
-            if priority < 1 or priority > 5:
-                return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
-
-            # Validate that dependencies exist within this epic
-            if dep_list:
-                existing_deps = (
-                    db.query(Task)
-                    .filter(Task.id.in_(dep_list), Task.epic_id == epic_id)
-                    .count()
+            try:
+                epic = (
+                    db.query(Epic)
+                    .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
+                    .first()
                 )
-                if existing_deps != len(dep_list):
-                    return json.dumps({"success": False, "error": "One or more dependencies do not exist"})
+                if not epic:
+                    return json.dumps({"success": False, "error": "Epic not found"})
 
-            # Auto-resolve blocked status if deps not all completed
-            initial_status = "pending"
-            if dep_list:
-                completed_deps = (
-                    db.query(Task)
-                    .filter(Task.id.in_(dep_list), Task.status == "completed")
-                    .count()
+                if priority < 1 or priority > 5:
+                    return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
+
+                # Validate that dependencies exist within this epic
+                if dep_list:
+                    existing_deps = (
+                        db.query(Task)
+                        .filter(Task.id.in_(dep_list), Task.epic_id == epic_id)
+                        .count()
+                    )
+                    if existing_deps != len(dep_list):
+                        return json.dumps({"success": False, "error": "One or more dependencies do not exist"})
+
+                # Auto-resolve blocked status if deps not all completed
+                initial_status = "pending"
+                if dep_list:
+                    completed_deps = (
+                        db.query(Task)
+                        .filter(Task.id.in_(dep_list), Task.status == "completed")
+                        .count()
+                    )
+                    if completed_deps < len(dep_list):
+                        initial_status = "blocked"
+
+                task = Task(
+                    epic_id=epic_id,
+                    title=title,
+                    description=description,
+                    tags=tag_list,
+                    depends_on=dep_list,
+                    priority=priority,
+                    estimated_tokens=estimated_tokens,
+                    max_retries=max_retries,
+                    status=initial_status,
+                    created_by_node_id=tool_node_id,
                 )
-                if completed_deps < len(dep_list):
-                    initial_status = "blocked"
+                db.add(task)
+                db.flush()
+                sync_epic_progress(epic, db)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.exception("Error creating task")
+                return json.dumps({"success": False, "error": str(e)})
 
-            task = Task(
-                epic_id=epic_id,
-                title=title,
-                description=description,
-                tags=tag_list,
-                depends_on=dep_list,
-                priority=priority,
-                estimated_tokens=estimated_tokens,
-                max_retries=max_retries,
-                status=initial_status,
-                created_by_node_id=tool_node_id,
-            )
-            db.add(task)
-            db.flush()
-            sync_epic_progress(epic, db)
-            db.commit()
-            db.refresh(task)
+            try:
+                db.refresh(task)
+            except Exception:
+                logger.exception("Failed to refresh after commit")
+
             try:
                 from ws.broadcast import broadcast
                 broadcast(f"epic:{task.epic_id}", "task_created", serialize_task(task))
             except Exception:
                 logger.exception("Failed to broadcast task_created")
+
             return json.dumps({"success": True, "task_id": task.id, "status": task.status})
-        except Exception as e:
-            db.rollback()
-            logger.exception("Error creating task")
-            return json.dumps({"success": False, "error": str(e)})
         finally:
             db.close()
 
@@ -221,50 +228,57 @@ def task_tools_factory(node):
 
         db = SessionLocal()
         try:
-            task = (
-                db.query(Task)
-                .join(Epic)
-                .filter(Task.id == task_id, Epic.user_profile_id == user_profile_id)
-                .first()
-            )
-            if not task:
-                return json.dumps({"success": False, "error": "Task not found"})
+            try:
+                task = (
+                    db.query(Task)
+                    .join(Epic)
+                    .filter(Task.id == task_id, Epic.user_profile_id == user_profile_id)
+                    .first()
+                )
+                if not task:
+                    return json.dumps({"success": False, "error": "Task not found"})
 
-            if title is not None:
-                task.title = title
-            if description is not None:
-                task.description = description
-            if priority is not None:
-                if priority < 1 or priority > 5:
-                    return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
-                task.priority = priority
-            if result_summary is not None:
-                task.result_summary = result_summary
-            if error_message is not None:
-                task.error_message = error_message
-            if status is not None:
-                task.status = status
-            if notes is not None:
-                existing_notes = task.notes or []
-                task.notes = existing_notes + [notes]
+                if title is not None:
+                    task.title = title
+                if description is not None:
+                    task.description = description
+                if priority is not None:
+                    if priority < 1 or priority > 5:
+                        return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
+                    task.priority = priority
+                if result_summary is not None:
+                    task.result_summary = result_summary
+                if error_message is not None:
+                    task.error_message = error_message
+                if status is not None:
+                    task.status = status
+                if notes is not None:
+                    existing_notes = task.notes or []
+                    task.notes = existing_notes + [notes]
 
-            db.flush()
-            epic = db.query(Epic).filter(Epic.id == task.epic_id).first()
-            if epic:
-                sync_epic_progress(epic, db)
+                db.flush()
+                epic = db.query(Epic).filter(Epic.id == task.epic_id).first()
+                if epic:
+                    sync_epic_progress(epic, db)
 
-            db.commit()
-            db.refresh(task)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.exception("Error updating task")
+                return json.dumps({"success": False, "error": str(e)})
+
+            try:
+                db.refresh(task)
+            except Exception:
+                logger.exception("Failed to refresh after commit")
+
             try:
                 from ws.broadcast import broadcast
                 broadcast(f"epic:{task.epic_id}", "task_updated", serialize_task(task))
             except Exception:
                 logger.exception("Failed to broadcast task_updated")
+
             return json.dumps({"success": True, "task_id": task.id, "status": task.status})
-        except Exception as e:
-            db.rollback()
-            logger.exception("Error updating task")
-            return json.dumps({"success": False, "error": str(e)})
         finally:
             db.close()
 
@@ -286,48 +300,55 @@ def task_tools_factory(node):
 
         db = SessionLocal()
         try:
-            task = (
-                db.query(Task)
-                .join(Epic)
-                .filter(Task.id == task_id, Epic.user_profile_id == user_profile_id)
-                .first()
-            )
-            if not task:
-                return json.dumps({"success": False, "error": "Task not found"})
-
-            task.status = "cancelled"
-            if reason:
-                existing_notes = task.notes or []
-                task.notes = existing_notes + [f"Cancelled: {reason}"]
-
-            execution_cancelled = False
-            if task.execution_id:
-                execution = (
-                    db.query(WorkflowExecution)
-                    .filter(WorkflowExecution.execution_id == task.execution_id)
+            try:
+                task = (
+                    db.query(Task)
+                    .join(Epic)
+                    .filter(Task.id == task_id, Epic.user_profile_id == user_profile_id)
                     .first()
                 )
-                if execution and execution.status in ("pending", "running"):
-                    execution.status = "cancelled"
-                    execution_cancelled = True
+                if not task:
+                    return json.dumps({"success": False, "error": "Task not found"})
 
-            db.flush()
-            epic = db.query(Epic).filter(Epic.id == task.epic_id).first()
-            if epic:
-                sync_epic_progress(epic, db)
+                task.status = "cancelled"
+                if reason:
+                    existing_notes = task.notes or []
+                    task.notes = existing_notes + [f"Cancelled: {reason}"]
 
-            db.commit()
-            db.refresh(task)
+                execution_cancelled = False
+                if task.execution_id:
+                    execution = (
+                        db.query(WorkflowExecution)
+                        .filter(WorkflowExecution.execution_id == task.execution_id)
+                        .first()
+                    )
+                    if execution and execution.status in ("pending", "running"):
+                        execution.status = "cancelled"
+                        execution_cancelled = True
+
+                db.flush()
+                epic = db.query(Epic).filter(Epic.id == task.epic_id).first()
+                if epic:
+                    sync_epic_progress(epic, db)
+
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.exception("Error cancelling task")
+                return json.dumps({"success": False, "error": str(e)})
+
+            try:
+                db.refresh(task)
+            except Exception:
+                logger.exception("Failed to refresh after commit")
+
             try:
                 from ws.broadcast import broadcast
                 broadcast(f"epic:{task.epic_id}", "task_updated", serialize_task(task))
             except Exception:
                 logger.exception("Failed to broadcast task_updated")
+
             return json.dumps({"success": True, "task_id": task.id, "execution_cancelled": execution_cancelled})
-        except Exception as e:
-            db.rollback()
-            logger.exception("Error cancelling task")
-            return json.dumps({"success": False, "error": str(e)})
         finally:
             db.close()
 

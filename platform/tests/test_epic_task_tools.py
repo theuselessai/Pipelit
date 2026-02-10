@@ -981,6 +981,83 @@ class TestBroadcastExceptions:
 # DB error handling (outer except branches with rollback)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Post-commit refresh failure (verify success despite refresh error)
+# ---------------------------------------------------------------------------
+
+class TestPostCommitRefreshFailure:
+    """Verify that a failing db.refresh() after successful commit still returns success."""
+
+    def test_create_epic_refresh_failure(self, mock_session, workflow, user_profile):
+        from components.epic_tools import epic_tools_factory
+
+        node = _make_node("epic_tools", workflow.id)
+        tools = epic_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_epic")
+        original_refresh = mock_session.refresh
+
+        def broken_refresh(obj):
+            raise RuntimeError("refresh exploded")
+
+        mock_session.refresh = broken_refresh
+        try:
+            with patch("ws.broadcast.broadcast"):
+                result = json.loads(create_tool.invoke({"title": "Refresh Fail Epic"}))
+        finally:
+            mock_session.refresh = original_refresh
+
+        assert result["success"] is True
+        assert result["epic_id"].startswith("ep-")
+
+    def test_create_task_refresh_failure(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Refresh Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_task")
+        original_refresh = mock_session.refresh
+
+        def broken_refresh(obj):
+            raise RuntimeError("refresh exploded")
+
+        mock_session.refresh = broken_refresh
+        try:
+            with patch("ws.broadcast.broadcast"):
+                result = json.loads(create_tool.invoke({
+                    "epic_id": epic.id,
+                    "title": "Refresh Fail Task",
+                }))
+        finally:
+            mock_session.refresh = original_refresh
+
+        assert result["success"] is True
+        assert result["task_id"].startswith("tk-")
+
+
+# ---------------------------------------------------------------------------
+# Component type mapping correctness
+# ---------------------------------------------------------------------------
+
+class TestComponentTypeMapping:
+    """Verify COMPONENT_TYPE_TO_CONFIG uses the correct config classes."""
+
+    def test_epic_tools_maps_to_epic_tools_config(self):
+        from models.node import COMPONENT_TYPE_TO_CONFIG, _EpicToolsConfig
+
+        assert COMPONENT_TYPE_TO_CONFIG["epic_tools"] is _EpicToolsConfig
+
+    def test_task_tools_maps_to_task_tools_config(self):
+        from models.node import COMPONENT_TYPE_TO_CONFIG, _TaskToolsConfig
+
+        assert COMPONENT_TYPE_TO_CONFIG["task_tools"] is _TaskToolsConfig
+
+
 class TestDBErrorBranches:
     """Cover except Exception: db.rollback() branches by forcing DB errors."""
 

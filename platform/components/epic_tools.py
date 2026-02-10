@@ -59,30 +59,37 @@ def epic_tools_factory(node):
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
         db = SessionLocal()
         try:
-            epic = Epic(
-                title=title,
-                description=description,
-                tags=tag_list,
-                priority=priority,
-                budget_tokens=budget_tokens,
-                budget_usd=budget_usd,
-                user_profile_id=user_profile_id,
-                created_by_node_id=tool_node_id,
-            )
-            db.add(epic)
-            db.commit()
-            db.refresh(epic)
+            try:
+                epic = Epic(
+                    title=title,
+                    description=description,
+                    tags=tag_list,
+                    priority=priority,
+                    budget_tokens=budget_tokens,
+                    budget_usd=budget_usd,
+                    user_profile_id=user_profile_id,
+                    created_by_node_id=tool_node_id,
+                )
+                db.add(epic)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.exception("Error creating epic")
+                return json.dumps({"success": False, "error": str(e)})
+
+            try:
+                db.refresh(epic)
+            except Exception:
+                logger.exception("Failed to refresh after commit")
+
             try:
                 from api.epic_helpers import serialize_epic
                 from ws.broadcast import broadcast
                 broadcast(f"epic:{epic.id}", "epic_created", serialize_epic(epic))
             except Exception:
                 logger.exception("Failed to broadcast epic_created")
+
             return json.dumps({"success": True, "epic_id": epic.id, "title": epic.title, "status": epic.status})
-        except Exception as e:
-            db.rollback()
-            logger.exception("Error creating epic")
-            return json.dumps({"success": False, "error": str(e)})
         finally:
             db.close()
 
@@ -165,53 +172,60 @@ def epic_tools_factory(node):
 
         db = SessionLocal()
         try:
-            epic = (
-                db.query(Epic)
-                .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
-                .first()
-            )
-            if not epic:
-                return json.dumps({"success": False, "error": "Epic not found"})
+            try:
+                epic = (
+                    db.query(Epic)
+                    .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
+                    .first()
+                )
+                if not epic:
+                    return json.dumps({"success": False, "error": "Epic not found"})
 
-            if title is not None:
-                epic.title = title
-            if description is not None:
-                epic.description = description
-            if priority is not None:
-                epic.priority = priority
-            if budget_tokens is not None:
-                epic.budget_tokens = budget_tokens
-            if budget_usd is not None:
-                epic.budget_usd = budget_usd
-            if result_summary is not None:
-                epic.result_summary = result_summary
-            if status is not None:
-                epic.status = status
-                if status == "cancelled":
-                    tasks = (
-                        db.query(Task)
-                        .filter(
-                            Task.epic_id == epic.id,
-                            Task.status.in_(["pending", "blocked", "running"]),
+                if title is not None:
+                    epic.title = title
+                if description is not None:
+                    epic.description = description
+                if priority is not None:
+                    epic.priority = priority
+                if budget_tokens is not None:
+                    epic.budget_tokens = budget_tokens
+                if budget_usd is not None:
+                    epic.budget_usd = budget_usd
+                if result_summary is not None:
+                    epic.result_summary = result_summary
+                if status is not None:
+                    epic.status = status
+                    if status == "cancelled":
+                        tasks = (
+                            db.query(Task)
+                            .filter(
+                                Task.epic_id == epic.id,
+                                Task.status.in_(["pending", "blocked", "running"]),
+                            )
+                            .all()
                         )
-                        .all()
-                    )
-                    for task in tasks:
-                        task.status = "cancelled"
+                        for task in tasks:
+                            task.status = "cancelled"
 
-            sync_epic_progress(epic, db)
-            db.commit()
-            db.refresh(epic)
+                sync_epic_progress(epic, db)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.exception("Error updating epic")
+                return json.dumps({"success": False, "error": str(e)})
+
+            try:
+                db.refresh(epic)
+            except Exception:
+                logger.exception("Failed to refresh after commit")
+
             try:
                 from ws.broadcast import broadcast
                 broadcast(f"epic:{epic.id}", "epic_updated", serialize_epic(epic))
             except Exception:
                 logger.exception("Failed to broadcast epic_updated")
+
             return json.dumps({"success": True, "epic_id": epic.id, "status": epic.status})
-        except Exception as e:
-            db.rollback()
-            logger.exception("Error updating epic")
-            return json.dumps({"success": False, "error": str(e)})
         finally:
             db.close()
 
