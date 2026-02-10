@@ -250,7 +250,10 @@ def task_tools_factory(node):
                     task.result_summary = result_summary
                 if error_message is not None:
                     task.error_message = error_message
+                VALID_TASK_STATUSES = {"pending", "blocked", "running", "completed", "failed", "cancelled"}
                 if status is not None:
+                    if status not in VALID_TASK_STATUSES:
+                        return json.dumps({"success": False, "error": f"Invalid status. Must be one of: {', '.join(sorted(VALID_TASK_STATUSES))}"})
                     task.status = status
                 if notes is not None:
                     existing_notes = task.notes or []

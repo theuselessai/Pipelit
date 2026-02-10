@@ -56,6 +56,9 @@ def epic_tools_factory(node):
         from database import SessionLocal
         from models.epic import Epic
 
+        if priority < 1 or priority > 5:
+            return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
+
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
         db = SessionLocal()
         try:
@@ -186,6 +189,8 @@ def epic_tools_factory(node):
                 if description is not None:
                     epic.description = description
                 if priority is not None:
+                    if priority < 1 or priority > 5:
+                        return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
                     epic.priority = priority
                 if budget_tokens is not None:
                     epic.budget_tokens = budget_tokens
@@ -193,7 +198,10 @@ def epic_tools_factory(node):
                     epic.budget_usd = budget_usd
                 if result_summary is not None:
                     epic.result_summary = result_summary
+                VALID_EPIC_STATUSES = {"planning", "active", "paused", "completed", "cancelled", "failed"}
                 if status is not None:
+                    if status not in VALID_EPIC_STATUSES:
+                        return json.dumps({"success": False, "error": f"Invalid status. Must be one of: {', '.join(sorted(VALID_EPIC_STATUSES))}"})
                     epic.status = status
                     if status == "cancelled":
                         tasks = (
