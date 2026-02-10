@@ -250,6 +250,7 @@ steps:
 
         # 3 edges: trigger→step_1, step_1→step_2, step_2→step_3
         assert len(edges) == 3
+        assert edges[0]["source_node_id"] == "trigger_webhook_1"
         assert edges[0]["target_node_id"] == "step_1"
         assert edges[1]["source_node_id"] == "step_1"
         assert edges[1]["target_node_id"] == "step_2"

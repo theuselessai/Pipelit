@@ -361,7 +361,7 @@ def _discover_model(
                 best_model = model_id
 
     if best_cred_id is None or best_model is None:
-        # Fallback: use first credential with a generic model name
+        # No models could be scored — raise rather than guessing
         raise ValueError("No scoreable models found across available credentials")
 
     return (best_cred_id, best_model, temperature)
