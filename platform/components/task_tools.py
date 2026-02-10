@@ -24,6 +24,8 @@ def task_tools_factory(node):
         if not workflow:
             raise ValueError(f"task_tools: workflow {node.workflow_id} not found — cannot resolve owner")
         user_profile_id = workflow.owner_id
+        if not user_profile_id:
+            raise ValueError(f"task_tools: workflow {node.workflow_id} has no owner_id — cannot resolve owner")
     finally:
         db.close()
 
@@ -71,6 +73,19 @@ def task_tools_factory(node):
             )
             if not epic:
                 return json.dumps({"success": False, "error": "Epic not found"})
+
+            if priority < 1 or priority > 5:
+                return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
+
+            # Validate that dependencies exist within this epic
+            if dep_list:
+                existing_deps = (
+                    db.query(Task)
+                    .filter(Task.id.in_(dep_list), Task.epic_id == epic_id)
+                    .count()
+                )
+                if existing_deps != len(dep_list):
+                    return json.dumps({"success": False, "error": "One or more dependencies do not exist"})
 
             # Auto-resolve blocked status if deps not all completed
             initial_status = "pending"
@@ -220,6 +235,8 @@ def task_tools_factory(node):
             if description is not None:
                 task.description = description
             if priority is not None:
+                if priority < 1 or priority > 5:
+                    return json.dumps({"success": False, "error": "Priority must be between 1 and 5"})
                 task.priority = priority
             if result_summary is not None:
                 task.result_summary = result_summary

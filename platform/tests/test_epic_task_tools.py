@@ -58,6 +58,18 @@ class TestEpicToolsFactory:
         with pytest.raises(ValueError, match="workflow 99999 not found"):
             epic_tools_factory(node)
 
+    def test_factory_raises_on_null_owner_id(self, mock_session, workflow):
+        from components.epic_tools import epic_tools_factory
+
+        fake_workflow = SimpleNamespace(owner_id=None)
+        node = _make_node("epic_tools", workflow.id)
+        with patch("database.SessionLocal") as mock_sl:
+            mock_db = mock_sl.return_value
+            mock_db.query.return_value.filter.return_value.first.return_value = fake_workflow
+            mock_db.close = lambda: None
+            with pytest.raises(ValueError, match="has no owner_id"):
+                epic_tools_factory(node)
+
 
 class TestCreateEpic:
     def test_create_epic_success(self, mock_session, workflow, user_profile):
@@ -325,6 +337,18 @@ class TestTaskToolsFactory:
         with pytest.raises(ValueError, match="workflow 99999 not found"):
             task_tools_factory(node)
 
+    def test_factory_raises_on_null_owner_id(self, mock_session, workflow):
+        from components.task_tools import task_tools_factory
+
+        fake_workflow = SimpleNamespace(owner_id=None)
+        node = _make_node("task_tools", workflow.id)
+        with patch("database.SessionLocal") as mock_sl:
+            mock_db = mock_sl.return_value
+            mock_db.query.return_value.filter.return_value.first.return_value = fake_workflow
+            mock_db.close = lambda: None
+            with pytest.raises(ValueError, match="has no owner_id"):
+                task_tools_factory(node)
+
 
 class TestCreateTask:
     def test_create_task_pending(self, mock_session, workflow, user_profile):
@@ -377,6 +401,58 @@ class TestCreateTask:
 
         assert result["success"] is True
         assert result["status"] == "blocked"
+
+    def test_create_task_priority_out_of_range(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Priority Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_task")
+        # priority too low
+        result = json.loads(create_tool.invoke({
+            "epic_id": epic.id,
+            "title": "Bad Priority",
+            "priority": 0,
+        }))
+        assert result["success"] is False
+        assert "Priority must be between 1 and 5" in result["error"]
+
+        # priority too high
+        result = json.loads(create_tool.invoke({
+            "epic_id": epic.id,
+            "title": "Bad Priority",
+            "priority": 6,
+        }))
+        assert result["success"] is False
+        assert "Priority must be between 1 and 5" in result["error"]
+
+    def test_create_task_nonexistent_dependency(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Dep Test", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.commit()
+        mock_session.refresh(epic)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        create_tool = next(t for t in tools if t.name == "create_task")
+        with patch("ws.broadcast.broadcast"):
+            result = json.loads(create_tool.invoke({
+                "epic_id": epic.id,
+                "title": "Bad Deps",
+                "depends_on": "tk-nonexistent",
+            }))
+
+        assert result["success"] is False
+        assert "dependencies do not exist" in result["error"]
 
     def test_create_task_epic_not_found(self, mock_session, workflow, user_profile):
         from components.task_tools import task_tools_factory
@@ -559,6 +635,35 @@ class TestUpdateTask:
         assert task.result_summary == "Great work"
         assert task.error_message == "Minor issue"
         assert task.status == "completed"
+
+    def test_update_task_priority_out_of_range(self, mock_session, workflow, user_profile):
+        from components.task_tools import task_tools_factory
+
+        epic = Epic(title="Priority Update", user_profile_id=user_profile.id)
+        mock_session.add(epic)
+        mock_session.flush()
+        task = Task(epic_id=epic.id, title="PrioTask", status="pending")
+        mock_session.add(task)
+        mock_session.commit()
+        mock_session.refresh(task)
+
+        node = _make_node("task_tools", workflow.id)
+        tools = task_tools_factory(node)
+
+        update_tool = next(t for t in tools if t.name == "update_task")
+        result = json.loads(update_tool.invoke({
+            "task_id": task.id,
+            "priority": 0,
+        }))
+        assert result["success"] is False
+        assert "Priority must be between 1 and 5" in result["error"]
+
+        result = json.loads(update_tool.invoke({
+            "task_id": task.id,
+            "priority": 10,
+        }))
+        assert result["success"] is False
+        assert "Priority must be between 1 and 5" in result["error"]
 
     def test_update_task_not_found(self, mock_session, workflow, user_profile):
         from components.task_tools import task_tools_factory

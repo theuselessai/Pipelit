@@ -24,6 +24,8 @@ def epic_tools_factory(node):
         if not workflow:
             raise ValueError(f"epic_tools: workflow {node.workflow_id} not found — cannot resolve owner")
         user_profile_id = workflow.owner_id
+        if not user_profile_id:
+            raise ValueError(f"epic_tools: workflow {node.workflow_id} has no owner_id — cannot resolve owner")
     finally:
         db.close()
 
