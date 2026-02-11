@@ -1102,7 +1102,10 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
             task.error_message = (execution.error_message or "")[:500]
 
         if execution.started_at and execution.completed_at:
-            delta = execution.completed_at - execution.started_at
+            # Normalise both to naive UTC to avoid mixed-tz subtraction errors
+            sa = execution.started_at.replace(tzinfo=None) if execution.started_at.tzinfo else execution.started_at
+            ca = execution.completed_at.replace(tzinfo=None) if execution.completed_at.tzinfo else execution.completed_at
+            delta = ca - sa
             task.duration_ms = int(delta.total_seconds() * 1000)
 
         task.completed_at = execution.completed_at

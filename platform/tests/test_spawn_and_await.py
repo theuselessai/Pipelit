@@ -943,6 +943,78 @@ class TestAgentNodeGraphInterrupt:
     @patch("components.agent._resolve_tools")
     @patch("components.agent.create_react_agent")
     @patch("components.agent._get_redis_checkpointer")
+    def test_interrupt_in_return_value_creates_child(
+        self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        """When checkpointer is present, invoke() returns __interrupt__ instead of raising."""
+        from langgraph.types import Interrupt
+
+        agent_node, mock_agent = self._setup_agent(
+            mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+        )
+
+        interrupt_value = {
+            "action": "spawn_workflow",
+            "workflow_slug": "child-wf",
+            "input_text": "do something",
+            "task_id": None,
+            "input_data": {},
+        }
+        interrupt_obj = Interrupt(value=interrupt_value)
+
+        # invoke() returns dict with __interrupt__ key (checkpointer present)
+        mock_agent.invoke.return_value = {
+            "messages": [MagicMock(type="ai", content="partial", additional_kwargs={})],
+            "__interrupt__": (interrupt_obj,),
+        }
+
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "exec-789",
+        }
+
+        with patch("components.agent._create_child_from_interrupt", return_value="child-456") as mock_create:
+            result = agent_node(state)
+
+        assert result == {"_subworkflow": {"child_execution_id": "child-456"}}
+        mock_create.assert_called_once_with(interrupt_value, state, "test_node_1")
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_redis_checkpointer")
+    def test_interrupt_in_return_value_ignored_without_spawn_action(
+        self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        """__interrupt__ with non-spawn action (e.g. human_confirmation) is not intercepted."""
+        from langgraph.types import Interrupt
+
+        agent_node, mock_agent = self._setup_agent(
+            mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+        )
+
+        interrupt_obj = Interrupt(value={"action": "human_confirmation", "message": "approve?"})
+
+        mock_agent.invoke.return_value = {
+            "messages": [MagicMock(type="ai", content="waiting", additional_kwargs={})],
+            "__interrupt__": (interrupt_obj,),
+        }
+
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "exec-100",
+        }
+
+        result = agent_node(state)
+
+        # Should NOT create a child — falls through to normal output extraction
+        assert "output" in result
+        assert result["output"] == "waiting"
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_redis_checkpointer")
     def test_non_interrupt_exception_reraises(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
     ):
@@ -959,3 +1031,47 @@ class TestAgentNodeGraphInterrupt:
 
         with pytest.raises(RuntimeError, match="LLM error"):
             agent_node(state)
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_redis_checkpointer")
+    def test_interrupt_child_creation_error_returns_output(
+        self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        """When _create_child_from_interrupt fails, return error output instead of raising."""
+        from langgraph.types import Interrupt
+
+        agent_node, mock_agent = self._setup_agent(
+            mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+        )
+
+        interrupt_value = {
+            "action": "spawn_workflow",
+            "workflow_slug": "nonexistent",
+            "input_text": "test",
+            "task_id": None,
+            "input_data": {},
+        }
+        interrupt_obj = Interrupt(value=interrupt_value)
+
+        mock_agent.invoke.return_value = {
+            "messages": [MagicMock(type="ai", content="partial", additional_kwargs={})],
+            "__interrupt__": (interrupt_obj,),
+        }
+
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "exec-err",
+        }
+
+        with patch(
+            "components.agent._create_child_from_interrupt",
+            side_effect=ValueError("target workflow not found"),
+        ):
+            result = agent_node(state)
+
+        # Should return error output, NOT raise
+        assert "output" in result
+        assert "spawn_and_await failed" in result["output"]
+        assert "target workflow not found" in result["output"]
