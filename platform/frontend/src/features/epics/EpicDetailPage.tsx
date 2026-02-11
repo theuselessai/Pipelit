@@ -35,10 +35,10 @@ const TASK_STATUS_COLORS: Record<string, string> = {
 }
 
 export default function EpicDetailPage() {
-  const { epicId } = useParams<{ epicId: string }>()
-  const { data: epic, isLoading } = useEpic(epicId!)
+  const { epicId = "" } = useParams<{ epicId: string }>()
+  const { data: epic, isLoading } = useEpic(epicId)
   const [taskPage, setTaskPage] = useState(1)
-  const { data: tasksData } = useEpicTasks(epicId!, { limit: PAGE_SIZE, offset: (taskPage - 1) * PAGE_SIZE })
+  const { data: tasksData } = useEpicTasks(epicId, { limit: PAGE_SIZE, offset: (taskPage - 1) * PAGE_SIZE })
   const tasks = tasksData?.items
   const taskTotal = tasksData?.total ?? 0
   const batchDeleteTasks = useBatchDeleteTasks()
@@ -79,6 +79,10 @@ export default function EpicDetailPage() {
     })
   }
 
+  if (!epicId) {
+    return <div className="p-6"><div className="text-destructive">Epic ID is required</div></div>
+  }
+
   if (isLoading || !epic) {
     return <div className="p-6"><div className="animate-pulse text-muted-foreground">Loading epic...</div></div>
   }
@@ -88,7 +92,7 @@ export default function EpicDetailPage() {
     : epic.budget_tokens != null
       ? `${epic.budget_tokens.toLocaleString()} tokens`
       : "No budget"
-  const costLabel = epic.spent_usd > 0
+  const costLabel = epic.spent_usd != null
     ? `$${epic.spent_usd.toFixed(4)}`
     : `${epic.spent_tokens.toLocaleString()} tokens`
 
@@ -174,7 +178,7 @@ export default function EpicDetailPage() {
               )}
             </TableBody>
           </Table>
-          <PaginationControls page={taskPage} pageSize={PAGE_SIZE} total={taskTotal} onPageChange={setTaskPage} />
+          <PaginationControls page={taskPage} pageSize={PAGE_SIZE} total={taskTotal} onPageChange={(p) => { setTaskPage(p); setSelectedTaskIds(new Set()) }} />
         </CardContent>
       </Card>
 

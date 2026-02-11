@@ -94,7 +94,7 @@ export default function EpicsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10">
-                  <Checkbox checked={epics?.length ? selectedIds.size === epics.length : false} onCheckedChange={toggleAll} />
+                  <Checkbox checked={epics?.length ? selectedIds.size === epics.length && epics.every(e => selectedIds.has(e.id)) : false} onCheckedChange={toggleAll} />
                 </TableHead>
                 <TableHead>Title</TableHead>
                 <TableHead>Status</TableHead>
@@ -115,7 +115,7 @@ export default function EpicsPage() {
                   </TableCell>
                   <TableCell className="text-sm">{epic.completed_tasks}/{epic.total_tasks} tasks</TableCell>
                   <TableCell className="text-sm">{epic.priority}</TableCell>
-                  <TableCell className="text-sm">{epic.created_at ? format(new Date(epic.created_at), "MMM d, HH:mm") : "-"}</TableCell>
+                  <TableCell className="text-sm">{epic.created_at && !isNaN(new Date(epic.created_at).getTime()) ? format(new Date(epic.created_at), "MMM d, HH:mm") : "-"}</TableCell>
                 </TableRow>
               ))}
               {epics?.length === 0 && (
