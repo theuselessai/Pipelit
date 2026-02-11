@@ -15,7 +15,7 @@ def discover_workflows(
     db: Session,
     exclude_workflow_id: int | None = None,
     limit: int = 5,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Search active workflows, score them against requirements, return top-N matches.
 
     Args:

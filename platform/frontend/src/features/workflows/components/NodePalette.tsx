@@ -3,7 +3,7 @@ import { useCreateNode } from "@/api/nodes"
 import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
 import {
-  MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle,
+  MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle, Compass,
   Cpu, Bot,
   GitFork, Route, FileOutput, Split,
   Terminal, Globe, Search, Calculator,
@@ -40,7 +40,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   task_tools: ListChecks,
   spawn_and_await: Rocket,
   workflow_create: PencilRuler,
-  workflow_discover: Search,
+  workflow_discover: Compass,
   loop: Repeat,
   wait: Pause,
   merge: Merge,
