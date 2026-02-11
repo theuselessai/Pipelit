@@ -41,7 +41,7 @@ def discover_workflows(
 
     results = []
     for wf in workflows:
-        caps = _extract_capabilities(wf.id, db)
+        caps = _extract_capabilities(wf.id, db, wf)
         success_rate, exec_count = _compute_success_rate(wf.id, db)
         score = _score_workflow(caps, requirements, success_rate, wf.description or "")
 
@@ -97,13 +97,12 @@ def discover_workflows(
     return results[:limit], len(workflows)
 
 
-def _extract_capabilities(workflow_id: int, db: Session) -> dict:
+def _extract_capabilities(workflow_id: int, db: Session, workflow: Any = None) -> dict:
     """Extract capability summary from a workflow's nodes.
 
     Returns dict with keys: triggers, node_types, tools, model_names, tags.
     """
     from models.node import WorkflowNode
-    from models.workflow import Workflow
     from services.topology import SUB_COMPONENT_TYPES
 
     nodes = (
@@ -133,8 +132,11 @@ def _extract_capabilities(workflow_id: int, db: Session) -> dict:
             # Executable non-sub-component nodes
             node_types.append(ct)
 
-    # Tags from workflow
-    wf = db.query(Workflow).filter_by(id=workflow_id).first()
+    # Tags from workflow (use passed object to avoid extra query)
+    wf = workflow
+    if wf is None:
+        from models.workflow import Workflow
+        wf = db.query(Workflow).filter_by(id=workflow_id).first()
     tags = list(wf.tags) if wf and wf.tags else []
 
     return {
