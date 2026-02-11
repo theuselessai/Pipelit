@@ -42,7 +42,7 @@ def workflow_discover_factory(node):
         db = SessionLocal()
         try:
             req = json.loads(requirements)
-            matches = discover_workflows(
+            matches, total_searched = discover_workflows(
                 req, db,
                 exclude_workflow_id=workflow_id,
                 limit=limit,
@@ -50,7 +50,7 @@ def workflow_discover_factory(node):
             return json.dumps({
                 "success": True,
                 "matches": matches,
-                "total_searched": len(matches),
+                "total_searched": total_searched,
             }, default=str)
         except json.JSONDecodeError as e:
             return json.dumps({"success": False, "error": f"Invalid JSON: {e}"})

@@ -287,7 +287,7 @@ class TestScoreWorkflow:
 
 class TestDiscoverWorkflows:
     def test_sorted_by_score(self, db, user_profile, wf_telegram_agent, wf_webhook_code):
-        results = discover_workflows(
+        results, _ = discover_workflows(
             {"triggers": ["telegram"], "node_types": ["agent"]}, db,
         )
         assert len(results) >= 2
@@ -295,7 +295,7 @@ class TestDiscoverWorkflows:
         assert results[0]["slug"] == "telegram-bot"
 
     def test_excludes_self(self, db, user_profile, wf_telegram_agent, wf_webhook_code):
-        results = discover_workflows(
+        results, _ = discover_workflows(
             {"triggers": ["telegram"]}, db,
             exclude_workflow_id=wf_telegram_agent.id,
         )
@@ -303,21 +303,22 @@ class TestDiscoverWorkflows:
         assert "telegram-bot" not in slugs
 
     def test_excludes_inactive(self, db, user_profile, wf_telegram_agent, wf_inactive):
-        results = discover_workflows({}, db)
+        results, _ = discover_workflows({}, db)
         slugs = [r["slug"] for r in results]
         assert "inactive-wf" not in slugs
 
     def test_excludes_deleted(self, db, user_profile, wf_telegram_agent, wf_deleted):
-        results = discover_workflows({}, db)
+        results, _ = discover_workflows({}, db)
         slugs = [r["slug"] for r in results]
         assert "deleted-wf" not in slugs
 
     def test_respects_limit(self, db, user_profile, wf_telegram_agent, wf_webhook_code):
-        results = discover_workflows({}, db, limit=1)
+        results, total_searched = discover_workflows({}, db, limit=1)
         assert len(results) == 1
+        assert total_searched >= 2
 
     def test_gap_analysis_populated(self, db, user_profile, wf_telegram_agent):
-        results = discover_workflows(
+        results, _ = discover_workflows(
             {"triggers": ["telegram", "webhook"], "tools": ["calculator"]}, db,
         )
         match = next(r for r in results if r["slug"] == "telegram-bot")
@@ -337,7 +338,7 @@ class TestDiscoverWorkflows:
             ))
         db.commit()
 
-        results = discover_workflows(
+        results, _ = discover_workflows(
             {"triggers": ["telegram"], "node_types": ["agent"], "tools": ["web_search"], "tags": ["automation", "telegram"]}, db,
         )
         match = next(r for r in results if r["slug"] == "telegram-bot")
@@ -345,7 +346,7 @@ class TestDiscoverWorkflows:
         assert match["match_score"] >= 0.95
 
     def test_recommendation_fork(self, db, user_profile, wf_telegram_agent):
-        results = discover_workflows(
+        results, _ = discover_workflows(
             {"triggers": ["telegram"], "node_types": ["agent", "code"]}, db,
         )
         match = next(r for r in results if r["slug"] == "telegram-bot")
@@ -353,7 +354,7 @@ class TestDiscoverWorkflows:
         assert match["recommendation"] in ("fork_and_patch", "reuse")
 
     def test_recommendation_create_new(self, db, user_profile, wf_webhook_code):
-        results = discover_workflows(
+        results, _ = discover_workflows(
             {"triggers": ["telegram"], "node_types": ["agent"], "tools": ["web_search"]}, db,
         )
         match = next(r for r in results if r["slug"] == "webhook-processor")

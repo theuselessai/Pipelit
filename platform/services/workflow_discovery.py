@@ -26,7 +26,7 @@ def discover_workflows(
         limit: Maximum results to return.
 
     Returns:
-        List of match dicts sorted by score descending.
+        Tuple of (matches list sorted by score descending, total workflows searched).
     """
     from models.workflow import Workflow
 
@@ -94,7 +94,7 @@ def discover_workflows(
         })
 
     results.sort(key=lambda r: r["match_score"], reverse=True)
-    return results[:limit]
+    return results[:limit], len(workflows)
 
 
 def _extract_capabilities(workflow_id: int, db: Session) -> dict:

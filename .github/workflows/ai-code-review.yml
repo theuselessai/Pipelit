@@ -25,7 +25,7 @@ jobs:
         LLM_API_TYPE: openai
         LLM_API_BASE: https://api.venice.ai/api/v1/
         MAX_CONCURRENT_TASKS: 2
-        MODEL: "zai-org-glm-4.7"
+        MODEL: "zai-org-glm-4.7-flash"
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         PR_NUMBER_FROM_WORKFLOW_DISPATCH: ${{ github.event.inputs.pr_number }}
       run: |
