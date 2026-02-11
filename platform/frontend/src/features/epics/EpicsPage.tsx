@@ -78,7 +78,7 @@ export default function EpicsPage() {
               <Trash2 className="h-4 w-4 mr-2" />Delete Selected ({selectedIds.size})
             </Button>
           )}
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>
+          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); setSelectedIds(new Set()) }}>
             <SelectTrigger className="w-40"><SelectValue placeholder="All statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
@@ -123,7 +123,7 @@ export default function EpicsPage() {
               )}
             </TableBody>
           </Table>
-          <PaginationControls page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+          <PaginationControls page={page} pageSize={PAGE_SIZE} total={total} onPageChange={(p) => { setPage(p); setSelectedIds(new Set()) }} />
         </CardContent>
       </Card>
 
