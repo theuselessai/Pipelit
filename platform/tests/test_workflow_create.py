@@ -296,6 +296,66 @@ steps:
         assert "automation" in wf.tags
         assert "testing" in wf.tags
 
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_dict_form_trigger(self, mock_broadcast, db, user_profile):
+        """Dict-form trigger (type: webhook) should work same as string form."""
+        yaml_str = """\
+name: Dict Trigger Test
+trigger:
+  type: webhook
+steps:
+  - type: code
+    id: code_1
+    snippet: "return {'ok': True}"
+"""
+        result = compile_dsl(yaml_str, user_profile.id, db)
+        assert result["success"] is True
+        assert result["node_count"] == 2
+
+        wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
+        nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
+        trigger = next(n for n in nodes if n.component_type.startswith("trigger_"))
+        assert trigger.component_type == "trigger_webhook"
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_code_key_alias_for_snippet(self, mock_broadcast, db, user_profile):
+        """LLMs often use 'code' instead of 'snippet' — both should work."""
+        yaml_str = """\
+name: Code Alias Test
+trigger: manual
+steps:
+  - type: code
+    id: code_1
+    code: "return {'hello': 'world'}"
+"""
+        result = compile_dsl(yaml_str, user_profile.id, db)
+        assert result["success"] is True
+
+        wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
+        nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
+        code_node = next(n for n in nodes if n.component_type == "code")
+        assert code_node.component_config.extra_config["code"] == "return {'hello': 'world'}"
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_nested_config_code(self, mock_broadcast, db, user_profile):
+        """LLMs sometimes nest code under config: {code: ...}."""
+        yaml_str = """\
+name: Nested Config Test
+trigger: manual
+steps:
+  - type: code
+    id: code_1
+    config:
+      code: "return {'nested': True}"
+"""
+        result = compile_dsl(yaml_str, user_profile.id, db)
+        assert result["success"] is True
+
+        wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
+        nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
+        code_node = next(n for n in nodes if n.component_type == "code")
+        assert code_node.component_config.extra_config["code"] == "return {'nested': True}"
+
 
 # ── Fork & patch DB tests ───────────────────────────────────────────────────
 

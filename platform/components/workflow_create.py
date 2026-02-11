@@ -46,12 +46,34 @@ def workflow_create_factory(node):
 
         db = SessionLocal()
         try:
-            # Resolve parent agent node for inherit model resolution
-            parent_node = (
-                db.query(WorkflowNode)
-                .filter_by(workflow_id=workflow_id, node_id=node_id)
+            # Resolve the agent node that owns this tool (for model inheritance).
+            # The tool node is connected to the agent via a "tool" edge, so we
+            # follow the edge to find the agent, which has the LLM connection.
+            from models.node import WorkflowEdge
+
+            parent_node = None
+            tool_edge = (
+                db.query(WorkflowEdge)
+                .filter_by(
+                    workflow_id=workflow_id,
+                    source_node_id=node_id,
+                    edge_label="tool",
+                )
                 .first()
             )
+            if tool_edge:
+                parent_node = (
+                    db.query(WorkflowNode)
+                    .filter_by(workflow_id=workflow_id, node_id=tool_edge.target_node_id)
+                    .first()
+                )
+            if not parent_node:
+                # Fallback: use the tool node itself
+                parent_node = (
+                    db.query(WorkflowNode)
+                    .filter_by(workflow_id=workflow_id, node_id=node_id)
+                    .first()
+                )
 
             # Find owner from workflow
             workflow = db.query(Workflow).filter_by(id=workflow_id).first()
