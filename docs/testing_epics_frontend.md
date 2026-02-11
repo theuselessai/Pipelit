@@ -44,13 +44,13 @@ export BASE="http://localhost:8000/api/v1"
 Run these curl commands to create test epics and tasks:
 
 ```bash
-# Epic 1: active with tasks
+# Epic 1: planning (no tasks, standalone)
 curl -s -X POST "$BASE/epics/" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"title": "Build Auth System", "description": "Implement full authentication flow", "tags": ["auth", "security"], "priority": 1}' | jq .
 
-# Save the epic ID
+# Epic 2: active with tasks
 EPIC1=$(curl -s -X POST "$BASE/epics/" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
@@ -138,7 +138,7 @@ curl -s -X PATCH "$BASE/epics/$EPIC4/" \
 | 6.3 | Click the header checkbox | All visible epics selected |
 | 6.4 | Click the header checkbox again | All deselected, delete button disappears |
 | 6.5 | Select one epic, change status filter | Selection cleared (delete button disappears) |
-| 6.6 | Select one epic, click "Delete Selected" | Confirmation dialog appears: "Delete 1 Epics" with Cancel/Delete buttons |
+| 6.6 | Select one epic, click "Delete Selected" | Confirmation dialog appears: "Delete 1 Epic(s)" with Cancel/Delete buttons |
 | 6.7 | Click Cancel in dialog | Dialog closes, selection preserved |
 | 6.8 | Click Delete in dialog | Epic deleted, table refreshes, selection cleared |
 
