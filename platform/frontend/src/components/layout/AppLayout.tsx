@@ -16,6 +16,7 @@ import {
   Activity,
   Brain,
   Bot,
+  ListTodo,
   LogOut,
   Workflow,
   ChevronLeft,
@@ -28,6 +29,7 @@ const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Workflows" },
   { to: "/credentials", icon: KeyRound, label: "Credentials" },
   { to: "/executions", icon: Activity, label: "Executions" },
+  { to: "/epics", icon: ListTodo, label: "Epics" },
   { to: "/memories", icon: Brain, label: "Memories" },
   { to: "/agent-users", icon: Bot, label: "Agent Users" },
 ]

@@ -60,3 +60,38 @@ export interface FilterRule { id: string; field: string; operator: string; value
 
 // Checkpoints
 export interface Checkpoint { thread_id: string; checkpoint_ns: string; checkpoint_id: string; parent_checkpoint_id: string | null; step: number | null; source: string | null; blob_size: number }
+
+// Epic status + types
+export type EpicStatus = "planning" | "active" | "paused" | "completed" | "failed" | "cancelled"
+export type TaskStatus = "pending" | "blocked" | "running" | "completed" | "failed" | "cancelled"
+
+export interface Epic {
+  id: string; title: string; description: string; tags: string[]
+  created_by_node_id: string | null; workflow_id: number | null; user_profile_id: number | null
+  status: EpicStatus; priority: number
+  budget_tokens: number | null; budget_usd: number | null
+  spent_tokens: number; spent_usd: number
+  agent_overhead_tokens: number; agent_overhead_usd: number
+  total_tasks: number; completed_tasks: number; failed_tasks: number
+  created_at: string | null; updated_at: string | null; completed_at: string | null
+  result_summary: string | null
+}
+
+export interface Task {
+  id: string; epic_id: string; title: string; description: string; tags: string[]
+  created_by_node_id: string | null; status: TaskStatus; priority: number
+  workflow_id: number | null; workflow_slug: string | null
+  execution_id: string | null; workflow_source: string
+  depends_on: string[]; requirements: Record<string, unknown> | null
+  estimated_tokens: number | null; actual_tokens: number; actual_usd: number
+  llm_calls: number; tool_invocations: number; duration_ms: number
+  created_at: string | null; updated_at: string | null
+  started_at: string | null; completed_at: string | null
+  result_summary: string | null; error_message: string | null
+  retry_count: number; max_retries: number; notes: unknown[]
+}
+
+export interface EpicCreate { title: string; description?: string; tags?: string[]; priority?: number; budget_tokens?: number | null; budget_usd?: number | null; workflow_id?: number | null }
+export interface EpicUpdate { title?: string; description?: string; tags?: string[]; status?: EpicStatus; priority?: number; budget_tokens?: number | null; budget_usd?: number | null; result_summary?: string | null }
+export interface TaskCreate { epic_id: string; title: string; description?: string; tags?: string[]; depends_on?: string[]; priority?: number; workflow_slug?: string | null; estimated_tokens?: number | null; max_retries?: number; requirements?: Record<string, unknown> | null }
+export interface TaskUpdate { title?: string; description?: string; tags?: string[]; status?: TaskStatus; priority?: number; workflow_slug?: string | null; execution_id?: string | null; result_summary?: string | null; error_message?: string | null; notes?: unknown[] }

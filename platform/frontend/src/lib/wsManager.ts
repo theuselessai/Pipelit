@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
-import type { WorkflowDetail, WorkflowNode, WorkflowEdge } from "@/types/models"
+import type { WorkflowDetail, WorkflowNode, WorkflowEdge, Epic } from "@/types/models"
 
 interface WsMessage {
   type: string
@@ -174,6 +174,32 @@ class WebSocketManager {
         if (execId) {
           qc.invalidateQueries({ queryKey: ["executions", execId] })
           qc.invalidateQueries({ queryKey: ["executions"] })
+        }
+        break
+      }
+      case "epic_updated": {
+        const epicMatch = channel.match(/^epic:(.+)$/)
+        if (epicMatch?.[1] && msg.data) {
+          qc.setQueryData<Epic>(["epics", epicMatch[1]], msg.data as unknown as Epic)
+          qc.invalidateQueries({ queryKey: ["epics"] })
+        }
+        break
+      }
+      case "epic_deleted": {
+        qc.invalidateQueries({ queryKey: ["epics"] })
+        break
+      }
+      case "task_created":
+      case "task_updated":
+      case "task_deleted":
+      case "tasks_deleted": {
+        const epicMatch = channel.match(/^epic:(.+)$/)
+        const epicId = epicMatch?.[1]
+        if (epicId) {
+          qc.invalidateQueries({ queryKey: ["epics", epicId, "tasks"] })
+          qc.invalidateQueries({ queryKey: ["epics", epicId] })
+          qc.invalidateQueries({ queryKey: ["epics"] })
+          qc.invalidateQueries({ queryKey: ["tasks"] })
         }
         break
       }
