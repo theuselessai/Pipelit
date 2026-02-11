@@ -22,10 +22,9 @@ jobs:
     - name: Run AI code analysis
       env:
         LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-        LLM_API_TYPE: openai
-        LLM_API_BASE: https://api.venice.ai/api/v1/
+        LLM_API_TYPE: anthropic
         MAX_CONCURRENT_TASKS: 2
-        MODEL: "zai-org-glm-4.7"
+        MODEL: "claude-sonnet-4-5-20250929"
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         PR_NUMBER_FROM_WORKFLOW_DISPATCH: ${{ github.event.inputs.pr_number }}
       run: |

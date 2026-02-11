@@ -3,7 +3,7 @@ import { useCreateNode } from "@/api/nodes"
 import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
 import {
-  MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle,
+  MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle, Compass,
   Cpu, Bot,
   GitFork, Route, FileOutput, Split,
   Terminal, Globe, Search, Calculator,
@@ -40,6 +40,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   task_tools: ListChecks,
   spawn_and_await: Rocket,
   workflow_create: PencilRuler,
+  workflow_discover: Compass,
   loop: Repeat,
   wait: Pause,
   merge: Merge,
@@ -61,7 +62,7 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "AI", types: ["ai_model", "agent"] },
   { label: "Routing", types: ["categorizer", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
-  { label: "Agent", types: ["whoami", "create_agent_user", "platform_api", "epic_tools", "task_tools", "spawn_and_await", "workflow_create"] },
+  { label: "Agent", types: ["whoami", "create_agent_user", "platform_api", "epic_tools", "task_tools", "spawn_and_await", "workflow_create", "workflow_discover"] },
   { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute"] },
   { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "aggregator", "error_handler", "output_parser"] },

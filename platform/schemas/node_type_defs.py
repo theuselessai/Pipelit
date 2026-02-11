@@ -257,6 +257,14 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="workflow_discover",
+    display_name="Workflow Discover",
+    description="Search existing workflows by requirements and get reuse recommendations",
+    category="agent",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with matches, scores, and recommendations")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",

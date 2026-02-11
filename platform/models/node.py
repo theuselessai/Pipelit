@@ -196,6 +196,10 @@ class _WorkflowCreateConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "workflow_create"}
 
 
+class _WorkflowDiscoverConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "workflow_discover"}
+
+
 class OtherComponentConfig(BaseComponentConfig):
     """Config for human_confirmation, aggregator, workflow, output_parser."""
     __mapper_args__ = {"polymorphic_identity": "human_confirmation"}
@@ -284,6 +288,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "task_tools": _TaskToolsConfig,
     "spawn_and_await": _SpawnAndAwaitConfig,
     "workflow_create": _WorkflowCreateConfig,
+    "workflow_discover": _WorkflowDiscoverConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

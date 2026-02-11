@@ -241,5 +241,5 @@ class TestSubComponentTypes:
                     "calculator", "datetime", "output_parser", "memory_read",
                     "memory_write", "code_execute", "create_agent_user",
                     "platform_api", "whoami", "epic_tools", "task_tools",
-                    "spawn_and_await", "workflow_create"}
+                    "spawn_and_await", "workflow_create", "workflow_discover"}
         assert SUB_COMPONENT_TYPES == expected

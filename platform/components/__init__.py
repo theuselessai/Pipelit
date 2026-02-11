@@ -41,6 +41,7 @@ from components import (  # noqa: E402, F401
     spawn_and_await,
     task_tools,
     workflow_create,
+    workflow_discover,
     whoami,
     data_ops,
     datetime_tool,
