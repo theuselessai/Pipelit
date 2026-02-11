@@ -279,8 +279,9 @@ EPIC_IDS=$(curl -s "$BASE/epics/" -H "Authorization: Bearer $API_KEY" | jq -r '[
 echo "Epic IDs to delete: $EPIC_IDS"
 
 # Or batch delete
+EPIC_IDS_JSON=$(curl -s "$BASE/epics/" -H "Authorization: Bearer $API_KEY" | jq '[.items[].id]')
 curl -s -X POST "$BASE/epics/batch-delete/" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"epic_ids\": $(curl -s "$BASE/epics/" -H "Authorization: Bearer $API_KEY" | jq '[.items[].id]')}"
+  -d "{\"epic_ids\": $EPIC_IDS_JSON}"
 ```
