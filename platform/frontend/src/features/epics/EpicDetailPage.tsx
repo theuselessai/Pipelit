@@ -94,7 +94,9 @@ export default function EpicDetailPage() {
       : "No budget"
   const costLabel = epic.spent_usd != null
     ? `$${epic.spent_usd.toFixed(4)}`
-    : `${epic.spent_tokens.toLocaleString()} tokens`
+    : epic.spent_tokens != null
+      ? `${epic.spent_tokens.toLocaleString()} tokens`
+      : "No cost"
 
   return (
     <div className="p-6 space-y-6">
