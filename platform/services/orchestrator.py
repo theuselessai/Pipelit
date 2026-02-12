@@ -64,6 +64,10 @@ def _inflight_key(execution_id: str) -> str:
     return f"execution:{execution_id}:inflight"
 
 
+def _child_wait_key(execution_id: str, node_id: str) -> str:
+    return f"exec:{execution_id}:child_wait:{node_id}"
+
+
 def _loop_key(execution_id: str, loop_id: str) -> str:
     return f"execution:{execution_id}:loop:{loop_id}"
 
@@ -510,6 +514,14 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             logger.info(
                 "Node %s waiting for child execution %s", node_id, child_id,
             )
+            # Store timeout deadline so the cleanup job can expire stuck waits
+            timeout_seconds = 600  # 10 minutes
+            deadline = time.time() + timeout_seconds
+            r.set(
+                _child_wait_key(execution_id, node_id),
+                json.dumps({"deadline": deadline, "child_execution_id": child_id}),
+                ex=timeout_seconds + 60,
+            )
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.WAITING.value,
                 "child_execution_id": child_id,
@@ -542,6 +554,19 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             error_code=type(exc).__name__,
             error_message=str(exc)[:500],
         )
+        # Propagate failure to parent (if this is a child execution)
+        if execution:
+            _fail_parent_eid = getattr(execution, "parent_execution_id", None)
+            _fail_parent_nid = getattr(execution, "parent_node_id", None)
+            if _fail_parent_eid and _fail_parent_nid and isinstance(_fail_parent_eid, str):
+                try:
+                    _resume_from_child(
+                        parent_execution_id=_fail_parent_eid,
+                        parent_node_id=_fail_parent_nid,
+                        child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
+                    )
+                except Exception:
+                    logger.exception("Failed to propagate failure to parent %s", _fail_parent_eid)
     finally:
         db.close()
 
@@ -621,6 +646,10 @@ def _resume_from_child(
                 parent_execution_id, parent.status,
             )
             return
+
+        # Clean up the child-wait timeout key
+        r = _redis()
+        r.delete(_child_wait_key(parent_execution_id, parent_node_id))
 
         # Inject child output into parent state
         state = load_state(parent_execution_id)

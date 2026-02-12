@@ -26,3 +26,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 def start_execution_job(execution_id: str) -> None:
     from services.orchestrator import start_execution
     start_execution(execution_id)
+
+
+def cleanup_stuck_child_waits_job() -> int:
+    from tasks.cleanup import cleanup_stuck_child_waits
+    return cleanup_stuck_child_waits()

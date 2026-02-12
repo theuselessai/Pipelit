@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from langchain_core.tools import tool
+from langchain_core.tools import ToolException, tool
 
 from components import register
 
@@ -54,7 +54,12 @@ def spawn_and_await_factory(node):
             "input_data": input_data if input_data is not None else {},
         })
 
-        # On resume, interrupt() returns the child's output
+        # On resume, interrupt() returns the child's output.
+        # If the child failed, the result contains an _error key — raise so the
+        # agent's error handling kicks in instead of the LLM retrying the tool.
+        if isinstance(result, dict) and "_error" in result:
+            raise ToolException(f"Child workflow failed: {result['_error']}")
+
         if isinstance(result, str):
             return result
         return json.dumps(result, default=str)

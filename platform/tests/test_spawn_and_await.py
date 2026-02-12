@@ -493,6 +493,40 @@ class TestToolInvocation:
 
         assert result == "child completed"
 
+    def test_tool_raises_tool_exception_on_child_error(self):
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        child_error = {"_error": "Child execution failed: division by zero"}
+
+        with patch("langgraph.types.interrupt", return_value=child_error):
+            with pytest.raises(ToolException, match="Child workflow failed"):
+                tool.invoke({
+                    "workflow_slug": "child-wf",
+                    "input_text": "hello",
+                })
+
+    def test_tool_returns_dict_without_error_normally(self):
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        # Dict without _error should be returned as JSON, not raise
+        child_output = {"output": "success", "_other_key": "fine"}
+
+        with patch("langgraph.types.interrupt", return_value=child_output):
+            result = tool.invoke({
+                "workflow_slug": "child-wf",
+                "input_text": "hello",
+            })
+
+        assert result == json.dumps(child_output, default=str)
+
 
 # ---------------------------------------------------------------------------
 # _create_child_from_interrupt edge cases (agent.py)
@@ -1075,3 +1109,101 @@ class TestAgentNodeGraphInterrupt:
         assert "output" in result
         assert "spawn_and_await failed" in result["output"]
         assert "unable to create child execution" in result["output"]
+
+
+# ---------------------------------------------------------------------------
+# Child wait timeout & cleanup (orchestrator + tasks/cleanup.py)
+# ---------------------------------------------------------------------------
+
+
+class TestChildWaitTimeout:
+    """Test child_wait Redis key lifecycle and cleanup job."""
+
+    def test_child_wait_key_helper(self):
+        from services.orchestrator import _child_wait_key
+
+        key = _child_wait_key("exec-123", "agent_1")
+        assert key == "exec:exec-123:child_wait:agent_1"
+
+    def test_resume_from_child_deletes_wait_key(self):
+        """_resume_from_child should delete the child_wait key."""
+        from services.orchestrator import _child_wait_key, _resume_from_child
+
+        mock_redis = MagicMock()
+        mock_parent = MagicMock()
+        mock_parent.status = "running"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_parent
+
+        with patch("services.orchestrator._redis", return_value=mock_redis), \
+             patch("services.orchestrator.load_state", return_value={}), \
+             patch("services.orchestrator.save_state"), \
+             patch("services.orchestrator._queue", return_value=MagicMock()), \
+             patch("database.SessionLocal", return_value=mock_db):
+            _resume_from_child("parent-exec", "agent_1", {"result": "ok"})
+
+        mock_redis.delete.assert_called_once_with(
+            _child_wait_key("parent-exec", "agent_1")
+        )
+
+    def test_cleanup_expires_stuck_waits(self):
+        """cleanup_stuck_child_waits should call _resume_from_child for expired keys."""
+        import time as _time
+
+        from tasks.cleanup import cleanup_stuck_child_waits
+
+        expired_data = json.dumps({
+            "deadline": _time.time() - 100,  # already expired
+            "child_execution_id": "child-456",
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["exec:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = expired_data
+
+        with patch("tasks.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("tasks.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child") as mock_resume:
+            count = cleanup_stuck_child_waits()
+
+        assert count == 1
+        mock_resume.assert_called_once_with(
+            parent_execution_id="parent-exec",
+            parent_node_id="agent_1",
+            child_output={"_error": "Child execution timed out after 600s"},
+        )
+        mock_redis.delete.assert_called_with("exec:parent-exec:child_wait:agent_1")
+
+    def test_cleanup_skips_non_expired_waits(self):
+        """cleanup_stuck_child_waits should skip keys whose deadline hasn't passed."""
+        import time as _time
+
+        from tasks.cleanup import cleanup_stuck_child_waits
+
+        future_data = json.dumps({
+            "deadline": _time.time() + 1000,  # still in the future
+            "child_execution_id": "child-789",
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["exec:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = future_data
+
+        with patch("tasks.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("tasks.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child") as mock_resume:
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+        mock_resume.assert_not_called()
+
+    def test_cleanup_job_wrapper(self):
+        """tasks.cleanup_stuck_child_waits_job delegates to the real function."""
+        from tasks import cleanup_stuck_child_waits_job
+
+        with patch("tasks.cleanup.cleanup_stuck_child_waits", return_value=3) as mock_fn:
+            result = cleanup_stuck_child_waits_job()
+
+        assert result == 3
+        mock_fn.assert_called_once()
