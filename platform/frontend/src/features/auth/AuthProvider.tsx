@@ -1,12 +1,18 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
-import { login as apiLogin, fetchMe } from "@/api/auth"
+import { login as apiLogin, loginVerifyMFA as apiLoginVerifyMFA, fetchMe } from "@/api/auth"
+
+interface LoginResult {
+  authenticated: boolean
+  requiresMfa: boolean
+}
 
 interface AuthContextType {
   token: string | null
   username: string | null
   isAuthenticated: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<LoginResult>
+  loginWithMfa: (username: string, code: string) => Promise<void>
   logout: () => void
   setToken: (key: string) => void
 }
@@ -30,10 +36,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [token, username])
 
-  const login = useCallback(async (user: string, password: string) => {
-    const key = await apiLogin(user, password)
-    localStorage.setItem("auth_token", key)
-    setToken(key)
+  const login = useCallback(async (user: string, password: string): Promise<LoginResult> => {
+    const result = await apiLogin(user, password)
+
+    if (result.requires_mfa) {
+      return { authenticated: false, requiresMfa: true }
+    }
+
+    localStorage.setItem("auth_token", result.key)
+    setToken(result.key)
+    localStorage.setItem("auth_username", user)
+    setUsername(user)
+    return { authenticated: true, requiresMfa: false }
+  }, [])
+
+  const loginWithMfa = useCallback(async (user: string, code: string) => {
+    const result = await apiLoginVerifyMFA(user, code)
+    localStorage.setItem("auth_token", result.key)
+    setToken(result.key)
     localStorage.setItem("auth_username", user)
     setUsername(user)
   }, [])
@@ -51,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ token, username, isAuthenticated: !!token, login, logout, setToken: setTokenAndStore }}>
+    <AuthContext.Provider value={{ token, username, isAuthenticated: !!token, login, loginWithMfa, logout, setToken: setTokenAndStore }}>
       {children}
     </AuthContext.Provider>
   )

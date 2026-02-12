@@ -225,6 +225,14 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="get_totp_code",
+    display_name="Get TOTP Code",
+    description="Retrieve the current TOTP code for agent identity verification",
+    category="agent",
+    outputs=[PortDefinition(name="totp_code", data_type=DataType.STRING, description="JSON with username and current TOTP code")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="epic_tools",
     display_name="Epic Tools",
     description="Create, query, update, and search epics for task delegation",

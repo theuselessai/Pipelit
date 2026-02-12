@@ -7,6 +7,7 @@ import logging
 import secrets
 import uuid
 
+import pyotp
 from langchain_core.tools import tool
 
 from components import register
@@ -78,13 +79,15 @@ def create_agent_user_factory(node):
                     "already_existed": True,
                 })
 
-            # Create new agent user
+            # Create new agent user with TOTP secret for MFA
             random_hash = secrets.token_hex(32)
             user = UserProfile(
                 username=username,
                 password_hash=random_hash,
                 first_name=purpose or "Agent-created user",
                 is_agent=True,
+                totp_secret=pyotp.random_base32(),
+                mfa_enabled=True,
             )
             db.add(user)
             db.flush()

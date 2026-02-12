@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
+from models.encrypted import EncryptedString
 
 
 class UserProfile(Base):
@@ -30,6 +31,11 @@ class UserProfile(Base):
         ForeignKey("user_profiles.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+    # MFA fields
+    totp_secret: Mapped[str | None] = mapped_column(EncryptedString(500), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_last_used_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     api_key: Mapped[APIKey | None] = relationship("APIKey", back_populates="user", uselist=False)
