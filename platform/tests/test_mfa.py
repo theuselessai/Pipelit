@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -451,3 +452,163 @@ class TestMFAService:
         valid, step = verify_code(secret, "000000", user_id=1, last_used_at=None, r=fake_redis)
         assert valid is False
         assert step is None
+
+
+# ---------------------------------------------------------------------------
+# get_totp_code component
+# ---------------------------------------------------------------------------
+
+
+class TestGetTotpCodeComponent:
+    """Tests for the get_totp_code tool component."""
+
+    @pytest.fixture(autouse=True)
+    def _import_factory(self):
+        from components.get_totp_code import get_totp_code_factory
+        self.factory = get_totp_code_factory
+
+    def _make_tool(self, workflow_id, node_id):
+        node = MagicMock()
+        node.workflow_id = workflow_id
+        node.node_id = node_id
+        return self.factory(node)
+
+    def test_get_code_by_username(self, db):
+        """Retrieve TOTP code for a named agent user."""
+        secret = pyotp.random_base32()
+        agent = UserProfile(
+            username="agent_test_bot",
+            password_hash="x",
+            is_agent=True,
+            totp_secret=secret,
+            mfa_enabled=True,
+        )
+        db.add(agent)
+        db.commit()
+
+        tool_fn = self._make_tool(1, "n1")
+        with patch("components.get_totp_code.SessionLocal", return_value=db):
+            result = json.loads(tool_fn.invoke({"username": "agent_test_bot"}))
+        assert result["success"] is True
+        assert result["username"] == "agent_test_bot"
+        assert len(result["totp_code"]) == 6
+        assert result["totp_code"].isdigit()
+
+    def test_user_not_found(self, db):
+        """Return error when the requested user doesn't exist."""
+        tool_fn = self._make_tool(1, "n1")
+        with patch("components.get_totp_code.SessionLocal", return_value=db):
+            result = json.loads(tool_fn.invoke({"username": "nonexistent"}))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_user_without_totp_secret(self, db):
+        """Return error when the user has no TOTP secret configured."""
+        agent = UserProfile(
+            username="agent_no_totp",
+            password_hash="x",
+            is_agent=True,
+            totp_secret=None,
+            mfa_enabled=False,
+        )
+        db.add(agent)
+        db.commit()
+
+        tool_fn = self._make_tool(1, "n1")
+        with patch("components.get_totp_code.SessionLocal", return_value=db):
+            result = json.loads(tool_fn.invoke({"username": "agent_no_totp"}))
+        assert result["success"] is False
+        assert "no totp secret" in result["error"].lower()
+
+    def test_auto_resolve_via_edge(self, db, workflow):
+        """When no username given, resolve agent user via edge lookup."""
+        from models.node import BaseComponentConfig, WorkflowEdge, WorkflowNode
+
+        # Create tool node config
+        cc_tool = BaseComponentConfig(component_type="get_totp_code")
+        db.add(cc_tool)
+        db.flush()
+        tool_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="totp_tool_1",
+            component_type="get_totp_code",
+            component_config_id=cc_tool.id,
+        )
+        db.add(tool_node)
+
+        # Create agent node config
+        cc_agent = BaseComponentConfig(component_type="agent")
+        db.add(cc_agent)
+        db.flush()
+        agent_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="agent_abc",
+            component_type="agent",
+            component_config_id=cc_agent.id,
+        )
+        db.add(agent_node)
+
+        # Create tool edge: tool_node -> agent_node
+        edge = WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="totp_tool_1",
+            target_node_id="agent_abc",
+            edge_label="tool",
+        )
+        db.add(edge)
+
+        # Create the agent user the tool should find
+        secret = pyotp.random_base32()
+        agent_user = UserProfile(
+            username=f"agent_{workflow.slug}_agent_abc",
+            password_hash="x",
+            is_agent=True,
+            totp_secret=secret,
+            mfa_enabled=True,
+        )
+        db.add(agent_user)
+        db.commit()
+
+        tool_fn = self._make_tool(workflow.id, "totp_tool_1")
+        with patch("components.get_totp_code.SessionLocal", return_value=db):
+            result = json.loads(tool_fn.invoke({"username": ""}))
+        assert result["success"] is True
+        assert result["username"] == f"agent_{workflow.slug}_agent_abc"
+        assert len(result["totp_code"]) == 6
+
+    def test_auto_resolve_no_edge_fallback(self, db):
+        """When no edge exists and no username given, fall back to tool_node_id."""
+        secret = pyotp.random_base32()
+        agent_user = UserProfile(
+            username="agent_99_tool_node_1",
+            password_hash="x",
+            is_agent=True,
+            totp_secret=secret,
+            mfa_enabled=True,
+        )
+        db.add(agent_user)
+        db.commit()
+
+        tool_fn = self._make_tool(99, "tool_node_1")
+        with patch("components.get_totp_code.SessionLocal", return_value=db):
+            result = json.loads(tool_fn.invoke({"username": ""}))
+        assert result["success"] is True
+        assert result["username"] == "agent_99_tool_node_1"
+
+    def test_auto_resolve_agent_not_found(self, db):
+        """When auto-resolve finds no matching agent user, return error."""
+        tool_fn = self._make_tool(999, "orphan")
+        with patch("components.get_totp_code.SessionLocal", return_value=db):
+            result = json.loads(tool_fn.invoke({"username": ""}))
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    def test_db_exception_returns_error(self):
+        """Database errors are caught and returned as JSON error."""
+        tool_fn = self._make_tool(1, "n1")
+        mock_session = MagicMock()
+        mock_session.query.side_effect = RuntimeError("connection lost")
+        with patch("components.get_totp_code.SessionLocal", return_value=mock_session):
+            result = json.loads(tool_fn.invoke({"username": "any"}))
+        assert result["success"] is False
+        assert "connection lost" in result["error"]
