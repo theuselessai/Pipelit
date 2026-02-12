@@ -11,6 +11,7 @@ from api.memory import router as memory_router
 from api.users import router as users_router
 from api.epics import router as epics_router
 from api.tasks import router as tasks_router
+from api.schedules import router as schedules_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -23,3 +24,4 @@ api_router.include_router(memory_router, prefix="/memories", tags=["memories"])
 api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(epics_router, prefix="/epics", tags=["epics"])
 api_router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
+api_router.include_router(schedules_router, prefix="/schedules", tags=["schedules"])

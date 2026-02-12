@@ -85,6 +85,8 @@ class TriggerResolver:
         if event_type == "workflow":
             source = trigger_config.get("source_workflow")
             return source is None or source == event_data.get("source_workflow")
+        if event_type == "schedule":
+            return self._match_schedule(trigger_config, event_data)
         if event_type == "error":
             return True
         return True
@@ -111,6 +113,13 @@ class TriggerResolver:
         expected_path = config.get("path")
         if expected_path:
             return event_data.get("path") == expected_path
+        return True
+
+    def _match_schedule(self, config: dict, event_data: dict) -> bool:
+        """Match by scheduled_job_id if configured on the trigger."""
+        filter_id = (config or {}).get("scheduled_job_id")
+        if filter_id:
+            return event_data.get("scheduled_job_id") == filter_id
         return True
 
 
