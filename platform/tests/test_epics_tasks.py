@@ -279,6 +279,73 @@ class TestTaskCRUD:
         resp2 = auth_client.get(f"/api/v1/tasks/{dep_task_id}/")
         assert resp2.json()["depends_on"] == []
 
+    @patch("api.tasks.broadcast")
+    @patch("api.epic_helpers.broadcast", create=True)
+    def test_complete_task_unblocks_dependent(self, mock_helper_bc, mock_tasks_bc, auth_client, epic):
+        """Completing a task unblocks dependents whose deps are all completed."""
+        # Create task A (pending)
+        resp_a = auth_client.post("/api/v1/tasks/", json={
+            "epic_id": epic.id,
+            "title": "Task A",
+        })
+        assert resp_a.status_code == 201
+        task_a_id = resp_a.json()["id"]
+
+        # Create task B that depends on A — should start as blocked
+        resp_b = auth_client.post("/api/v1/tasks/", json={
+            "epic_id": epic.id,
+            "title": "Task B",
+            "depends_on": [task_a_id],
+        })
+        assert resp_b.status_code == 201
+        task_b_id = resp_b.json()["id"]
+        assert resp_b.json()["status"] == "blocked"
+
+        # Complete task A
+        auth_client.patch(f"/api/v1/tasks/{task_a_id}/", json={"status": "completed"})
+
+        # Task B should now be pending (auto-unblocked)
+        resp_b2 = auth_client.get(f"/api/v1/tasks/{task_b_id}/")
+        assert resp_b2.json()["status"] == "pending"
+
+    @patch("api.tasks.broadcast")
+    @patch("api.epic_helpers.broadcast", create=True)
+    def test_complete_task_partial_deps_stays_blocked(self, mock_helper_bc, mock_tasks_bc, auth_client, epic):
+        """If only some deps are completed, dependent task stays blocked."""
+        resp_a = auth_client.post("/api/v1/tasks/", json={
+            "epic_id": epic.id, "title": "Dep A",
+        })
+        task_a_id = resp_a.json()["id"]
+
+        resp_b = auth_client.post("/api/v1/tasks/", json={
+            "epic_id": epic.id, "title": "Dep B",
+        })
+        task_b_id = resp_b.json()["id"]
+
+        resp_c = auth_client.post("/api/v1/tasks/", json={
+            "epic_id": epic.id,
+            "title": "Blocked Task",
+            "depends_on": [task_a_id, task_b_id],
+        })
+        task_c_id = resp_c.json()["id"]
+        assert resp_c.json()["status"] == "blocked"
+
+        # Complete only task A
+        auth_client.patch(f"/api/v1/tasks/{task_a_id}/", json={"status": "completed"})
+
+        # Task C should still be blocked (B is not completed)
+        resp_c2 = auth_client.get(f"/api/v1/tasks/{task_c_id}/")
+        assert resp_c2.json()["status"] == "blocked"
+
+    @patch("api.tasks.broadcast")
+    def test_complete_task_no_dependents_noop(self, mock_broadcast, auth_client, epic, task):
+        """Completing a task with no dependents doesn't error."""
+        resp = auth_client.patch(f"/api/v1/tasks/{task.id}/", json={
+            "status": "completed",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "completed"
+
     def test_create_task_epic_not_found(self, auth_client):
         resp = auth_client.post("/api/v1/tasks/", json={
             "epic_id": "nonexistent",

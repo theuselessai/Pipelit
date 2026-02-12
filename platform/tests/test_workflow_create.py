@@ -592,6 +592,96 @@ steps:
         assert "alpha" in wf.tags
         assert "beta" in wf.tags
 
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_tool_resolves_parent_via_edge(self, mock_broadcast, db, user_profile, workflow):
+        """Tool follows the tool edge to find the parent agent node."""
+        from components.workflow_create import workflow_create_factory
+
+        # Create an agent node with LLM config
+        agent_cfg = BaseComponentConfig(
+            component_type="agent",
+            system_prompt="I am the parent",
+            extra_config={},
+        )
+        db.add(agent_cfg)
+        db.flush()
+        agent_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="agent_parent",
+            component_type="agent",
+            component_config_id=agent_cfg.id,
+        )
+        db.add(agent_node)
+
+        # Create a workflow_create tool node
+        wc_cfg = BaseComponentConfig(component_type="workflow_create", extra_config={})
+        db.add(wc_cfg)
+        db.flush()
+        wc_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="wc_edge",
+            component_type="workflow_create",
+            component_config_id=wc_cfg.id,
+        )
+        db.add(wc_node)
+
+        # Create a tool edge: wc_edge → agent_parent (edge_label="tool")
+        db.add(WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="wc_edge",
+            target_node_id="agent_parent",
+            edge_type="direct",
+            edge_label="tool",
+        ))
+        db.commit()
+
+        node = SimpleNamespace(workflow_id=workflow.id, node_id="wc_edge")
+        tool = workflow_create_factory(node)[0]
+
+        yaml_str = """\
+name: Edge Resolved WF
+trigger: manual
+steps:
+  - type: code
+    snippet: "print('edge test')"
+"""
+        with patch("database.SessionLocal", return_value=db):
+            with patch.object(db, "close"):
+                result_str = tool.invoke({"dsl": yaml_str})
+
+        result = json.loads(result_str)
+        assert result["success"] is True
+        assert result["slug"] == "edge-resolved-wf"
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_tool_returns_error_on_exception(self, mock_broadcast, db, user_profile, workflow):
+        """Tool returns error JSON and rolls back DB on exception."""
+        from components.workflow_create import workflow_create_factory
+
+        wc_cfg = BaseComponentConfig(component_type="workflow_create", extra_config={})
+        db.add(wc_cfg)
+        db.flush()
+        wc_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="wc_err2",
+            component_type="workflow_create",
+            component_config_id=wc_cfg.id,
+        )
+        db.add(wc_node)
+        db.commit()
+
+        node = SimpleNamespace(workflow_id=workflow.id, node_id="wc_err2")
+        tool = workflow_create_factory(node)[0]
+
+        with patch("database.SessionLocal", return_value=db):
+            with patch.object(db, "close"):
+                with patch("services.dsl_compiler.compile_dsl", side_effect=RuntimeError("boom")):
+                    result_str = tool.invoke({"dsl": "name: X\nsteps:\n  - type: code"})
+
+        result = json.loads(result_str)
+        assert result["success"] is False
+        assert "boom" in result["error"]
+
     def test_tool_error_handling(self):
         from components.workflow_create import workflow_create_factory
 

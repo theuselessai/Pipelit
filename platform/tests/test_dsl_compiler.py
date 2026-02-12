@@ -22,6 +22,7 @@ from services.dsl_compiler import (
     _resolve_tool_inherit,
     _score_model,
     _slugify,
+    _strip_markdown_fences,
     _unique_slug,
     compile_dsl,
     validate_dsl,
@@ -337,6 +338,43 @@ steps:
             nodes, _ = _build_graph(parsed, (None, None, None), MagicMock())
             assert nodes[0]["component_type"] == comp_type
 
+    def test_agent_auto_inherit_from_parent(self):
+        """Agent step with no model key inherits from parent_node via ai_model edge."""
+        yaml_str = """\
+name: Inherit Test
+steps:
+  - type: agent
+    id: child_agent
+    prompt: "Inherited model"
+"""
+        parsed = _parse_dsl(yaml_str)
+
+        # parent_node with an ai_model edge supplying cred/model
+        ai_config = SimpleNamespace(
+            llm_credential_id=77, model_name="inherited-model", temperature=0.4,
+        )
+        ai_node = SimpleNamespace(component_config=ai_config)
+        parent_config = SimpleNamespace(
+            llm_credential_id=None, model_name=None, temperature=None,
+        )
+        parent_node = SimpleNamespace(
+            workflow_id=1, node_id="parent_agent",
+            component_config=parent_config,
+        )
+        mock_edge = SimpleNamespace(source_node_id="ai_model_1")
+        mock_db = MagicMock()
+        # _resolve_model queries: edge query, then ai_node lookup
+        mock_db.query.return_value.filter_by.return_value.all.return_value = [mock_edge]
+        mock_db.query.return_value.filter_by.return_value.first.return_value = ai_node
+
+        # model_info=(None, None, None) forces the auto-inherit branch
+        nodes, edges = _build_graph(parsed, (None, None, None), mock_db, parent_node=parent_node)
+
+        agent_node = next(n for n in nodes if n["component_type"] == "agent")
+        assert agent_node["config"]["llm_credential_id"] == 77
+        assert agent_node["config"]["model_name"] == "inherited-model"
+        assert agent_node["config"]["temperature"] == 0.4
+
     def test_agent_step_level_model_override(self):
         yaml_str = """\
 name: Override
@@ -573,6 +611,19 @@ class TestForkPatches:
             e["source_node_id"] == "trigger_chat_1" and e["target_node_id"] == "code_1"
             for e in edges
         )
+
+    def test_patch_add_agent_step_system_prompt(self):
+        """_patch_add_step with type=agent sets system_prompt in config."""
+        from services.dsl_compiler import _patch_add_step
+        nodes = self._make_node_dicts()
+        edges = self._make_edge_dicts()
+        _patch_add_step(nodes, edges, {
+            "after": "agent_1",
+            "step": {"type": "agent", "id": "new_agent", "prompt": "Do X"},
+        })
+        new_agent = next(n for n in nodes if n["node_id"] == "new_agent")
+        assert new_agent["config"]["system_prompt"] == "Do X"
+        assert new_agent["component_type"] == "agent"
 
     def test_patch_add_tool(self):
         from services.dsl_compiler import _patch_add_tool
@@ -1251,6 +1302,26 @@ steps:
 
 
 # ── compile_dsl integration (mocked DB) ─────────────────────────────────────
+
+
+class TestStripMarkdownFences:
+    def test_strips_fences(self):
+        code = "```python\nprint('hi')\n```"
+        assert _strip_markdown_fences(code) == "print('hi')"
+
+    def test_strips_fences_no_language(self):
+        code = "```\nsome code\n```"
+        assert _strip_markdown_fences(code) == "some code"
+
+    def test_no_fences_passthrough(self):
+        assert _strip_markdown_fences("just code") == "just code"
+
+    def test_empty_string(self):
+        assert _strip_markdown_fences("") == ""
+
+    def test_none_passthrough(self):
+        """Falsy input returns as-is."""
+        assert _strip_markdown_fences(None) is None
 
 
 class TestCompileDslMocked:
