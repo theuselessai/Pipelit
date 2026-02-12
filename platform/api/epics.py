@@ -30,7 +30,7 @@ def list_epics(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    q = db.query(Epic).filter(Epic.user_profile_id == profile.id)
+    q = db.query(Epic)
     if status:
         q = q.filter(Epic.status == status)
     if tags:
@@ -76,7 +76,7 @@ def get_epic(
 ):
     epic = (
         db.query(Epic)
-        .filter(Epic.id == epic_id, Epic.user_profile_id == profile.id)
+        .filter(Epic.id == epic_id)
         .first()
     )
     if not epic:
@@ -93,7 +93,7 @@ def update_epic(
 ):
     epic = (
         db.query(Epic)
-        .filter(Epic.id == epic_id, Epic.user_profile_id == profile.id)
+        .filter(Epic.id == epic_id)
         .first()
     )
     if not epic:
@@ -134,7 +134,7 @@ def delete_epic(
 ):
     epic = (
         db.query(Epic)
-        .filter(Epic.id == epic_id, Epic.user_profile_id == profile.id)
+        .filter(Epic.id == epic_id)
         .first()
     )
     if not epic:
@@ -155,15 +155,11 @@ def batch_delete_epics(
 ):
     if not payload.epic_ids:
         return
-    # Only delete tasks belonging to the user's epics
-    user_epic_ids = db.query(Epic.id).filter(
-        Epic.id.in_(payload.epic_ids), Epic.user_profile_id == profile.id
-    )
-    db.query(Task).filter(Task.epic_id.in_(user_epic_ids)).delete(
+    db.query(Task).filter(Task.epic_id.in_(payload.epic_ids)).delete(
         synchronize_session=False
     )
     db.query(Epic).filter(
-        Epic.id.in_(payload.epic_ids), Epic.user_profile_id == profile.id
+        Epic.id.in_(payload.epic_ids)
     ).delete(synchronize_session=False)
     db.commit()
 
@@ -176,12 +172,7 @@ def list_epic_tasks(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    # Verify epic exists and belongs to user
-    epic = (
-        db.query(Epic)
-        .filter(Epic.id == epic_id, Epic.user_profile_id == profile.id)
-        .first()
-    )
+    epic = db.query(Epic).filter(Epic.id == epic_id).first()
     if not epic:
         raise HTTPException(status_code=404, detail="Epic not found.")
 
