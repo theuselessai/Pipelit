@@ -49,13 +49,13 @@ def cleanup_stuck_child_waits() -> int:
                 # Extract execution_id and node_id from key pattern:
                 # execution:<execution_id>:child_wait:<node_id>
                 parts = key.split(":")
-                # parts = ["execution", execution_id, "child_wait", node_id]
-                if len(parts) < 4:
+                if len(parts) < 4 or parts[0] != "execution" or "child_wait" not in parts:
                     r.delete(key)
                     continue
 
-                execution_id = parts[1]
-                node_id = parts[3]
+                cw_idx = parts.index("child_wait")
+                execution_id = ":".join(parts[1:cw_idx])
+                node_id = ":".join(parts[cw_idx + 1:])
 
                 logger.warning(
                     "Child wait expired for execution %s node %s (deadline %.0f, now %.0f)",
@@ -67,9 +67,9 @@ def cleanup_stuck_child_waits() -> int:
 
                 # Resume parent with timeout error; only delete key on success
                 # so that transient failures are retried on the next cleanup run.
-                try:
-                    from services.orchestrator import _resume_from_child
+                from services.orchestrator import _resume_from_child
 
+                try:
                     _resume_from_child(
                         parent_execution_id=execution_id,
                         parent_node_id=node_id,

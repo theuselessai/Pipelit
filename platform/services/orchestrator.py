@@ -527,11 +527,12 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
     except Exception as exc:
         logger.exception("Unexpected error in execute_node_job(%s, %s)", execution_id, node_id)
+        _exec = locals().get("execution")
         try:
-            if execution:
-                execution.status = "failed"
-                execution.error_message = str(exc)[:2000]
-                execution.completed_at = datetime.now(timezone.utc)
+            if _exec:
+                _exec.status = "failed"
+                _exec.error_message = str(exc)[:2000]
+                _exec.completed_at = datetime.now(timezone.utc)
                 db.commit()
                 _clear_stale_checkpoints(execution_id, db)
                 _sync_task_costs(execution_id, db)
@@ -547,8 +548,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             error_message=str(exc)[:500],
         )
         # Propagate failure to parent (if this is a child execution)
-        if execution:
-            _propagate_failure_to_parent(execution, exc)
+        if _exec:
+            _propagate_failure_to_parent(_exec, exc)
     finally:
         db.close()
 
