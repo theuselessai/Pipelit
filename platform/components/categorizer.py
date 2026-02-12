@@ -7,6 +7,8 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+import logging
+
 from components import register
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
@@ -15,12 +17,18 @@ from services.token_usage import (
     get_model_name_for_node,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @register("categorizer")
 def categorizer_factory(node):
     """Build a categorizer graph node."""
     llm = resolve_llm_for_node(node)
-    model_name = get_model_name_for_node(node)
+    try:
+        model_name = get_model_name_for_node(node)
+    except Exception:
+        logger.warning("Failed to resolve model name for categorizer %s; token costs will be $0", node.node_id)
+        model_name = ""
     extra = node.component_config.extra_config
     categories = extra.get("categories", [])
 
@@ -60,6 +68,7 @@ def categorizer_factory(node):
                 model_name, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
             )
         except Exception:
+            logger.exception("Failed to extract token usage for categorizer")
             usage = {"llm_calls": 1, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
 
         # Parse category from response

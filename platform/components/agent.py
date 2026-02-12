@@ -68,7 +68,11 @@ def _get_redis_checkpointer():
 def agent_factory(node):
     """Build an agent graph node."""
     llm = resolve_llm_for_node(node)
-    model_name = get_model_name_for_node(node)
+    try:
+        model_name = get_model_name_for_node(node)
+    except Exception:
+        logger.warning("Failed to resolve model name for agent %s; token costs will be $0", node.node_id)
+        model_name = ""
     concrete = node.component_config.concrete
     system_prompt = getattr(concrete, "system_prompt", None) or ""
     extra = getattr(concrete, "extra_config", None) or {}
@@ -222,6 +226,7 @@ def agent_factory(node):
                 if hasattr(msg, "type") and msg.type == "ai"
             )
         except Exception:
+            logger.exception("Failed to extract token usage for agent %s", node_id)
             usage = {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0, "tool_invocations": 0}
 
         return {
