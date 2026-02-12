@@ -38,14 +38,23 @@ The identity lives in the conversation, not in the transport layer. A ghost asks
 *Backend:*
 - **TOTP secret storage** — encrypted column on `UserProfile` using existing `EncryptedString` (Fernet), plus `mfa_enabled` boolean
 - **API endpoints** — `POST /auth/mfa/setup/` (generate secret + QR URI), `POST /auth/mfa/verify/` (confirm setup with a code), `POST /auth/mfa/disable/` (requires valid code)
-- **Agent users** — `create_agent_user` auto-generates a TOTP secret at creation time. Agent tools include `get_my_totp_code` so agents can respond to identity challenges.
+- **Agent users** — `create_agent_user` auto-generates a TOTP secret at creation time. Agent tools include `get_my_totp_code` so agents can respond to **agent-to-agent** identity challenges only (see separation below).
 - **`pyotp`** — dependency for TOTP generation and validation
+- **1-minute validity window** — TOTP codes use `valid_window=1` (current 30s step + previous 30s step ≈ 1 minute). This is the default and only accepted window.
+
+*TOTP hardening:*
+- **Rate limiting** — max 5 TOTP attempts per minute per user. Prevents brute-force (6-digit codes have only 1M combinations).
+- **Account lockout** — after 10 consecutive failures, lock the account for 15 minutes. Require password + local access to unlock early.
+- **Code reuse prevention** — track last successfully used TOTP timestamp. Reject codes that have already been used within the same time window.
+
+*Two distinct authentication flows:*
+- **Agent-to-agent identity** — agents use TOTP to prove who they are to other agents. An agent can call `get_my_totp_code` and present it. This is fine — it's identity verification, not approval.
+- **Human approval gates** — when a workflow requires human approval for a dangerous action, **only a human TOTP is accepted**. An agent cannot self-approve. The identify_user node must verify that the responder is a human user (not an agent user) before accepting the code.
 
 *identify_user node:*
 - **Conversational two-turn flow** — ask nickname, ask TOTP code, validate with `pyotp`
-- **Human interruption integration** — when an agent hits an approval gate, the interruption flow requires TOTP before accepting the response
+- **Human interruption integration** — when an agent hits an approval gate, the interruption flow requires a **human** TOTP before accepting the response. Agent self-approval is rejected.
 - **No channel-specific logic** — remove all Telegram/webhook/manual payload parsing from the identity flow
-- **Unified protocol** — same flow for humans and agents. A human reads their authenticator app, an agent calls `pyotp.TOTP(secret).now()`. The node doesn't need to know which it's talking to.
 
 *Frontend — Settings page MFA section:*
 - **Enable MFA** — generate TOTP secret, display QR code (`otpauth://` URI) for scanning into authenticator app
@@ -56,7 +65,7 @@ The identity lives in the conversation, not in the transport layer. A ghost asks
 *Recovery — physical access only:*
 - **TOTP reset requires password + local access** — the reset/regenerate endpoint only works from the local web interface on the host machine. No remote reset, no email recovery, no backup codes.
 - This is deliberate: if you lose your authenticator, you must be physically present at the machine that hosts the platform. An agent (or remote attacker) cannot reset MFA on your behalf.
-- **Network restriction** — reset endpoint restricted to `localhost`, `127.0.0.1`, and `192.168.*.*`. Requests from any other origin are rejected regardless of valid credentials.
+- **Network restriction** — reset endpoint restricted to loopback only (`localhost`, `127.0.0.1`, `::1`). All other addresses — including RFC 1918 private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) — are rejected to prevent local network attacks.
 
 ### error_handler NotImplementedError
 The error handler component raises `NotImplementedError` in some code paths. This should be replaced with a proper fallback that logs the error and marks the execution as failed gracefully.
