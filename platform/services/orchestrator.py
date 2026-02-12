@@ -392,6 +392,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             execution.error_message = f"Node {node_id}: {str(exc)[:1900]}"
             execution.completed_at = datetime.now(timezone.utc)
             db.commit()
+            _clear_stale_checkpoints(execution_id, db)
             _sync_task_costs(execution_id, db)
             _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=slug)
             _complete_episode(
@@ -528,6 +529,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 execution.error_message = str(exc)[:2000]
                 execution.completed_at = datetime.now(timezone.utc)
                 db.commit()
+                _clear_stale_checkpoints(execution_id, db)
                 _sync_task_costs(execution_id, db)
         except Exception:
             pass
@@ -1112,6 +1114,15 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
         db.commit()
         logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
 
+        # Auto-unblock dependent tasks when this task is completed
+        if task.status == "completed":
+            try:
+                from api.epic_helpers import resolve_blocked_tasks
+                resolve_blocked_tasks(task.id, db)
+                db.commit()
+            except Exception:
+                logger.exception("Failed to resolve blocked tasks for task %s", task.id)
+
         # Sync epic progress counters (best-effort — task status already committed)
         if task.epic:
             try:
@@ -1122,6 +1133,97 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
 
     except Exception:
         logger.exception("Failed to sync task costs for execution %s", execution_id)
+
+
+def _clear_stale_checkpoints(execution_id: str, db: Session) -> None:
+    """Clear SqliteSaver checkpoints for agent threads in a failed/cancelled execution.
+
+    When an agent with conversation_memory fails mid-interrupt (e.g. during
+    spawn_and_await), the SqliteSaver checkpoint retains orphaned tool_calls
+    with no ToolMessage.  On the next conversation turn the same thread_id is
+    reused and LangGraph raises INVALID_CHAT_HISTORY.  This helper deletes
+    those stale checkpoints so the next turn starts fresh.
+    """
+    try:
+        from models.execution import WorkflowExecution
+        from models.node import WorkflowEdge, WorkflowNode
+
+        execution = (
+            db.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == execution_id)
+            .first()
+        )
+        if not execution:
+            return
+
+        # Find agent nodes with conversation_memory in this workflow
+        agent_nodes = (
+            db.query(WorkflowNode)
+            .filter(
+                WorkflowNode.workflow_id == execution.workflow_id,
+                WorkflowNode.component_type == "agent",
+            )
+            .all()
+        )
+
+        thread_ids_to_clear: list[str] = []
+        for agent_node in agent_nodes:
+            cfg = agent_node.component_config
+            if not cfg:
+                continue
+            extra = getattr(cfg, "extra_config", None) or {}
+            if not extra.get("conversation_memory"):
+                continue
+
+            # Reconstruct the thread_id (same logic as agent.py)
+            user_id = execution.user_profile_id or "anon"
+            payload = execution.trigger_payload or {}
+            chat_id = payload.get("chat_id", "")
+            if chat_id:
+                thread_id = f"{user_id}:{chat_id}:{execution.workflow_id}"
+            else:
+                thread_id = f"{user_id}:{execution.workflow_id}"
+            thread_ids_to_clear.append(thread_id)
+
+        if not thread_ids_to_clear:
+            return
+
+        # Use the SqliteSaver singleton to delete threads
+        from components.agent import _get_checkpointer
+
+        checkpointer = _get_checkpointer()
+        for thread_id in thread_ids_to_clear:
+            try:
+                checkpointer.delete_thread(thread_id)
+                logger.info(
+                    "Cleared stale checkpoint for thread %s (execution %s)",
+                    thread_id, execution_id,
+                )
+            except AttributeError:
+                # Fallback: delete directly via SQL if delete_thread not available
+                import sqlite3
+                import os
+
+                db_path = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)),
+                    "checkpoints.db",
+                )
+                conn = sqlite3.connect(db_path)
+                try:
+                    conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+                    conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+                    conn.commit()
+                    logger.info(
+                        "Cleared stale checkpoint (SQL fallback) for thread %s",
+                        thread_id,
+                    )
+                finally:
+                    conn.close()
+
+    except Exception:
+        logger.exception(
+            "Failed to clear stale checkpoints for execution %s", execution_id,
+        )
 
 
 def _cleanup_redis(execution_id: str) -> None:

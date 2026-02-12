@@ -140,7 +140,7 @@ class TestParseDsl:
     def test_parse_default_trigger(self):
         yaml_str = "name: Test\nsteps:\n  - type: code\n    snippet: pass"
         parsed = _parse_dsl(yaml_str)
-        assert parsed["trigger"] == "manual"
+        assert parsed["trigger"] == "none"
 
     def test_parse_all_valid_triggers(self):
         for trigger_name in TRIGGER_TYPE_MAP:

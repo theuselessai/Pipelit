@@ -6,7 +6,14 @@ Comprehensive testing plan for the full delegation feature: Task Registry, Agent
 
 ```bash
 # Terminal 1: Start Redis (required for RQ workers and WebSocket broadcast)
-redis-server
+# IMPORTANT: spawn_and_await without conversation_memory uses RedisSaver, which
+# requires redis-stack-server (not plain redis-server) for the RediSearch module.
+# Plain redis-server will fail with "unknown command FT._LIST".
+#   Install: https://redis.io/docs/getting-started/install-stack/
+#   Or on Debian/Ubuntu: curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg && echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list && sudo apt-get update && sudo apt-get install redis-stack-server
+#   Workaround: Enable conversation_memory=true on the agent node to use
+#   SqliteSaver instead (works with plain redis-server).
+redis-stack-server
 
 # Terminal 2: Start RQ worker
 cd platform
@@ -118,7 +125,7 @@ curl -s -X PATCH "$BASE/tasks/$TASK1_ID/" \
 
 # 1.2.5 Check if blocked task is now pending
 curl -s "$BASE/tasks/$TASK2_ID/" -H "Authorization: Bearer $API_KEY" | jq .status
-# Expected: may still be "blocked" (depends on implementation — check manually)
+# Expected: "pending" (auto-unblocked when all dependencies are completed)
 
 # 1.2.6 List tasks for epic
 curl -s "$BASE/epics/$EPIC_ID/tasks/" -H "Authorization: Bearer $API_KEY" | jq '{total, items: [.items[] | {id, title, status}]}'

@@ -221,9 +221,9 @@ def _parse_dsl(yaml_str: str) -> dict:
 
     # Normalize and validate trigger — accept both string ("webhook")
     # and dict ({"type": "webhook"}) forms per the DSL spec.
-    trigger = parsed.setdefault("trigger", "manual")
+    trigger = parsed.setdefault("trigger", "none")
     if isinstance(trigger, dict):
-        trigger = trigger.get("type", "manual")
+        trigger = trigger.get("type", "none")
         parsed["trigger"] = trigger
     if isinstance(trigger, str) and trigger not in TRIGGER_TYPE_MAP:
         raise ValueError(
