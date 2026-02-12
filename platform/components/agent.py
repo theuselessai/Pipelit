@@ -226,7 +226,7 @@ def agent_factory(node):
                 if hasattr(msg, "type") and msg.type == "ai"
             )
         except Exception:
-            logger.exception("Failed to extract token usage for agent %s", node_id)
+            logger.exception("Failed to extract token usage for agent %s", node.node_id)
             usage = {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0, "tool_invocations": 0}
 
         return {
