@@ -23,14 +23,13 @@
 - [x] **Redis 8.0+ docs** — replaced deprecated redis-stack-server instructions with Redis 8 install
 - [x] **gh CLI** — confirmed working, added to CLAUDE.md
 - [x] **Merged branch cleanup** — deleted 21+ stale remote branches
+- [x] **Fix spawn failure stuck execution** — three fixes: (1) `spawn_and_await` raises `ToolException` on child `_error` instead of returning it as tool output (prevents infinite retry loop), (2) outer exception handler propagates failure to parent via `_propagate_failure_to_parent` helper, (3) child wait timeout with 600s deadline in Redis + periodic cleanup job (`services/cleanup.py`)
+- [x] **TOTP-based MFA authentication** — full implementation: backend (pyotp, encrypted TOTP secret on UserProfile, MFA service with rate limiting/lockout/replay prevention, 6 API endpoints), frontend (login MFA step, Settings page with QR code setup/disable dialogs), agent TOTP (auto-generated secrets for agent users, `get_totp_code` tool component). 27 tests passing.
 
 ## 3. Bugs to Fix
 
 ### error_handler NotImplementedError
 The error handler component raises `NotImplementedError` in some code paths. This should be replaced with a proper fallback that logs the error and marks the execution as failed gracefully.
-
-### spawn failure stuck execution
-When `spawn_and_await` spawns a child execution that fails, the parent execution can get stuck in "running" state indefinitely. Needs a timeout or failure-propagation mechanism so the parent detects child failure and transitions to failed/completed. **This is the most critical blocker for the self-improving agent loop.**
 
 ## 4. Conversational TOTP Authentication
 
@@ -102,8 +101,8 @@ The identity lives in the conversation, not in the transport layer. A ghost asks
 Minimum steps to get a self-improving agent loop working:
 
 1. ~~**Apply global epics/tasks**~~ — done
-2. **Fix spawn failure stuck execution** — without this, the orchestrator's child executions can silently hang
-3. **Implement TOTP authentication** — required before any human-in-the-loop approval is safe
+2. ~~**Fix spawn failure stuck execution**~~ — done (ToolException on child error, parent propagation, 600s timeout + cleanup job)
+3. ~~**Implement TOTP authentication**~~ — done (MFA service, API endpoints, frontend login/settings, agent TOTP, 27 tests)
 4. **Wire cost tracking** in the orchestrator — populate `spent_tokens`/`spent_usd` after each LLM call
 5. **Add budget enforcement** — check `budget_tokens`/`budget_usd` before executing a task, fail early if exceeded
 6. **Build an orchestrator workflow** — a meta-agent that:
