@@ -1210,9 +1210,9 @@ def _clear_stale_checkpoints(execution_id: str, db: Session) -> None:
                 )
                 conn = sqlite3.connect(db_path)
                 try:
-                    conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
-                    conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
-                    conn.commit()
+                    with conn:
+                        conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+                        conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
                     logger.info(
                         "Cleared stale checkpoint (SQL fallback) for thread %s",
                         thread_id,

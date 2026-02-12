@@ -163,7 +163,7 @@ class TestClearStaleCheckpoints:
             with patch("sqlite3.connect", return_value=mock_conn):
                 _clear_stale_checkpoints(exe.execution_id, db)
 
-        # SQL fallback should execute DELETE statements
+        # SQL fallback should execute DELETE statements inside context manager
         assert mock_conn.execute.call_count >= 2
-        mock_conn.commit.assert_called_once()
+        mock_conn.__enter__.assert_called_once()
         mock_conn.close.assert_called_once()

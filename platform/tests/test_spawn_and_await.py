@@ -1071,7 +1071,7 @@ class TestAgentNodeGraphInterrupt:
         ):
             result = agent_node(state)
 
-        # Should return error output, NOT raise
+        # Should return error output, NOT raise (generic message, no raw exception)
         assert "output" in result
         assert "spawn_and_await failed" in result["output"]
-        assert "target workflow not found" in result["output"]
+        assert "unable to create child execution" in result["output"]

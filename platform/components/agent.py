@@ -219,7 +219,7 @@ def _try_create_child(interrupt_data: dict, state: dict, node_id: str) -> dict:
         return {"_subworkflow": {"child_execution_id": child_id}}
     except Exception as exc:
         logger.exception("Agent %s: failed to create child execution", node_id)
-        return {"output": f"spawn_and_await failed: {exc}"}
+        return {"output": "spawn_and_await failed: unable to create child execution"}
 
 
 def _create_child_from_interrupt(

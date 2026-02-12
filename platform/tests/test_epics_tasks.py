@@ -315,11 +315,13 @@ class TestTaskCRUD:
         resp_a = auth_client.post("/api/v1/tasks/", json={
             "epic_id": epic.id, "title": "Dep A",
         })
+        assert resp_a.status_code == 201
         task_a_id = resp_a.json()["id"]
 
         resp_b = auth_client.post("/api/v1/tasks/", json={
             "epic_id": epic.id, "title": "Dep B",
         })
+        assert resp_b.status_code == 201
         task_b_id = resp_b.json()["id"]
 
         resp_c = auth_client.post("/api/v1/tasks/", json={
@@ -327,6 +329,7 @@ class TestTaskCRUD:
             "title": "Blocked Task",
             "depends_on": [task_a_id, task_b_id],
         })
+        assert resp_c.status_code == 201
         task_c_id = resp_c.json()["id"]
         assert resp_c.json()["status"] == "blocked"
 
