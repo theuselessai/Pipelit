@@ -32,6 +32,7 @@ export default function LoginPage() {
     try {
       const result = await login(username, password)
       if (result.requiresMfa) {
+        setPassword("")
         setMfaStep(true)
       } else {
         navigate("/")

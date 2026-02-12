@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TokenRequest(BaseModel):
@@ -47,16 +47,16 @@ class MFASetupResponse(BaseModel):
 
 
 class MFAVerifyRequest(BaseModel):
-    code: str
+    code: str = Field(pattern=r"^\d{6}$")
 
 
 class MFADisableRequest(BaseModel):
-    code: str
+    code: str = Field(pattern=r"^\d{6}$")
 
 
 class MFALoginVerifyRequest(BaseModel):
     username: str
-    code: str
+    code: str = Field(pattern=r"^\d{6}$")
 
 
 class MFAStatusResponse(BaseModel):

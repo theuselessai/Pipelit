@@ -79,9 +79,9 @@ def _record_attempt(r: redis_lib.Redis, user_id: int, success: bool) -> None:
         pipe = r.pipeline()
         pipe.incr(failure_key)
         pipe.expire(failure_key, LOCKOUT_SECONDS)
-        pipe.execute()
+        results = pipe.execute()
 
-        failures = r.get(failure_key)
+        failures = results[0]  # INCR returns new value
         if failures and int(failures) >= MAX_CONSECUTIVE_FAILURES:
             r.setex(f"mfa:lockout:{user_id}", LOCKOUT_SECONDS, "1")
 
@@ -104,7 +104,6 @@ def verify_code(
     # Rate limit check
     err = _check_rate_limit(r, user_id)
     if err:
-        _record_attempt(r, user_id, success=False)
         return False, None
 
     totp = pyotp.TOTP(secret)

@@ -147,7 +147,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* Enable MFA Dialog */}
-      <Dialog open={showEnableDialog} onOpenChange={setShowEnableDialog}>
+      <Dialog open={showEnableDialog} onOpenChange={(open) => { setShowEnableDialog(open); if (!open) { setError(""); setCode(""); setSetupData(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Set Up Two-Factor Authentication</DialogTitle>
@@ -191,7 +191,7 @@ export default function SettingsPage() {
       </Dialog>
 
       {/* Disable MFA Dialog */}
-      <Dialog open={showDisableDialog} onOpenChange={setShowDisableDialog}>
+      <Dialog open={showDisableDialog} onOpenChange={(open) => { setShowDisableDialog(open); if (!open) { setError(""); setCode(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Disable Two-Factor Authentication</DialogTitle>

@@ -315,21 +315,13 @@ class TestLockout:
 
 
 class TestMFAReset:
-    def test_reset_works_from_localhost(self, auth_client, db, user_profile):
-        """TestClient default sends from testclient, but we can patch request.client."""
+    def test_reset_rejected_from_non_localhost(self, auth_client, db, user_profile):
+        """TestClient uses a non-localhost host, so reset should be rejected."""
         secret = pyotp.random_base32()
         user_profile.totp_secret = secret
         user_profile.mfa_enabled = True
         db.commit()
 
-        # TestClient uses 'testclient' as host by default — we need to patch
-        with patch("api.auth.Request") as MockRequest:
-            # Actually, TestClient doesn't let us easily set client.host
-            # So test the endpoint directly with a mock
-            pass
-
-        # Alternative: test via the endpoint and check the logic works
-        # The TestClient IP isn't 127.0.0.1, so this should be rejected
         resp = auth_client.post("/api/v1/auth/mfa/reset/")
         assert resp.status_code == 403
 
