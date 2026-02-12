@@ -564,7 +564,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 try:
                     _persist_execution_costs(_exec, load_state(execution_id))
                 except Exception:
-                    pass
+                    logger.exception("Failed to persist execution costs for %s", execution_id)
                 db.commit()
                 _clear_stale_checkpoints(execution_id, db)
                 _sync_task_costs(execution_id, db)
@@ -1235,7 +1235,7 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
             exec_usage = exec_state.get("_execution_token_usage", {})
             task.tool_invocations = exec_usage.get("tool_invocations", 0)
         except Exception:
-            pass
+            logger.exception("Failed to load tool_invocations for task %s", task.id)
 
         db.commit()
         logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
