@@ -23,7 +23,7 @@ export interface EdgeCreate { source_node_id: string; target_node_id: string; ed
 export interface EdgeUpdate { source_node_id?: string; target_node_id?: string; edge_type?: EdgeType; edge_label?: EdgeLabel; condition_mapping?: Record<string, unknown> | null; condition_value?: string; priority?: number }
 
 // Execution
-export interface Execution { execution_id: string; workflow_slug: string; status: ExecutionStatus; error_message: string; started_at: string | null; completed_at: string | null }
+export interface Execution { execution_id: string; workflow_slug: string; status: ExecutionStatus; error_message: string; started_at: string | null; completed_at: string | null; total_tokens: number; total_cost_usd: number; llm_calls: number }
 export interface ExecutionLog { id: number; node_id: string; status: string; input: unknown; output: unknown; error: string; error_code: string | null; metadata: Record<string, unknown> | null; duration_ms: number; timestamp: string }
 export interface ExecutionDetail extends Execution { final_output: unknown; trigger_payload: unknown; logs: ExecutionLog[] }
 

@@ -269,6 +269,20 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
         from schemas.node_io import NodeStatus
         slug = topo_data.get("workflow_slug", "")
+
+        # Budget enforcement: check epic budget before executing node
+        budget_error = _check_budget(execution_id, state, db)
+        if budget_error:
+            execution.status = "failed"
+            execution.error_message = budget_error[:2000]
+            execution.completed_at = datetime.now(timezone.utc)
+            _persist_execution_costs(execution, state)
+            db.commit()
+            _sync_task_costs(execution_id, db)
+            _publish_event(execution_id, "execution_failed", {"error": budget_error[:500]}, workflow_slug=slug)
+            _cleanup_redis(execution_id)
+            return
+
         _publish_event(execution_id, "node_status", {"node_id": node_id, "status": NodeStatus.RUNNING.value}, workflow_slug=slug)
 
         # Load node from DB and get component factory
@@ -395,6 +409,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             execution.status = "failed"
             execution.error_message = f"Node {node_id}: {str(exc)[:1900]}"
             execution.completed_at = datetime.now(timezone.utc)
+            _persist_execution_costs(execution, load_state(execution_id))
             db.commit()
             _clear_stale_checkpoints(execution_id, db)
             _sync_task_costs(execution_id, db)
@@ -425,9 +440,11 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         delay_seconds = None
         loop_data = None
         subworkflow_data = None
+        token_usage = None
         if result and isinstance(result, dict):
             if "node_outputs" in result:
                 # Legacy path — component did its own wrapping
+                token_usage = result.pop("_token_usage", None)
                 state = merge_state_update(state, result)
             else:
                 # New path — extract reserved keys, wrap the rest
@@ -437,6 +454,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 delay_seconds = result.pop("_delay_seconds", None)
                 loop_data = result.pop("_loop", None)
                 subworkflow_data = result.pop("_subworkflow", None)
+                token_usage = result.pop("_token_usage", None)
 
                 # Wrap port values into node_outputs
                 port_data = {k: v for k, v in result.items() if not k.startswith("_")}
@@ -454,6 +472,13 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                         if k not in ("messages", "node_outputs", "node_results"):
                             state[k] = v
 
+        # Accumulate token usage into execution-level totals
+        if token_usage:
+            node_result.metadata["token_usage"] = token_usage
+            from services.token_usage import merge_usage
+            exec_usage = state.get("_execution_token_usage", {})
+            state["_execution_token_usage"] = merge_usage(exec_usage, token_usage)
+
         # Store NodeResult in state under node_results
         node_results = state.get("node_results", {})
         node_results[node_id] = node_result.model_dump(mode="json")
@@ -470,11 +495,14 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             duration_ms=duration_ms, output=log_output,
             metadata=node_result.metadata,
         )
-        _publish_event(execution_id, "node_status", {
+        ws_data = {
             "node_id": node_id, "status": NodeStatus.SUCCESS.value,
             "duration_ms": duration_ms,
             "output": _truncate_output(node_output),
-        }, workflow_slug=slug)
+        }
+        if token_usage:
+            ws_data["token_usage"] = token_usage
+        _publish_event(execution_id, "node_status", ws_data, workflow_slug=slug)
 
         # Mark node completed
         r = _redis()
@@ -533,6 +561,10 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 _exec.status = "failed"
                 _exec.error_message = str(exc)[:2000]
                 _exec.completed_at = datetime.now(timezone.utc)
+                try:
+                    _persist_execution_costs(_exec, load_state(execution_id))
+                except Exception:
+                    logger.exception("Failed to persist execution costs for %s", execution_id)
                 db.commit()
                 _clear_stale_checkpoints(execution_id, db)
                 _sync_task_costs(execution_id, db)
@@ -905,6 +937,7 @@ def _finalize(execution_id: str, db: Session) -> None:
     execution.status = "completed"
     execution.final_output = _extract_output(state)
     execution.completed_at = datetime.now(timezone.utc)
+    _persist_execution_costs(execution, state)
     db.commit()
 
     _sync_task_costs(execution_id, db)
@@ -964,6 +997,58 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
 
     slug = _get_workflow_slug(str(execution.execution_id), db)
     _publish_event(str(execution.execution_id), "execution_interrupted", {"node_id": node_id}, workflow_slug=slug)
+
+
+# ── Cost tracking helpers ──────────────────────────────────────────────────────
+
+
+def _persist_execution_costs(execution, state: dict) -> None:
+    """Copy accumulated token usage from execution state to the WorkflowExecution model."""
+    exec_usage = state.get("_execution_token_usage", {})
+    execution.total_input_tokens = exec_usage.get("input_tokens", 0)
+    execution.total_output_tokens = exec_usage.get("output_tokens", 0)
+    execution.total_tokens = exec_usage.get("total_tokens", 0)
+    execution.total_cost_usd = exec_usage.get("cost_usd", 0.0)
+    execution.llm_calls = exec_usage.get("llm_calls", 0)
+
+
+def _check_budget(execution_id: str, state: dict, db: Session) -> str | None:
+    """Check if the execution's epic budget has been exceeded.
+
+    Returns an error message string if budget is exceeded, None otherwise.
+    """
+    try:
+        from models.epic import Task
+
+        task = db.query(Task).filter(Task.execution_id == execution_id).first()
+        if not task or not task.epic:
+            return None
+
+        epic = task.epic
+        exec_usage = state.get("_execution_token_usage", {})
+        current_tokens = exec_usage.get("total_tokens", 0)
+        current_usd = exec_usage.get("cost_usd", 0.0)
+
+        if epic.budget_tokens is not None:
+            total_tokens = (epic.spent_tokens or 0) + current_tokens
+            if total_tokens > epic.budget_tokens:
+                return (
+                    f"Epic budget exceeded: {total_tokens} tokens used "
+                    f"(budget: {epic.budget_tokens} tokens)"
+                )
+
+        if epic.budget_usd is not None:
+            total_usd = float(epic.spent_usd or 0) + current_usd
+            if total_usd > float(epic.budget_usd):
+                return (
+                    f"Epic budget exceeded: ${total_usd:.4f} spent "
+                    f"(budget: ${float(epic.budget_usd):.4f})"
+                )
+
+    except Exception:
+        logger.exception("Budget check failed for execution %s", execution_id)
+
+    return None
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -1139,8 +1224,34 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
             task.duration_ms = int(delta.total_seconds() * 1000)
 
         task.completed_at = execution.completed_at
+
+        # Sync cost fields from execution to task
+        task.actual_tokens = execution.total_tokens or 0
+        task.actual_usd = float(execution.total_cost_usd or 0)
+        task.llm_calls = execution.llm_calls or 0
+        # tool_invocations from accumulated state
+        try:
+            exec_state = load_state(execution_id)
+            exec_usage = exec_state.get("_execution_token_usage", {})
+            task.tool_invocations = exec_usage.get("tool_invocations", 0)
+        except Exception:
+            logger.exception("Failed to load tool_invocations for task %s", task.id)
+
         db.commit()
         logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
+
+        # Roll up costs to epic (recalculate from all tasks to avoid double-counting)
+        if task.epic:
+            epic = task.epic
+            from sqlalchemy import func as sa_func
+            from models.epic import Task as _Task
+            totals = db.query(
+                sa_func.coalesce(sa_func.sum(_Task.actual_tokens), 0),
+                sa_func.coalesce(sa_func.sum(_Task.actual_usd), 0),
+            ).filter(_Task.epic_id == epic.id).one()
+            epic.spent_tokens = int(totals[0])
+            epic.spent_usd = float(totals[1])
+            db.commit()
 
         # Auto-unblock dependent tasks when this task is completed
         if task.status == "completed":

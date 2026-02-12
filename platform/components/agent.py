@@ -12,6 +12,11 @@ from langgraph.prebuilt import create_react_agent
 
 from components import register
 from services.llm import resolve_llm_for_node
+from services.token_usage import (
+    calculate_cost,
+    extract_usage_from_messages,
+    get_model_name_for_node,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,11 @@ def _get_redis_checkpointer():
 def agent_factory(node):
     """Build an agent graph node."""
     llm = resolve_llm_for_node(node)
+    try:
+        model_name = get_model_name_for_node(node)
+    except Exception:
+        logger.warning("Failed to resolve model name for agent %s; token costs will be $0", node.node_id)
+        model_name = ""
     concrete = node.component_config.concrete
     system_prompt = getattr(concrete, "system_prompt", None) or ""
     extra = getattr(concrete, "extra_config", None) or {}
@@ -204,8 +214,24 @@ def agent_factory(node):
                 final_content = msg.content
                 break
 
+        # Extract token usage from AI messages (best-effort — never crash the node)
+        try:
+            usage = extract_usage_from_messages(out_messages).copy()
+            usage["cost_usd"] = calculate_cost(
+                model_name, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            )
+            usage["tool_invocations"] = sum(
+                len(getattr(msg, "tool_calls", []) or [])
+                for msg in out_messages
+                if hasattr(msg, "type") and msg.type == "ai"
+            )
+        except Exception:
+            logger.exception("Failed to extract token usage for agent %s", node.node_id)
+            usage = {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0, "tool_invocations": 0}
+
         return {
             "_messages": out_messages,
+            "_token_usage": usage,
             "output": final_content,
         }
 
