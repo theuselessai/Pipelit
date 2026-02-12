@@ -27,67 +27,68 @@ def cleanup_stuck_child_waits() -> int:
     """
     r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
 
-    # Scan for all child_wait keys
-    expired_count = 0
-    cursor = 0
-    while True:
-        cursor, keys = r.scan(cursor, match="execution:*:child_wait:*", count=100)
-        for key in keys:
-            raw = r.get(key)
-            if not raw:
-                continue
-            try:
-                data = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                r.delete(key)
-                continue
+    try:
+        expired_count = 0
+        cursor = 0
+        while True:
+            cursor, keys = r.scan(cursor, match="execution:*:child_wait:*", count=100)
+            for key in keys:
+                raw = r.get(key)
+                if not raw:
+                    continue
+                try:
+                    data = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    r.delete(key)
+                    continue
 
-            deadline = data.get("deadline", 0)
-            if time.time() <= deadline:
-                continue
+                deadline = data.get("deadline", 0)
+                if time.time() <= deadline:
+                    continue
 
-            # Extract execution_id and node_id from key pattern:
-            # execution:<execution_id>:child_wait:<node_id>
-            parts = key.split(":")
-            # parts = ["execution", execution_id, "child_wait", node_id]
-            if len(parts) < 4:
-                r.delete(key)
-                continue
+                # Extract execution_id and node_id from key pattern:
+                # execution:<execution_id>:child_wait:<node_id>
+                parts = key.split(":")
+                # parts = ["execution", execution_id, "child_wait", node_id]
+                if len(parts) < 4:
+                    r.delete(key)
+                    continue
 
-            execution_id = parts[1]
-            node_id = parts[3]
+                execution_id = parts[1]
+                node_id = parts[3]
 
-            logger.warning(
-                "Child wait expired for execution %s node %s (deadline %.0f, now %.0f)",
-                execution_id,
-                node_id,
-                deadline,
-                time.time(),
-            )
-
-            # Resume parent with timeout error
-            try:
-                from services.orchestrator import _resume_from_child
-
-                _resume_from_child(
-                    parent_execution_id=execution_id,
-                    parent_node_id=node_id,
-                    child_output={"_error": "Child execution timed out"},
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to resume timed-out parent %s at node %s",
+                logger.warning(
+                    "Child wait expired for execution %s node %s (deadline %.0f, now %.0f)",
                     execution_id,
                     node_id,
+                    deadline,
+                    time.time(),
                 )
 
-            # Delete the key regardless (prevent repeated retries)
-            r.delete(key)
-            expired_count += 1
+                # Resume parent with timeout error; only delete key on success
+                # so that transient failures are retried on the next cleanup run.
+                try:
+                    from services.orchestrator import _resume_from_child
 
-        if cursor == 0:
-            break
+                    _resume_from_child(
+                        parent_execution_id=execution_id,
+                        parent_node_id=node_id,
+                        child_output={"_error": "Child execution timed out"},
+                    )
+                    r.delete(key)
+                    expired_count += 1
+                except Exception:
+                    logger.exception(
+                        "Failed to resume timed-out parent %s at node %s, will retry next run",
+                        execution_id,
+                        node_id,
+                    )
 
-    if expired_count:
-        logger.info("Expired %d stuck child waits", expired_count)
-    return expired_count
+            if cursor == 0:
+                break
+
+        if expired_count:
+            logger.info("Expired %d stuck child waits", expired_count)
+        return expired_count
+    finally:
+        r.close()

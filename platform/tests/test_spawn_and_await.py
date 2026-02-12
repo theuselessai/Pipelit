@@ -1198,6 +1198,30 @@ class TestChildWaitTimeout:
         assert count == 0
         mock_resume.assert_not_called()
 
+    def test_cleanup_retains_key_on_resume_failure(self):
+        """When _resume_from_child raises, the key is kept for retry on next run."""
+        import time as _time
+
+        from services.cleanup import cleanup_stuck_child_waits
+
+        expired_data = json.dumps({
+            "deadline": _time.time() - 100,
+            "child_execution_id": "child-456",
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = expired_data
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child", side_effect=RuntimeError("transient")):
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+        # Key should NOT have been deleted since resume failed
+        mock_redis.delete.assert_not_called()
+
     def test_cleanup_job_wrapper(self):
         """services.cleanup_stuck_child_waits_job delegates to the real function."""
         from tasks import cleanup_stuck_child_waits_job
