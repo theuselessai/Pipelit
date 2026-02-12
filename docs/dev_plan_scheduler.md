@@ -91,7 +91,7 @@ next(n, rc, result) =
         else                     → enqueue_in(i, run(n+1, 0))        # next repeat, retry reset
 
     if result == FAIL or TIMEOUT:
-        if rc + 1 > mr           → DEAD
+        if rc + 1 >= mr          → DEAD
         else                     → enqueue_in(backoff(rc+1), run(n, rc+1))  # same repeat, retry++
 ```
 
@@ -181,9 +181,9 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
         if not job or job.status != "active":
             return  # paused, stopped, or deleted — don't reschedule
 
-        # Execute the workflow trigger
+        # Execute the workflow trigger (with timeout)
         try:
-            result = _dispatch_scheduled_trigger(job, db)
+            result = _dispatch_scheduled_trigger(job, db, timeout=job.timeout_seconds)
             # SUCCESS path
             job.run_count += 1
             job.current_retry = 0
@@ -204,7 +204,7 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
             job.error_count += 1
             job.last_error = str(e)
 
-            if next_rc > job.max_retries:
+            if next_rc >= job.max_retries:
                 job.status = "dead"  # retries exhausted
             else:
                 # Schedule retry with backoff
@@ -234,8 +234,13 @@ def _enqueue_next(job: ScheduledJob, n: int, rc: int, delay_seconds: int) -> Non
     job.next_run_at = utcnow() + timedelta(seconds=delay_seconds)
 
 
-def _dispatch_scheduled_trigger(job: ScheduledJob, db) -> dict:
-    """Fire the workflow trigger. Returns execution result."""
+def _dispatch_scheduled_trigger(job: ScheduledJob, db, timeout: int = 600) -> dict:
+    """Fire the workflow trigger with timeout enforcement."""
+    import signal
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError(f"Scheduled job {job.id} exceeded {timeout}s timeout")
+
     from handlers import dispatch_event
     user = db.query(UserProfile).get(job.user_profile_id)
     event_data = {
@@ -244,11 +249,19 @@ def _dispatch_scheduled_trigger(job: ScheduledJob, db) -> dict:
         "repeat_number": job.current_repeat,
         "payload": job.trigger_payload or {},
     }
-    return dispatch_event(
-        "schedule", event_data, user, db,
-        workflow_id=job.workflow_id,
-        trigger_node_id=job.trigger_node_id,
-    )
+
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(timeout)
+    try:
+        result = dispatch_event(
+            "schedule", event_data, user, db,
+            workflow_id=job.workflow_id,
+            trigger_node_id=job.trigger_node_id,
+        )
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+    return result
 
 
 def start_scheduled_job(job: ScheduledJob) -> None:
