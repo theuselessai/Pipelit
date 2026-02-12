@@ -302,7 +302,8 @@ class TestTaskCRUD:
         assert resp_b.json()["status"] == "blocked"
 
         # Complete task A
-        auth_client.patch(f"/api/v1/tasks/{task_a_id}/", json={"status": "completed"})
+        resp_a_complete = auth_client.patch(f"/api/v1/tasks/{task_a_id}/", json={"status": "completed"})
+        assert resp_a_complete.status_code == 200
 
         # Task B should now be pending (auto-unblocked)
         resp_b2 = auth_client.get(f"/api/v1/tasks/{task_b_id}/")
@@ -334,7 +335,8 @@ class TestTaskCRUD:
         assert resp_c.json()["status"] == "blocked"
 
         # Complete only task A
-        auth_client.patch(f"/api/v1/tasks/{task_a_id}/", json={"status": "completed"})
+        resp_a_complete = auth_client.patch(f"/api/v1/tasks/{task_a_id}/", json={"status": "completed"})
+        assert resp_a_complete.status_code == 200
 
         # Task C should still be blocked (B is not completed)
         resp_c2 = auth_client.get(f"/api/v1/tasks/{task_c_id}/")

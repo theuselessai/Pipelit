@@ -48,7 +48,7 @@ def _add_agent_node(db, workflow_id, conversation_memory=True, node_id="agent_1"
     cfg = BaseComponentConfig(
         component_type="agent",
         system_prompt="test",
-        extra_config={"conversation_memory": conversation_memory} if conversation_memory else {},
+        extra_config={"conversation_memory": conversation_memory},
     )
     db.add(cfg)
     db.flush()
