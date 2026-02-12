@@ -52,12 +52,15 @@ def categorizer_factory(node):
         response = llm.invoke(messages)
         content = response.content.strip()
 
-        # Extract token usage
-        usage = extract_usage_from_response(response)
-        usage["llm_calls"] = 1
-        usage["cost_usd"] = calculate_cost(
-            model_name, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-        )
+        # Extract token usage (best-effort — never crash the node)
+        try:
+            usage = extract_usage_from_response(response).copy()
+            usage["llm_calls"] = 1
+            usage["cost_usd"] = calculate_cost(
+                model_name, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            )
+        except Exception:
+            usage = {"llm_calls": 1, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
 
         # Parse category from response
         category = _parse_category(content, category_names)

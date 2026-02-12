@@ -343,6 +343,6 @@ def _serialize_execution(execution: WorkflowExecution, db: Session) -> dict:
         "started_at": execution.started_at,
         "completed_at": execution.completed_at,
         "total_tokens": execution.total_tokens or 0,
-        "total_cost_usd": float(execution.total_cost_usd) if execution.total_cost_usd else 0.0,
+        "total_cost_usd": float(execution.total_cost_usd) if execution.total_cost_usd is not None else 0.0,
         "llm_calls": execution.llm_calls or 0,
     }

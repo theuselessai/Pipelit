@@ -210,16 +210,19 @@ def agent_factory(node):
                 final_content = msg.content
                 break
 
-        # Extract token usage from AI messages
-        usage = extract_usage_from_messages(out_messages)
-        usage["cost_usd"] = calculate_cost(
-            model_name, usage["input_tokens"], usage["output_tokens"]
-        )
-        usage["tool_invocations"] = sum(
-            len(getattr(msg, "tool_calls", []) or [])
-            for msg in out_messages
-            if hasattr(msg, "type") and msg.type == "ai"
-        )
+        # Extract token usage from AI messages (best-effort — never crash the node)
+        try:
+            usage = extract_usage_from_messages(out_messages).copy()
+            usage["cost_usd"] = calculate_cost(
+                model_name, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            )
+            usage["tool_invocations"] = sum(
+                len(getattr(msg, "tool_calls", []) or [])
+                for msg in out_messages
+                if hasattr(msg, "type") and msg.type == "ai"
+            )
+        except Exception:
+            usage = {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0, "tool_invocations": 0}
 
         return {
             "_messages": out_messages,
