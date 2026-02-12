@@ -2,6 +2,9 @@
 
 ## Tech Stack
 This project uses **FastAPI + SQLAlchemy + RQ** (NOT Django). Never reference Django models, Django ORM, or Django settings. The backend is Python/FastAPI with SQLAlchemy models and Alembic migrations. The frontend is TypeScript/React.
+
+## Tools
+- `gh` CLI is configured and working for GitHub operations (PRs, checks, merges, etc.)
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 
