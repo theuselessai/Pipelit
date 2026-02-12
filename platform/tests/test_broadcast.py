@@ -32,6 +32,7 @@ class TestJsonDefault:
         d = date(2025, 6, 1)
         result = _json_default(d)
         assert result == "2025-06-01"
+        assert isinstance(result, str)
 
     def test_unsupported_type_raises(self):
         with pytest.raises(TypeError, match="not JSON serializable"):

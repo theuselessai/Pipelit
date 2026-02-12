@@ -1212,7 +1212,7 @@ def _strip_markdown_fences(code: str) -> str:
     stripped = code.strip()
     if stripped.startswith("```"):
         # Remove opening fence (with optional language tag)
-        stripped = re.sub(r"^```\w*\n?", "", stripped, count=1)
+        stripped = re.sub(r"^```[^\n]*\n?", "", stripped, count=1)
         # Remove closing fence
         stripped = re.sub(r"\n?```\s*$", "", stripped)
     return stripped

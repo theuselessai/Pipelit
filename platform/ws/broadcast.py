@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import date, datetime
+from decimal import Decimal
 
 import redis as redis_lib
 
@@ -12,7 +13,6 @@ from config import settings
 
 
 def _json_default(obj: object) -> str | float:
-    from decimal import Decimal
 
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
