@@ -339,4 +339,4 @@ Standardised schemas for node inputs/outputs, a node type registry with port def
 
 ## Documentation
 
-- `docs/dev_plan_gui.md` - React GUI implementation plan (completed)
+See `docs/` for design documents, test results, and implementation plans.
