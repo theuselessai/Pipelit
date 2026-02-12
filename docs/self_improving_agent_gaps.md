@@ -17,6 +17,7 @@
 - **Budget enforcement** (`platform/services/orchestrator.py`) — `_check_budget()` gates node execution against Epic-level token and USD budgets before each node runs
 - **TOTP-based MFA** — full authentication system with rate limiting, lockout, and agent TOTP support
 - **Redis 8.0+** — RediSearch and all former Stack modules included natively, no separate redis-stack-server needed
+- **Scheduler** (`platform/services/scheduler.py`) — self-rescheduling recurring job system via RQ `enqueue_in()`. `ScheduledJob` model with state machine (`active`/`paused`/`done`/`dead`), exponential backoff on failure, deterministic RQ job IDs to prevent duplicate enqueues, startup recovery for missed jobs. Full CRUD API at `/api/v1/schedules/` with pause/resume/batch-delete. 29 tests.
 
 ## 2. Completed This Round
 
@@ -36,6 +37,14 @@
   - **Budget enforcement** — `_check_budget()` gates node execution by looking up the associated Task → Epic budget (`budget_tokens`/`budget_usd`), comparing `spent + current` against limits
   - **API & frontend** — `ExecutionOut` schema includes `total_tokens`, `total_cost_usd`, `llm_calls`; TypeScript `Execution` type updated
   - **Tests** — 37 tests in `test_token_usage.py` covering pricing, cost calculation, usage extraction, model resolution, budget checks, and persistence
+- [x] **Scheduler trigger** — self-rescheduling recurring job system via RQ `enqueue_in()`:
+  - **Model** (`platform/models/scheduled_job.py`) — `ScheduledJob` with interval, repeat count, retry config, state machine (`active`/`paused`/`done`/`dead`), tracking fields
+  - **Service** (`platform/services/scheduler.py`) — `execute_scheduled_job()` RQ wrapper with success/failure paths, exponential backoff (capped at 10x interval), deterministic RQ job IDs (`sched-{id}-n{repeat}-rc{retry}`) to prevent duplicate enqueues, `recover_scheduled_jobs()` for startup recovery
+  - **API** (`platform/api/schedules.py`) — full CRUD at `/api/v1/schedules/` with list (filter by status/workflow), create, get, update, delete, pause, resume, batch-delete
+  - **Schemas** (`platform/schemas/schedule.py`) — `ScheduledJobCreate`/`Update`/`Out` with field validators for interval, repeats, retries, timeout
+  - **RQ task** (`platform/tasks/__init__.py`) — `execute_scheduled_job_task` thin wrapper
+  - **Startup recovery** (`platform/main.py`) — `recover_scheduled_jobs()` in lifespan re-enqueues stale active jobs
+  - **Tests** — 29 tests in `test_scheduler.py` covering backoff, state machine, pause/resume, recovery, and full API CRUD
 
 ## 3. Bugs to Fix
 
@@ -103,7 +112,7 @@ The identity lives in the conversation, not in the transport layer. A ghost asks
 | ~~**Cost tracking**~~ | ~~Track token usage and USD cost per execution/task/epic.~~ **Done** — orchestrator populates `total_tokens`/`total_cost_usd` on executions, budget enforcement gates node execution via Epic budgets. | ~~High~~ Done |
 | **Timeout enforcement** | No per-node or per-execution timeout. Long-running LLM calls or tool invocations can hang forever. | High |
 | ~~**Safety guardrails (budget)**~~ | ~~No budget enforcement.~~ **Partially done** — `_check_budget()` enforces Epic-level `budget_tokens`/`budget_usd` before each node. Still missing: rate limiting on agent-initiated executions. | ~~High~~ Medium |
-| **Scheduler** | No built-in cron/interval trigger. Agents cannot schedule recurring tasks or delayed executions. | Medium |
+| ~~**Scheduler**~~ | ~~No built-in cron/interval trigger.~~ **Done** — self-rescheduling via RQ `enqueue_in()`, `ScheduledJob` model with state machine, exponential backoff, startup recovery, full CRUD API. 29 tests. | ~~Medium~~ Done |
 | **DSL switch/loop** | DSL compiler does not support `switch` or `loop` node types. Agents can only build linear/branching workflows via DSL. | Medium |
 | **Semantic search** | No vector/embedding-based search over epics, tasks, or workflow outputs. Agents must use exact text matching. | Low |
 | **Cost display in frontend** | Execution list/detail pages expose `total_tokens`, `total_cost_usd`, `llm_calls` in the API but the frontend doesn't render them yet. | Low |
@@ -122,5 +131,5 @@ Minimum steps to get a self-improving agent loop working:
    - Picks the highest-priority unblocked task
    - Spawns a worker workflow to execute it
    - Records results and updates task status
-7. **Add a scheduler trigger** — so the orchestrator runs on a cron (e.g., every 5 minutes) to check for new work
+7. ~~**Add a scheduler trigger**~~ — done (self-rescheduling via RQ `enqueue_in()`, `ScheduledJob` model, full CRUD API, 29 tests)
 8. **DSL switch/loop support** — so agents can build more sophisticated workflows programmatically

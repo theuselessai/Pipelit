@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Visual workflow automation platform for building LLM-powered agents. Design workflows on a React Flow canvas, connect triggers (Telegram, webhooks, chat), LLM agents, tools, and routing logic. Executes via LangGraph with real-time WebSocket status updates. FastAPI + SQLAlchemy backend with RQ for background task processing.
+Visual workflow automation platform for building LLM-powered agents. Design workflows on a React Flow canvas, connect triggers (Telegram, webhooks, chat, scheduler), LLM agents, tools, and routing logic. Executes via LangGraph with real-time WebSocket status updates. FastAPI + SQLAlchemy backend with RQ for background task processing.
 
 # Workflow Architecture
 - Workflow nodes use a polymorphic SQLAlchemy inheritance hierarchy
@@ -59,6 +59,7 @@ platform/
 │   ├── nodes.py         # Node + Edge CRUD (nested under workflow)
 │   ├── executions.py    # Execution list/detail/cancel + chat
 │   ├── credentials.py   # Credential CRUD + test + LLM models
+│   ├── schedules.py     # ScheduledJob CRUD + pause/resume/batch-delete
 │   └── _helpers.py      # Response serialization helpers
 ├── models/              # SQLAlchemy ORM models
 │   ├── user.py          # UserProfile, APIKey
@@ -66,6 +67,7 @@ platform/
 │   ├── workflow.py      # Workflow, WorkflowCollaborator
 │   ├── node.py          # WorkflowNode, WorkflowEdge, ComponentConfig hierarchy
 │   ├── execution.py     # WorkflowExecution, ExecutionLog, PendingTask
+│   ├── scheduled_job.py # ScheduledJob (self-rescheduling recurring jobs)
 │   ├── conversation.py  # Conversation
 │   ├── tool.py          # ToolDefinition, WorkflowTool
 │   ├── code.py          # CodeBlock, CodeBlockVersion, CodeBlockTest
@@ -73,7 +75,8 @@ platform/
 ├── schemas/             # Pydantic schemas
 │   ├── node_io.py       # NodeStatus, NodeResult, NodeInput
 │   ├── node_types.py    # DataType, PortDefinition, NodeTypeSpec, NODE_TYPE_REGISTRY
-│   └── node_type_defs.py# Registers all 23 built-in node types
+│   ├── node_type_defs.py# Registers all 23 built-in node types
+│   └── schedule.py      # ScheduledJobCreate/Update/Out, BatchDeleteSchedulesIn
 ├── services/            # Business logic
 │   ├── orchestrator.py  # Node execution, state management, WebSocket events
 │   ├── topology.py      # Workflow DAG analysis (BFS reachability)
@@ -83,6 +86,7 @@ platform/
 │   ├── cache.py         # Redis-backed graph caching
 │   ├── delivery.py      # Routes results to Telegram, webhooks, etc.
 │   ├── llm.py           # create_llm_from_db(), resolve_llm_for_node()
+│   ├── scheduler.py     # Self-rescheduling scheduler (execute, backoff, recovery)
 │   └── state.py         # WorkflowState (LangGraph MessagesState)
 ├── handlers/            # Event/trigger handlers
 │   ├── __init__.py      # dispatch_event() - unified trigger dispatch
@@ -118,6 +122,7 @@ All under `/api/v1/`, authenticated via Bearer token (`Authorization: Bearer <ke
 - **Chat** — `POST /workflows/{slug}/chat/`, `DELETE /workflows/{slug}/chat/history`
 - **Credentials** — `GET/POST /credentials/`, `GET/PATCH/DELETE /credentials/{id}/`, `POST /credentials/{id}/test/`, `GET /credentials/{id}/models/`, `POST /credentials/batch-delete/`
 - **Memory** — `GET/POST /<type>/batch-delete/` for facts, episodes, procedures, users; `GET /checkpoints/`, `POST /checkpoints/batch-delete/`
+- **Schedules** — `GET/POST /schedules/`, `GET/PATCH/DELETE /schedules/{id}/`, `POST /schedules/{id}/pause/`, `POST /schedules/{id}/resume/`, `POST /schedules/batch-delete/`
 - **Users** — `GET /users/agents/`, `POST /users/agents/batch-delete/`
 
 **Pagination:** All list endpoints accept `limit` and `offset` query params and return `{"items": [...], "total": N}` instead of flat arrays. Default page size on the frontend is 50.
@@ -174,6 +179,8 @@ Components no longer receive or use their own `node_id`. Legacy format (returnin
 **Jinja2 expression resolution:** Before executing a component, the orchestrator resolves `{{ nodeId.portName }}` template expressions in `system_prompt` and `extra_config` values via `services/expressions.py`. Context variables include all upstream `node_outputs` (keyed by node_id) and `trigger` (with `text`, `payload`). The `trigger` shorthand always refers to whichever trigger fired the current execution, useful in multi-trigger workflows (e.g., chat + telegram triggers feeding the same downstream nodes). Undefined variables gracefully fall back to the original template string. Jinja2 filters (e.g., `| upper`) are supported. The frontend `{ }` variable picker button (ExpressionTextarea) is available on System Prompt, Code Snippet, and Extra Config fields.
 
 **Jinja2 syntax highlighting:** All three CodeMirror modal editors (System Prompt, Code Snippet, Extra Config) apply Jinja2 template highlighting via a `ViewPlugin` (`lib/jinja2Highlight.ts`). The plugin regex-matches `{{ }}`, `{% %}`, and `{# #}` delimiters (including whitespace-control variants like `{{-`, `-%}}`) in visible ranges and applies `Decoration.mark` classes. Brackets get bold lighter green text; inner content gets bold amber/orange text. Styles are defined in `index.css` outside `@layer` with `!important` and descendant selectors to override CodeMirror's syntax theme. Light/dark variants are provided.
+
+**Scheduler (self-rescheduling via RQ):** Recurring workflow execution without external cron. A `ScheduledJob` row stores interval, repeat count, retry config, and state machine status (`active` → `paused`/`done`/`dead`). The `services/scheduler.py` `execute_scheduled_job()` function runs as an RQ job: it dispatches the workflow trigger, handles success/failure, and calls `_enqueue_next()` to schedule itself again via `Queue.enqueue_in()`. Each enqueued job gets a deterministic RQ job ID (`sched-{id}-n{repeat}-rc{retry}`) to prevent duplicate enqueues during recovery. Failure uses exponential backoff capped at 10x interval. On startup, `recover_scheduled_jobs()` re-enqueues any active jobs whose `next_run_at` is in the past (missed during downtime). Pause/resume is handled by setting status — the wrapper early-returns if status is not `active`. The scheduler has no frontend page yet — it's API-only. 29 tests in `tests/test_scheduler.py`.
 
 ### Running Platform Tests
 
