@@ -1032,7 +1032,7 @@ def _patch_update_prompt(node_dicts: list[dict], patch: dict) -> None:
         extra = config.get("extra_config", {})
         if not isinstance(extra, dict):
             extra = {}
-        extra["code"] = snippet
+        extra["code"] = _strip_markdown_fences(snippet)
         config["extra_config"] = extra
     nd["config"] = config
 
@@ -1055,11 +1055,11 @@ def _patch_add_step(
     config: dict[str, Any] = {}
     if step_type == "code":
         config["extra_config"] = {
-            "code": step.get("snippet") or step.get("code", ""),
+            "code": _strip_markdown_fences(step.get("snippet") or step.get("code", "")),
             "language": step.get("language", "python"),
         }
     elif step_type == "agent":
-        config["system_prompt"] = step.get("prompt", "")
+        config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
     elif step_type == "http":
         config["extra_config"] = {
             "url": step.get("url", ""),

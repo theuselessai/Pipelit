@@ -95,6 +95,7 @@ def workflow_create_factory(node):
 
             return json.dumps(result, default=str)
         except Exception as e:
+            db.rollback()
             return json.dumps({"success": False, "error": str(e)})
         finally:
             db.close()

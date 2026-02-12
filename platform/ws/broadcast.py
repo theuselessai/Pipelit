@@ -11,13 +11,13 @@ import redis as redis_lib
 from config import settings
 
 
-def _json_default(obj: object) -> str:
+def _json_default(obj: object) -> str | float:
     from decimal import Decimal
 
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     if isinstance(obj, Decimal):
-        return float(obj)
+        return float(obj)  # float is fine for WS display; precision preserved in DB
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 

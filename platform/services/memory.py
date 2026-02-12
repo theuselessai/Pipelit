@@ -268,9 +268,9 @@ class MemoryService:
         episode.error_code = error_code
         episode.error_message = error_message or ""
         episode.ended_at = datetime.now(timezone.utc)
-        # Normalise both to naive UTC to avoid mixed-tz subtraction errors
-        ea = episode.ended_at.replace(tzinfo=None) if episode.ended_at.tzinfo else episode.ended_at
-        sa = episode.started_at.replace(tzinfo=None) if episode.started_at.tzinfo else episode.started_at
+        # Ensure both timestamps are UTC-aware before subtraction
+        ea = episode.ended_at if episode.ended_at.tzinfo else episode.ended_at.replace(tzinfo=timezone.utc)
+        sa = episode.started_at if episode.started_at.tzinfo else episode.started_at.replace(tzinfo=timezone.utc)
         episode.duration_ms = int((ea - sa).total_seconds() * 1000)
 
         self.db.commit()
