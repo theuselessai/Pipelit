@@ -140,7 +140,7 @@ class ScheduledJob(Base):
 
     # State
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | paused | stopped | dead | done
-    current_repeat: Mapped[int] = mapped_column(Integer, default=0)    # n
+    current_repeat: Mapped[int] = mapped_column(Integer, default=0)    # n — index of next repeat to execute (0-indexed)
     current_retry: Mapped[int] = mapped_column(Integer, default=0)     # rc
 
     # Tracking
@@ -234,13 +234,18 @@ def _enqueue_next(job: ScheduledJob, n: int, rc: int, delay_seconds: int) -> Non
     Uses RQ's job_timeout to enforce the per-execution timeout (tot).
     If the job exceeds this, RQ terminates the worker process and
     marks the job as failed.
+
+    Uses a deterministic job_id so that startup recovery cannot
+    create duplicate enqueues if the job is already queued in Redis.
     """
     from tasks import _queue
     q = _queue()
+    rq_job_id = f"sched-{job.id}-n{n}-rc{rc}"
     q.enqueue_in(
         timedelta(seconds=delay_seconds),
         execute_scheduled_job,
         job.id, n, rc,
+        job_id=rq_job_id,
         job_timeout=job.timeout_seconds,
     )
     job.next_run_at = utcnow() + timedelta(seconds=delay_seconds)
