@@ -13,6 +13,9 @@
 - **Memory** — conversation memory via SqliteSaver checkpointer, plus memory tools (facts, episodes, procedures)
 - **Epics & tasks model** — full CRUD API for epics (goals) and tasks (units of work), with dependency tracking, progress sync, and WebSocket events
 - **Global epics/tasks** — any agent can see and act on any epic or task (user_profile_id retained for audit only)
+- **Cost tracking** (`platform/services/token_usage.py`) — per-execution token counting and USD cost calculation from LLM usage metadata, with built-in pricing for OpenAI/Anthropic models
+- **Budget enforcement** (`platform/services/orchestrator.py`) — `_check_budget()` gates node execution against Epic-level token and USD budgets before each node runs
+- **TOTP-based MFA** — full authentication system with rate limiting, lockout, and agent TOTP support
 - **Redis 8.0+** — RediSearch and all former Stack modules included natively, no separate redis-stack-server needed
 
 ## 2. Completed This Round
@@ -25,6 +28,14 @@
 - [x] **Merged branch cleanup** — deleted 21+ stale remote branches
 - [x] **Fix spawn failure stuck execution** — three fixes: (1) `spawn_and_await` raises `ToolException` on child `_error` instead of returning it as tool output (prevents infinite retry loop), (2) outer exception handler propagates failure to parent via `_propagate_failure_to_parent` helper, (3) child wait timeout with 600s deadline in Redis + periodic cleanup job (`services/cleanup.py`)
 - [x] **TOTP-based MFA authentication** — full implementation: backend (pyotp, encrypted TOTP secret on UserProfile, MFA service with rate limiting/lockout/replay prevention, 6 API endpoints), frontend (login MFA step, Settings page with QR code setup/disable dialogs), agent TOTP (auto-generated secrets for agent users, `get_totp_code` tool component). 27 tests passing.
+- [x] **Cost tracking & budget enforcement** — full implementation across backend, API, and frontend:
+  - **Token usage service** (`platform/services/token_usage.py`) — pricing table for OpenAI/Anthropic models, `calculate_cost()`, `extract_usage_from_response/messages()`, `merge_usage()`, `get_model_name_for_node()` with model-chain resolution
+  - **Execution-level tracking** — 5 new columns on `WorkflowExecution`: `total_input_tokens`, `total_output_tokens`, `total_tokens`, `total_cost_usd`, `llm_calls`
+  - **Component instrumentation** — `agent.py` and `categorizer.py` extract token usage from LangChain `usage_metadata`, calculate costs, and return `_token_usage` dict
+  - **Orchestrator accumulation** — `_execution_token_usage` state key accumulates across nodes; `_persist_execution_costs()` writes to execution model on completion/failure
+  - **Budget enforcement** — `_check_budget()` gates node execution by looking up the associated Task → Epic budget (`budget_tokens`/`budget_usd`), comparing `spent + current` against limits
+  - **API & frontend** — `ExecutionOut` schema includes `total_tokens`, `total_cost_usd`, `llm_calls`; TypeScript `Execution` type updated
+  - **Tests** — 37 tests in `test_token_usage.py` covering pricing, cost calculation, usage extraction, model resolution, budget checks, and persistence
 
 ## 3. Bugs to Fix
 
@@ -89,12 +100,13 @@ The identity lives in the conversation, not in the transport layer. A ghost asks
 
 | Capability | Description | Priority |
 |---|---|---|
-| **Cost tracking** | Track token usage and USD cost per execution/task/epic. Fields exist on the model but are never populated by the orchestrator. | High |
+| ~~**Cost tracking**~~ | ~~Track token usage and USD cost per execution/task/epic.~~ **Done** — orchestrator populates `total_tokens`/`total_cost_usd` on executions, budget enforcement gates node execution via Epic budgets. | ~~High~~ Done |
 | **Timeout enforcement** | No per-node or per-execution timeout. Long-running LLM calls or tool invocations can hang forever. | High |
-| **Safety guardrails** | No budget enforcement (budget_tokens/budget_usd fields are decorative). No rate limiting on agent-initiated executions. | High |
+| ~~**Safety guardrails (budget)**~~ | ~~No budget enforcement.~~ **Partially done** — `_check_budget()` enforces Epic-level `budget_tokens`/`budget_usd` before each node. Still missing: rate limiting on agent-initiated executions. | ~~High~~ Medium |
 | **Scheduler** | No built-in cron/interval trigger. Agents cannot schedule recurring tasks or delayed executions. | Medium |
 | **DSL switch/loop** | DSL compiler does not support `switch` or `loop` node types. Agents can only build linear/branching workflows via DSL. | Medium |
 | **Semantic search** | No vector/embedding-based search over epics, tasks, or workflow outputs. Agents must use exact text matching. | Low |
+| **Cost display in frontend** | Execution list/detail pages expose `total_tokens`, `total_cost_usd`, `llm_calls` in the API but the frontend doesn't render them yet. | Low |
 
 ## 6. Bootstrap Path
 
@@ -103,8 +115,8 @@ Minimum steps to get a self-improving agent loop working:
 1. ~~**Apply global epics/tasks**~~ — done
 2. ~~**Fix spawn failure stuck execution**~~ — done (ToolException on child error, parent propagation, 600s timeout + cleanup job)
 3. ~~**Implement TOTP authentication**~~ — done (MFA service, API endpoints, frontend login/settings, agent TOTP, 27 tests)
-4. **Wire cost tracking** in the orchestrator — populate `spent_tokens`/`spent_usd` after each LLM call
-5. **Add budget enforcement** — check `budget_tokens`/`budget_usd` before executing a task, fail early if exceeded
+4. ~~**Wire cost tracking**~~ — done (token usage service with pricing table, orchestrator accumulation via `_token_usage` → `_execution_token_usage`, `_persist_execution_costs()` writes to execution model, agent + categorizer components instrumented)
+5. ~~**Add budget enforcement**~~ — done (`_check_budget()` gates node execution, checks Task → Epic budget limits for both tokens and USD, 37 tests)
 6. **Build an orchestrator workflow** — a meta-agent that:
    - Reads open epics/tasks
    - Picks the highest-priority unblocked task

@@ -211,7 +211,9 @@ When a task completes, the agent (or a post-execution hook) checks: which pendin
 
 ---
 
-## Cost Aggregation
+## Cost Aggregation — IMPLEMENTED
+
+> **Status (2026-02-13):** Core cost tracking and budget enforcement implemented. See `platform/services/token_usage.py` for pricing/calculation, `platform/services/orchestrator.py` for accumulation and budget checks.
 
 Costs roll up from Task → Epic automatically:
 
@@ -482,9 +484,11 @@ class TaskSearchIn(BaseModel):
 
 ## Integration Points
 
-### 1. Orchestrator → Task cost sync
+### 1. Orchestrator → Task cost sync — IMPLEMENTED
 
-After a workflow execution completes, the orchestrator (or a post-execution hook) aggregates execution log metrics and writes them back to the associated task:
+After a workflow execution completes, the orchestrator aggregates execution token usage and writes it to both the execution model and the associated task. Implementation: `_persist_execution_costs()` and `_sync_task_costs()` in `platform/services/orchestrator.py`, with pricing from `platform/services/token_usage.py`.
+
+Original design (for reference):
 
 ```python
 async def sync_task_from_execution(task_id: str, execution: WorkflowExecution):

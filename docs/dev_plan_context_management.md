@@ -15,8 +15,10 @@ Each chat message creates a new `WorkflowExecution` with a random `thread_id`. I
 ### Problem 3: Sub-workflows are unimplemented
 `platform/components/subworkflow.py` raises `NotImplementedError`. No mechanism for parent→child context passing or result aggregation.
 
-### Problem 4: No token counting anywhere in platform/
+### Problem 4: No token counting anywhere in platform/ — PARTIALLY RESOLVED
 The old `app/services/tokens.py` has tiktoken-based counting, but nothing in `platform/` uses it. `max_tokens` on ai_model config controls output limit only.
+
+**Update (2026-02-13):** `platform/services/token_usage.py` now tracks token usage from LangChain `usage_metadata` (actual provider-reported tokens, not estimated via tiktoken). This covers cost tracking and budget enforcement but does NOT solve pre-call context trimming — the Layer 1 work below is still needed for preventing context overflow before LLM calls.
 
 ---
 

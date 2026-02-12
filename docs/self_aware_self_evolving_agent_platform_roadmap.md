@@ -36,7 +36,7 @@ Outcome: Agent can answer "What am I? What can I do? What's my history?"
 
 Phase 3: Protection (Weeks 6-7)
 Goal: Agent cannot break itself
-PriorityComponentPurposeP0InvariantsHardcoded limits agent cannot see/changeP0Permission matrixWhat agent can/cannot modifyP0Circuit breakersAuto-stop on repeated failuresP1Rate limitsPrevent runaway executionP1Cost trackingBudget enforcementP1Audit logImmutable record of all actions
+PriorityComponentPurposeStatusP0InvariantsHardcoded limits agent cannot see/changeTODOP0Permission matrixWhat agent can/cannot modifyTODOP0Circuit breakersAuto-stop on repeated failuresTODOP1Rate limitsPrevent runaway executionTODOP1Cost trackingBudget enforcement✅ DONE (token_usage service, orchestrator accumulation, _check_budget via Epic budgets)P1Audit logImmutable record of all actionsTODO
 Outcome: Agent operates safely within defined boundaries.
 
 Phase 4: Self-Modification (Weeks 8-10)
