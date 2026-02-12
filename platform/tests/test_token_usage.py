@@ -186,6 +186,7 @@ class TestGetModelNameForNode:
             result = get_model_name_for_node(node)
 
         assert result == "claude-sonnet-4-20250514"
+        mock_db.close.assert_called_once()
 
     def test_node_without_llm(self):
         node = MagicMock()
