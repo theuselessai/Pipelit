@@ -273,6 +273,14 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="scheduler_tools",
+    display_name="Scheduler Tools",
+    description="Create, pause, resume, stop, and list scheduled recurring jobs",
+    category="agent",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON result from schedule operations")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",

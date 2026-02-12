@@ -15,17 +15,42 @@ from triggers.resolver import trigger_resolver
 logger = logging.getLogger(__name__)
 
 
-def dispatch_event(event_type: str, event_data: dict, user_profile, db: Session):
-    """Unified entry point for all trigger types."""
+def dispatch_event(
+    event_type: str,
+    event_data: dict,
+    user_profile,
+    db: Session,
+    *,
+    workflow_id: int | None = None,
+    trigger_node_id: str | None = None,
+):
+    """Unified entry point for all trigger types.
+
+    When both workflow_id and trigger_node_id are provided (e.g. from the
+    scheduler), the resolver is bypassed and the specific workflow/trigger
+    is targeted directly.
+    """
     from models.execution import WorkflowExecution
+    from models.node import WorkflowNode
+    from models.workflow import Workflow
     from tasks import execute_workflow_job
 
-    result = trigger_resolver.resolve(event_type, event_data, db)
-    if result is None:
-        logger.debug("No workflow matched for event_type='%s'", event_type)
-        return None
-
-    workflow, trigger_node = result
+    if workflow_id and trigger_node_id:
+        workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        trigger_node = (
+            db.query(WorkflowNode)
+            .filter(WorkflowNode.workflow_id == workflow_id, WorkflowNode.node_id == trigger_node_id)
+            .first()
+        )
+        if not workflow or not trigger_node:
+            logger.debug("Direct dispatch: workflow=%s trigger=%s not found", workflow_id, trigger_node_id)
+            return None
+    else:
+        result = trigger_resolver.resolve(event_type, event_data, db)
+        if result is None:
+            logger.debug("No workflow matched for event_type='%s'", event_type)
+            return None
+        workflow, trigger_node = result
 
     execution = WorkflowExecution(
         workflow_id=workflow.id,

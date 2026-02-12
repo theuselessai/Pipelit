@@ -58,5 +58,6 @@ from components import (  # noqa: E402, F401
     subworkflow,
     switch,
     trigger,
+    scheduler_tools,
     web_search,
 )
