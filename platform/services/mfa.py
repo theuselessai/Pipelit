@@ -107,20 +107,20 @@ def verify_code(
         return False, None
 
     totp = pyotp.TOTP(secret)
+    now_ts = int(_time.time())
+    step = math.floor(now_ts / totp.interval)
 
     # Verify with valid_window=1 (allows +-1 time step)
     if not totp.verify(code, valid_window=1):
         _record_attempt(r, user_id, success=False)
         return False, None
 
-    # Replay prevention: compute the current time step
-    now_ts = int(_time.time())
-    step = math.floor(now_ts / totp.interval)
-
-    if last_used_at is not None and step <= last_used_at:
-        # Same time step was already used — replay
+    # Replay prevention: reject if any step in the valid window was already used.
+    # valid_window=1 accepts steps [step-1, step, step+1], so after a successful
+    # verification we record step+1 to invalidate all of them on the next attempt.
+    if last_used_at is not None and step + 1 <= last_used_at:
         _record_attempt(r, user_id, success=False)
         return False, None
 
     _record_attempt(r, user_id, success=True)
-    return True, step
+    return True, step + 1
