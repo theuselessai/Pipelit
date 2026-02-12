@@ -123,15 +123,18 @@ def get_model_name_for_node(node) -> str:
         try:
             from database import SessionLocal
             from models.node import BaseComponentConfig as BCC
+        except Exception:
+            logger.debug("Could not import required modules for model name resolution")
+            return ""
 
-            db = SessionLocal()
-            try:
-                tc = db.get(BCC, llm_config_id)
-                if tc and tc.component_type == "ai_model" and tc.model_name:
-                    return tc.model_name
-            finally:
-                db.close()
+        db = SessionLocal()
+        try:
+            tc = db.get(BCC, llm_config_id)
+            if tc and tc.component_type == "ai_model" and tc.model_name:
+                return tc.model_name
         except Exception:
             logger.debug("Could not resolve model name for node via llm_model_config_id=%s", llm_config_id)
+        finally:
+            db.close()
 
     return ""

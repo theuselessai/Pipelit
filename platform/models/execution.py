@@ -38,11 +38,11 @@ class WorkflowExecution(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Cost tracking
-    total_input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    total_output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    total_cost_usd: Mapped[float] = mapped_column(Numeric(12, 6), default=0.0)
-    llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    total_input_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    total_output_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    total_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    total_cost_usd: Mapped[float] = mapped_column(Numeric(12, 6), server_default="0")
+    llm_calls: Mapped[int] = mapped_column(Integer, server_default="0")
 
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="executions")  # noqa: F821
     trigger_node: Mapped["WorkflowNode | None"] = relationship("WorkflowNode")  # noqa: F821

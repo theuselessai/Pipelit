@@ -56,7 +56,7 @@ def categorizer_factory(node):
         usage = extract_usage_from_response(response)
         usage["llm_calls"] = 1
         usage["cost_usd"] = calculate_cost(
-            model_name, usage["input_tokens"], usage["output_tokens"]
+            model_name, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
         )
 
         # Parse category from response
