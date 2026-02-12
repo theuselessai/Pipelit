@@ -9,7 +9,7 @@ export function useEpics(filters?: { status?: string; tags?: string; limit?: num
   if (filters?.limit) params.set("limit", filters.limit.toString())
   if (filters?.offset) params.set("offset", filters.offset.toString())
   const qs = params.toString()
-  return useQuery({ queryKey: ["epics", filters], queryFn: () => apiFetch<PaginatedResponse<Epic>>(`/epics${qs ? `?${qs}` : ""}`) })
+  return useQuery({ queryKey: ["epics", filters], queryFn: () => apiFetch<PaginatedResponse<Epic>>(`/epics/${qs ? `?${qs}` : ""}`) })
 }
 
 export function useEpic(id: string) {
@@ -21,7 +21,7 @@ export function useEpicTasks(epicId: string, filters?: { limit?: number; offset?
   if (filters?.limit) params.set("limit", filters.limit.toString())
   if (filters?.offset) params.set("offset", filters.offset.toString())
   const qs = params.toString()
-  return useQuery({ queryKey: ["epics", epicId, "tasks", filters], queryFn: () => apiFetch<PaginatedResponse<Task>>(`/epics/${epicId}/tasks${qs ? `?${qs}` : ""}`), enabled: !!epicId })
+  return useQuery({ queryKey: ["epics", epicId, "tasks", filters], queryFn: () => apiFetch<PaginatedResponse<Task>>(`/epics/${epicId}/tasks/${qs ? `?${qs}` : ""}`), enabled: !!epicId })
 }
 
 export function useCreateEpic() {

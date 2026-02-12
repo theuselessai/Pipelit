@@ -10,7 +10,7 @@ export function useTasks(filters?: { epic_id?: string; status?: string; tags?: s
   if (filters?.limit) params.set("limit", filters.limit.toString())
   if (filters?.offset) params.set("offset", filters.offset.toString())
   const qs = params.toString()
-  return useQuery({ queryKey: ["tasks", filters], queryFn: () => apiFetch<PaginatedResponse<Task>>(`/tasks${qs ? `?${qs}` : ""}`) })
+  return useQuery({ queryKey: ["tasks", filters], queryFn: () => apiFetch<PaginatedResponse<Task>>(`/tasks/${qs ? `?${qs}` : ""}`) })
 }
 
 export function useTask(id: string) {
