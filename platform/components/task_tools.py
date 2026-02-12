@@ -67,11 +67,7 @@ def task_tools_factory(node):
         db = SessionLocal()
         try:
             try:
-                epic = (
-                    db.query(Epic)
-                    .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
-                    .first()
-                )
+                epic = db.query(Epic).filter(Epic.id == epic_id).first()
                 if not epic:
                     return json.dumps({"success": False, "error": "Epic not found"})
 
@@ -160,11 +156,7 @@ def task_tools_factory(node):
         limit = max(1, min(limit, 100))
         db = SessionLocal()
         try:
-            epic = (
-                db.query(Epic)
-                .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
-                .first()
-            )
+            epic = db.query(Epic).filter(Epic.id == epic_id).first()
             if not epic:
                 return json.dumps({"success": False, "error": "Epic not found"})
 
@@ -231,12 +223,7 @@ def task_tools_factory(node):
         db = SessionLocal()
         try:
             try:
-                task = (
-                    db.query(Task)
-                    .join(Epic)
-                    .filter(Task.id == task_id, Epic.user_profile_id == user_profile_id)
-                    .first()
-                )
+                task = db.query(Task).filter(Task.id == task_id).first()
                 if not task:
                     return json.dumps({"success": False, "error": "Task not found"})
 
@@ -311,12 +298,7 @@ def task_tools_factory(node):
         db = SessionLocal()
         try:
             try:
-                task = (
-                    db.query(Task)
-                    .join(Epic)
-                    .filter(Task.id == task_id, Epic.user_profile_id == user_profile_id)
-                    .first()
-                )
+                task = db.query(Task).filter(Task.id == task_id).first()
                 if not task:
                     return json.dumps({"success": False, "error": "Task not found"})
 

@@ -33,7 +33,7 @@ def list_tasks(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    q = db.query(Task).join(Epic).filter(Epic.user_profile_id == profile.id)
+    q = db.query(Task)
     if epic_id:
         q = q.filter(Task.epic_id == epic_id)
     if status:
@@ -53,10 +53,9 @@ def create_task(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    # Verify epic exists and belongs to user
     epic = (
         db.query(Epic)
-        .filter(Epic.id == payload.epic_id, Epic.user_profile_id == profile.id)
+        .filter(Epic.id == payload.epic_id)
         .first()
     )
     if not epic:
@@ -106,12 +105,7 @@ def get_task(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    task = (
-        db.query(Task)
-        .join(Epic)
-        .filter(Task.id == task_id, Epic.user_profile_id == profile.id)
-        .first()
-    )
+    task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
     return serialize_task(task)
@@ -124,12 +118,7 @@ def update_task(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    task = (
-        db.query(Task)
-        .join(Epic)
-        .filter(Task.id == task_id, Epic.user_profile_id == profile.id)
-        .first()
-    )
+    task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
 
@@ -164,12 +153,7 @@ def delete_task(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    task = (
-        db.query(Task)
-        .join(Epic)
-        .filter(Task.id == task_id, Epic.user_profile_id == profile.id)
-        .first()
-    )
+    task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found.")
 
@@ -202,8 +186,7 @@ def batch_delete_tasks(
     # Find affected epic IDs and task IDs before deleting
     affected_tasks = (
         db.query(Task)
-        .join(Epic)
-        .filter(Task.id.in_(payload.task_ids), Epic.user_profile_id == profile.id)
+        .filter(Task.id.in_(payload.task_ids))
         .all()
     )
     epic_to_task_ids: dict[str, list[str]] = defaultdict(list)
@@ -216,9 +199,6 @@ def batch_delete_tasks(
 
     db.query(Task).filter(
         Task.id.in_(payload.task_ids),
-        Task.epic_id.in_(
-            db.query(Epic.id).filter(Epic.user_profile_id == profile.id)
-        ),
     ).delete(synchronize_session=False)
 
     # Sync progress for affected epics

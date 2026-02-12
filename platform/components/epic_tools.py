@@ -111,11 +111,7 @@ def epic_tools_factory(node):
 
         db = SessionLocal()
         try:
-            epic = (
-                db.query(Epic)
-                .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
-                .first()
-            )
+            epic = db.query(Epic).filter(Epic.id == epic_id).first()
             if not epic:
                 return json.dumps({"success": False, "error": "Epic not found"})
 
@@ -176,11 +172,7 @@ def epic_tools_factory(node):
         db = SessionLocal()
         try:
             try:
-                epic = (
-                    db.query(Epic)
-                    .filter(Epic.id == epic_id, Epic.user_profile_id == user_profile_id)
-                    .first()
-                )
+                epic = db.query(Epic).filter(Epic.id == epic_id).first()
                 if not epic:
                     return json.dumps({"success": False, "error": "Epic not found"})
 
@@ -266,7 +258,7 @@ def epic_tools_factory(node):
         limit = max(1, min(limit, 100))
         db = SessionLocal()
         try:
-            q = db.query(Epic).filter(Epic.user_profile_id == user_profile_id)
+            q = db.query(Epic)
             if status:
                 q = q.filter(Epic.status == status)
             if tag_list:
