@@ -226,7 +226,7 @@ def task_tools_factory(node):
         """
         from database import SessionLocal
         from models.epic import Epic, Task
-        from api.epic_helpers import serialize_task, sync_epic_progress
+        from api.epic_helpers import resolve_blocked_tasks, serialize_task, sync_epic_progress
 
         db = SessionLocal()
         try:
@@ -262,6 +262,11 @@ def task_tools_factory(node):
                     task.notes = existing_notes + [notes]
 
                 db.flush()
+
+                # Auto-unblock dependent tasks when this task is completed
+                if status == "completed":
+                    resolve_blocked_tasks(task_id, db)
+
                 epic = db.query(Epic).filter(Epic.id == task.epic_id).first()
                 if epic:
                     sync_epic_progress(epic, db)

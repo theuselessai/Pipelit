@@ -119,6 +119,7 @@ def serialize_workflow(wf: Workflow, db: Session) -> dict:
         "is_active": wf.is_active,
         "is_public": wf.is_public,
         "is_default": wf.is_default,
+        "tags": wf.tags,
         "error_handler_workflow_id": wf.error_handler_workflow_id,
         "input_schema": wf.input_schema,
         "output_schema": wf.output_schema,

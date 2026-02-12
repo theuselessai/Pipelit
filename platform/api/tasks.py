@@ -15,7 +15,7 @@ from database import get_db
 from models.epic import Epic, Task
 from models.user import UserProfile
 from schemas.epic import BatchDeleteTasksIn, TaskCreate, TaskOut, TaskUpdate
-from api.epic_helpers import remove_from_depends_on, serialize_task, sync_epic_progress
+from api.epic_helpers import remove_from_depends_on, resolve_blocked_tasks, serialize_task, sync_epic_progress
 from ws.broadcast import broadcast
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,10 @@ def update_task(
 
     # Flush so count queries in sync_epic_progress see the updated status
     db.flush()
+
+    # Auto-unblock dependent tasks when this task is completed
+    if update_data.get("status") == "completed":
+        resolve_blocked_tasks(task_id, db)
 
     # Sync epic progress counters
     epic = db.query(Epic).filter(Epic.id == task.epic_id).first()

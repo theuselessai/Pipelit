@@ -219,8 +219,12 @@ def _parse_dsl(yaml_str: str) -> dict:
     if not isinstance(parsed["steps"], list) or len(parsed["steps"]) == 0:
         raise ValueError("`steps` must be a non-empty list")
 
-    # Normalize and validate trigger
-    trigger = parsed.setdefault("trigger", "manual")
+    # Normalize and validate trigger — accept both string ("webhook")
+    # and dict ({"type": "webhook"}) forms per the DSL spec.
+    trigger = parsed.setdefault("trigger", "none")
+    if isinstance(trigger, dict):
+        trigger = trigger.get("type", "none")
+        parsed["trigger"] = trigger
     if isinstance(trigger, str) and trigger not in TRIGGER_TYPE_MAP:
         raise ValueError(
             f"Unknown trigger type '{trigger}'. "
@@ -430,14 +434,22 @@ def _build_step_config(
     config: dict[str, Any] = {}
 
     if step_type == "code":
+        # Accept snippet, code, or config.code (LLMs use all three forms)
+        step_config = step.get("config", {}) if isinstance(step.get("config"), dict) else {}
+        code_content = (
+            step.get("snippet")
+            or step.get("code")
+            or step_config.get("code", "")
+        )
+        code_content = _strip_markdown_fences(code_content)
         config["extra_config"] = {
-            "code": step.get("snippet", ""),
-            "language": step.get("language", "python"),
+            "code": code_content,
+            "language": step.get("language") or step_config.get("language", "python"),
         }
 
     elif step_type == "agent":
-        config["system_prompt"] = step.get("prompt", "")
-        # Model: step-level override or workflow-level default
+        config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
+        # Model: step-level override → workflow-level default → inherit from parent
         step_model = step.get("model", {})
         if step_model:
             s_cred, s_model, s_temp = _resolve_model(step_model, parent_node, db)
@@ -448,6 +460,13 @@ def _build_step_config(
             config["llm_credential_id"] = cred_id
             config["model_name"] = model_name
             config["temperature"] = temperature
+        elif parent_node:
+            # Auto-inherit from parent agent when no model specified
+            inherit_info = _resolve_model({"inherit": True}, parent_node, db)
+            if inherit_info[0] is not None:
+                config["llm_credential_id"] = inherit_info[0]
+                config["model_name"] = inherit_info[1]
+                config["temperature"] = inherit_info[2]
         # Memory
         extra = {}
         if step.get("memory"):
@@ -1008,11 +1027,12 @@ def _patch_update_prompt(node_dicts: list[dict], patch: dict) -> None:
     config = nd.get("config", {})
     if "prompt" in patch:
         config["system_prompt"] = patch["prompt"]
-    if "snippet" in patch:
+    snippet = patch.get("snippet") or patch.get("code")
+    if snippet:
         extra = config.get("extra_config", {})
         if not isinstance(extra, dict):
             extra = {}
-        extra["code"] = patch["snippet"]
+        extra["code"] = _strip_markdown_fences(snippet)
         config["extra_config"] = extra
     nd["config"] = config
 
@@ -1035,11 +1055,11 @@ def _patch_add_step(
     config: dict[str, Any] = {}
     if step_type == "code":
         config["extra_config"] = {
-            "code": step.get("snippet", ""),
+            "code": _strip_markdown_fences(step.get("snippet") or step.get("code", "")),
             "language": step.get("language", "python"),
         }
     elif step_type == "agent":
-        config["system_prompt"] = step.get("prompt", "")
+        config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
     elif step_type == "http":
         config["extra_config"] = {
             "url": step.get("url", ""),
@@ -1183,6 +1203,19 @@ def _patch_update_config(node_dicts: list[dict], patch: dict) -> None:
 
 
 # ── Utilities ────────────────────────────────────────────────────────────────
+
+
+def _strip_markdown_fences(code: str) -> str:
+    """Strip markdown code fences that LLMs sometimes wrap around code snippets."""
+    if not code:
+        return code
+    stripped = code.strip()
+    if stripped.startswith("```"):
+        # Remove opening fence (with optional language tag)
+        stripped = re.sub(r"^```[^\n]*\n?", "", stripped, count=1)
+        # Remove closing fence
+        stripped = re.sub(r"\n?```\s*$", "", stripped)
+    return stripped
 
 
 def _slugify(text: str) -> str:

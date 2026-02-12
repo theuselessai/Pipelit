@@ -173,9 +173,21 @@ def agent_factory(node):
                         "Agent %s: interrupted by spawn_and_await, creating child execution: %s",
                         node_id, interrupt_data,
                     )
-                    child_id = _create_child_from_interrupt(interrupt_data, state, node_id)
-                    return {"_subworkflow": {"child_execution_id": child_id}}
+                    return _try_create_child(interrupt_data, state, node_id)
                 raise
+
+            # With a checkpointer, LangGraph catches GraphInterrupt internally
+            # and returns the result with an "__interrupt__" key instead of raising.
+            if has_spawn_tool and isinstance(result, dict) and "__interrupt__" in result:
+                interrupts = result["__interrupt__"]
+                if interrupts:
+                    interrupt_val = interrupts[0].value if hasattr(interrupts[0], "value") else {}
+                    if isinstance(interrupt_val, dict) and interrupt_val.get("action") == "spawn_workflow":
+                        logger.info(
+                            "Agent %s: detected interrupt in return value, creating child: %s",
+                            node_id, interrupt_val,
+                        )
+                        return _try_create_child(interrupt_val, state, node_id)
 
         out_messages = result.get("messages", [])
 
@@ -198,6 +210,16 @@ def agent_factory(node):
         }
 
     return agent_node
+
+
+def _try_create_child(interrupt_data: dict, state: dict, node_id: str) -> dict:
+    """Attempt to create a child execution; return error output instead of raising."""
+    try:
+        child_id = _create_child_from_interrupt(interrupt_data, state, node_id)
+        return {"_subworkflow": {"child_execution_id": child_id}}
+    except Exception as exc:
+        logger.exception("Agent %s: failed to create child execution", node_id)
+        return {"output": "spawn_and_await failed: unable to create child execution"}
 
 
 def _create_child_from_interrupt(

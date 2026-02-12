@@ -180,8 +180,11 @@ def _score_workflow(
 ) -> float:
     """Score a workflow against requirements.
 
-    Weighted: capability_match * 0.6 + tag_overlap * 0.2 + success_rate * 0.2
+    Weighted: capability_match * 0.8 + tag_overlap * 0.1 + success_rate * 0.1
     Plus description substring bonus (+0.05, capped at 1.0).
+
+    Capability match is the dominant signal so a perfect match can reach the
+    "reuse" threshold (>= 0.95) even without tag overlap or execution history.
     """
     # Capability match: fraction of required items present
     required_items: list[tuple[str, set]] = []
@@ -212,20 +215,19 @@ def _score_workflow(
     else:
         capability_match = 1.0
 
-    # Tag overlap: Jaccard similarity
+    # Tag overlap: Jaccard similarity (only when tags are requested)
     req_tags = set(requirements.get("tags") or [])
-    has_tags = set(capabilities.get("tags") or [])
-    if req_tags or has_tags:
+    if req_tags:
+        has_tags = set(capabilities.get("tags") or [])
         union = req_tags | has_tags
-        intersection = req_tags & has_tags
-        tag_overlap = len(intersection) / len(union) if union else 1.0
+        tag_overlap = len(req_tags & has_tags) / len(union) if union else 1.0
     else:
         tag_overlap = 1.0
 
     # Success rate: default 0.5 if no executions
     sr = success_rate if success_rate is not None else 0.5
 
-    score = capability_match * 0.6 + tag_overlap * 0.2 + sr * 0.2
+    score = capability_match * 0.8 + tag_overlap * 0.1 + sr * 0.1
 
     # Description substring bonus
     req_desc = (requirements.get("description") or "").strip().lower()

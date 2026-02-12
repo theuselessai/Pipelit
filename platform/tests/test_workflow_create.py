@@ -296,6 +296,66 @@ steps:
         assert "automation" in wf.tags
         assert "testing" in wf.tags
 
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_dict_form_trigger(self, mock_broadcast, db, user_profile):
+        """Dict-form trigger (type: webhook) should work same as string form."""
+        yaml_str = """\
+name: Dict Trigger Test
+trigger:
+  type: webhook
+steps:
+  - type: code
+    id: code_1
+    snippet: "return {'ok': True}"
+"""
+        result = compile_dsl(yaml_str, user_profile.id, db)
+        assert result["success"] is True
+        assert result["node_count"] == 2
+
+        wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
+        nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
+        trigger = next(n for n in nodes if n.component_type.startswith("trigger_"))
+        assert trigger.component_type == "trigger_webhook"
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_code_key_alias_for_snippet(self, mock_broadcast, db, user_profile):
+        """LLMs often use 'code' instead of 'snippet' — both should work."""
+        yaml_str = """\
+name: Code Alias Test
+trigger: manual
+steps:
+  - type: code
+    id: code_1
+    code: "return {'hello': 'world'}"
+"""
+        result = compile_dsl(yaml_str, user_profile.id, db)
+        assert result["success"] is True
+
+        wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
+        nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
+        code_node = next(n for n in nodes if n.component_type == "code")
+        assert code_node.component_config.extra_config["code"] == "return {'hello': 'world'}"
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_nested_config_code(self, mock_broadcast, db, user_profile):
+        """LLMs sometimes nest code under config: {code: ...}."""
+        yaml_str = """\
+name: Nested Config Test
+trigger: manual
+steps:
+  - type: code
+    id: code_1
+    config:
+      code: "return {'nested': True}"
+"""
+        result = compile_dsl(yaml_str, user_profile.id, db)
+        assert result["success"] is True
+
+        wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
+        nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
+        code_node = next(n for n in nodes if n.component_type == "code")
+        assert code_node.component_config.extra_config["code"] == "return {'nested': True}"
+
 
 # ── Fork & patch DB tests ───────────────────────────────────────────────────
 
@@ -531,6 +591,96 @@ steps:
         wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
         assert "alpha" in wf.tags
         assert "beta" in wf.tags
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_tool_resolves_parent_via_edge(self, mock_broadcast, db, user_profile, workflow):
+        """Tool follows the tool edge to find the parent agent node."""
+        from components.workflow_create import workflow_create_factory
+
+        # Create an agent node with LLM config
+        agent_cfg = BaseComponentConfig(
+            component_type="agent",
+            system_prompt="I am the parent",
+            extra_config={},
+        )
+        db.add(agent_cfg)
+        db.flush()
+        agent_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="agent_parent",
+            component_type="agent",
+            component_config_id=agent_cfg.id,
+        )
+        db.add(agent_node)
+
+        # Create a workflow_create tool node
+        wc_cfg = BaseComponentConfig(component_type="workflow_create", extra_config={})
+        db.add(wc_cfg)
+        db.flush()
+        wc_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="wc_edge",
+            component_type="workflow_create",
+            component_config_id=wc_cfg.id,
+        )
+        db.add(wc_node)
+
+        # Create a tool edge: wc_edge → agent_parent (edge_label="tool")
+        db.add(WorkflowEdge(
+            workflow_id=workflow.id,
+            source_node_id="wc_edge",
+            target_node_id="agent_parent",
+            edge_type="direct",
+            edge_label="tool",
+        ))
+        db.commit()
+
+        node = SimpleNamespace(workflow_id=workflow.id, node_id="wc_edge")
+        tool = workflow_create_factory(node)[0]
+
+        yaml_str = """\
+name: Edge Resolved WF
+trigger: manual
+steps:
+  - type: code
+    snippet: "print('edge test')"
+"""
+        with patch("database.SessionLocal", return_value=db):
+            with patch.object(db, "close"):
+                result_str = tool.invoke({"dsl": yaml_str})
+
+        result = json.loads(result_str)
+        assert result["success"] is True
+        assert result["slug"] == "edge-resolved-wf"
+
+    @patch("services.dsl_compiler.broadcast", create=True)
+    def test_tool_returns_error_on_exception(self, mock_broadcast, db, user_profile, workflow):
+        """Tool returns error JSON and rolls back DB on exception."""
+        from components.workflow_create import workflow_create_factory
+
+        wc_cfg = BaseComponentConfig(component_type="workflow_create", extra_config={})
+        db.add(wc_cfg)
+        db.flush()
+        wc_node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="wc_err2",
+            component_type="workflow_create",
+            component_config_id=wc_cfg.id,
+        )
+        db.add(wc_node)
+        db.commit()
+
+        node = SimpleNamespace(workflow_id=workflow.id, node_id="wc_err2")
+        tool = workflow_create_factory(node)[0]
+
+        with patch("database.SessionLocal", return_value=db):
+            with patch.object(db, "close"):
+                with patch("services.dsl_compiler.compile_dsl", side_effect=RuntimeError("boom")):
+                    result_str = tool.invoke({"dsl": "name: X\nsteps:\n  - type: code"})
+
+        result = json.loads(result_str)
+        assert result["success"] is False
+        assert "boom" in result["error"]
 
     def test_tool_error_handling(self):
         from components.workflow_create import workflow_create_factory

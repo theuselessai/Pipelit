@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.orm import Session
 
 from models.epic import Epic, Task
+
+logger = logging.getLogger(__name__)
 
 
 def remove_from_depends_on(task_ids: list[str], db: Session) -> None:
@@ -27,6 +31,50 @@ def sync_epic_progress(epic: Epic, db: Session) -> None:
     epic.failed_tasks = (
         db.query(Task).filter(Task.epic_id == epic.id, Task.status == "failed").count()
     )
+
+
+def resolve_blocked_tasks(completed_task_id: str, db: Session) -> None:
+    """Unblock tasks whose dependencies are now all completed.
+
+    When a task is marked completed, find all tasks that depend on it and
+    check if ALL of their dependencies are now completed.  If so, transition
+    them from ``blocked`` → ``pending``.
+    """
+    # Find tasks whose depends_on JSON array contains the completed task ID
+    dependents = (
+        db.query(Task)
+        .filter(Task.depends_on.isnot(None), Task.status == "blocked")
+        .all()
+    )
+    for task in dependents:
+        deps = task.depends_on or []
+        if completed_task_id not in deps:
+            continue
+
+        # Check if ALL dependencies are now completed
+        completed_count = (
+            db.query(Task)
+            .filter(Task.id.in_(deps), Task.status == "completed")
+            .count()
+        )
+        if completed_count >= len(deps):
+            task.status = "pending"
+            logger.info(
+                "Unblocked task %s (all %d dependencies completed)",
+                task.id, len(deps),
+            )
+
+            # Broadcast update
+            try:
+                from ws.broadcast import broadcast
+                broadcast(f"epic:{task.epic_id}", "task_updated", serialize_task(task))
+            except Exception:
+                logger.exception("Failed to broadcast task_updated for unblocked task %s", task.id)
+
+            # Sync epic progress
+            epic = db.query(Epic).filter(Epic.id == task.epic_id).first()
+            if epic:
+                sync_epic_progress(epic, db)
 
 
 def serialize_epic(epic: Epic) -> dict:
