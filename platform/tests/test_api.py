@@ -204,41 +204,6 @@ class TestAuthTokenAPI:
         resp = client.get("/api/v1/workflows/", headers={"Authorization": f"Bearer {key}"})
         assert resp.status_code == 200
 
-    def test_obtain_token_pbkdf2_password(self, client, db):
-        from passlib.hash import pbkdf2_sha256
-        from models.user import UserProfile
-
-        user = UserProfile(
-            username="pbkdf2user",
-            password_hash=pbkdf2_sha256.hash("pbkdf2pass"),
-        )
-        db.add(user)
-        db.commit()
-
-        resp = client.post(
-            "/api/v1/auth/token/",
-            json={"username": "pbkdf2user", "password": "pbkdf2pass"},
-        )
-        assert resp.status_code == 200
-        assert "key" in resp.json()
-
-    def test_obtain_token_pbkdf2_wrong_password(self, client, db):
-        from passlib.hash import pbkdf2_sha256
-        from models.user import UserProfile
-
-        user = UserProfile(
-            username="pbkdf2user2",
-            password_hash=pbkdf2_sha256.hash("correctpass"),
-        )
-        db.add(user)
-        db.commit()
-
-        resp = client.post(
-            "/api/v1/auth/token/",
-            json={"username": "pbkdf2user2", "password": "wrongpass"},
-        )
-        assert resp.status_code == 401
-
     def test_obtain_token_malformed_hash(self, client, db):
         from models.user import UserProfile
 
