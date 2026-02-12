@@ -166,13 +166,13 @@ No separate planning agent or research agent is required. The main agent handles
 
 | Component | Type | Depends On | Complexity |
 |---|---|---|---|
-| **Task Registry** (Epic + Task models) | New SQLAlchemy models + API + migration | Nothing | Medium |
-| **Registry Agent Tools** | New tool components | Task Registry | Low |
-| **`spawn_and_await`** | New tool component | Task Registry | High |
-| **`workflow_create`** | New tool component | Nothing | Medium |
-| **`workflow_discover`** | New tool component | Nothing | Low |
-| **Execution → Task cost sync** | Orchestrator hook | Task Registry | Low |
-| **Feedback / tagging** | Enhancement to registry | Task Registry | Low |
+| **Task Registry** (Epic + Task models) | New SQLAlchemy models + API + migration | Nothing | Medium | ✅ Done |
+| **Registry Agent Tools** | New tool components | Task Registry | Low | ✅ Done |
+| **`spawn_and_await`** | New tool component | Task Registry | High | ✅ Done |
+| **`workflow_create`** | New tool component | Nothing | Medium | ✅ Done |
+| **`workflow_discover`** | New tool component | Nothing | Low | ✅ Done |
+| **Execution → Task cost sync** | Orchestrator hook | Task Registry | Low | ✅ Done |
+| **Feedback / tagging** | Enhancement to registry | Task Registry | Low | TODO |
 
 ### 5.2 Implementation order
 
@@ -802,9 +802,18 @@ Same interrupt/resume mechanics, but the checkpoint is scoped to `exec:{executio
 
 ## 8. Integration Points
 
-### 8.1 Orchestrator → Task cost sync
+### 8.1 Orchestrator → Task cost sync — IMPLEMENTED
 
-After a workflow execution completes, a post-execution hook aggregates metrics:
+**Status:** Core cost tracking is implemented as of 2026-02-13. Token usage and USD costs are tracked at the execution level and enforced against Epic budgets.
+
+**Implementation:**
+- `platform/services/token_usage.py` — pricing table, `calculate_cost()`, `extract_usage_from_response/messages()`, `get_model_name_for_node()`
+- Agent and categorizer components return `_token_usage` dicts; orchestrator accumulates into `state["_execution_token_usage"]`
+- `_persist_execution_costs()` writes totals to `WorkflowExecution` model (5 new columns: `total_input_tokens`, `total_output_tokens`, `total_tokens`, `total_cost_usd`, `llm_calls`)
+- `_check_budget()` gates node execution by checking Task → Epic budget limits
+- Task cost sync (`_sync_task_costs`) runs after child executions complete, rolling up to Epic level
+
+**Original design (for reference):**
 
 ```python
 async def sync_task_from_execution(task_id: str, execution: WorkflowExecution):
@@ -1273,7 +1282,7 @@ def downgrade():
 
 11. ~~**Sequential `spawn_and_await` state cleanup**~~ — **RESOLVED.** `agent_node` uses `.pop()` (not `.get()`) to consume `_subworkflow_results[node_id]` after reading, ensuring stale results from cycle N don't leak into cycle N+1. See section 7.4 code comments.
 
-12. ~~**Token-to-USD cost computation**~~ — **RESOLVED.** Pricing metadata stored on `LLMProviderCredential` as a `pricing` JSON field (e.g., `{"input_per_1k": 0.01, "output_per_1k": 0.03}`). Set by admin when configuring credentials. `compute_cost_from_credential()` reads pricing from the credential used by the execution.
+12. ~~**Token-to-USD cost computation**~~ — **RESOLVED & IMPLEMENTED.** Implemented via `platform/services/token_usage.py` with a built-in pricing table (per-1M-token rates for OpenAI and Anthropic models) rather than admin-configured credential pricing. `calculate_cost(model_name, input_tokens, output_tokens)` uses longest-prefix matching on model names. Components extract usage from LangChain `usage_metadata` (provider-reported actuals, not estimates). Cost accumulates in orchestrator state and persists to `WorkflowExecution` on completion.
 
 ---
 
