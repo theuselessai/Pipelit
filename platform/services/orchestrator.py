@@ -1240,11 +1240,17 @@ def _sync_task_costs(execution_id: str, db: Session) -> None:
         db.commit()
         logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
 
-        # Roll up costs to epic
+        # Roll up costs to epic (recalculate from all tasks to avoid double-counting)
         if task.epic:
             epic = task.epic
-            epic.spent_tokens = (epic.spent_tokens or 0) + task.actual_tokens
-            epic.spent_usd = float(epic.spent_usd or 0) + float(task.actual_usd)
+            from sqlalchemy import func as sa_func
+            from models.epic import Task as _Task
+            totals = db.query(
+                sa_func.coalesce(sa_func.sum(_Task.actual_tokens), 0),
+                sa_func.coalesce(sa_func.sum(_Task.actual_usd), 0),
+            ).filter(_Task.epic_id == epic.id).one()
+            epic.spent_tokens = int(totals[0])
+            epic.spent_usd = float(totals[1])
             db.commit()
 
         # Auto-unblock dependent tasks when this task is completed
