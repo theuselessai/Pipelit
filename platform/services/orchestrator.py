@@ -410,11 +410,14 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             _fail_parent_eid = getattr(execution, "parent_execution_id", None)
             _fail_parent_nid = getattr(execution, "parent_node_id", None)
             if _fail_parent_eid and _fail_parent_nid and isinstance(_fail_parent_eid, str):
-                _resume_from_child(
-                    parent_execution_id=_fail_parent_eid,
-                    parent_node_id=_fail_parent_nid,
-                    child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
-                )
+                try:
+                    _resume_from_child(
+                        parent_execution_id=_fail_parent_eid,
+                        parent_node_id=_fail_parent_nid,
+                        child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
+                    )
+                except Exception:
+                    logger.exception("Failed to propagate failure to parent %s", _fail_parent_eid)
             _cleanup_redis(execution_id)
             return
 

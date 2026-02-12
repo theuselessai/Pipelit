@@ -1171,7 +1171,7 @@ class TestChildWaitTimeout:
         mock_resume.assert_called_once_with(
             parent_execution_id="parent-exec",
             parent_node_id="agent_1",
-            child_output={"_error": "Child execution timed out after 600s"},
+            child_output={"_error": "Child execution timed out"},
         )
         mock_redis.delete.assert_called_with("execution:parent-exec:child_wait:agent_1")
 

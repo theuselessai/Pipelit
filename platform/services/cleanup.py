@@ -72,7 +72,7 @@ def cleanup_stuck_child_waits() -> int:
                 _resume_from_child(
                     parent_execution_id=execution_id,
                     parent_node_id=node_id,
-                    child_output={"_error": "Child execution timed out after 600s"},
+                    child_output={"_error": "Child execution timed out"},
                 )
             except Exception:
                 logger.exception(
