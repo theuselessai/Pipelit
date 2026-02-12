@@ -60,7 +60,7 @@ cd platform/frontend && npm install
 
 ```bash
 # Generate an encryption key for credential storage
-python -c "from cryptography.fernet import Fernet; print('FIELD_ENCRYPTION_KEY=' + Fernet.generate_key().decode())" >> .env
+echo "FIELD_ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> .env
 ```
 
 Or create a `.env` file in the project root with at minimum:

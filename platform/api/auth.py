@@ -32,13 +32,16 @@ def _verify_password(stored_hash: str, password: str) -> bool:
     if not stored_hash:
         return False
 
-    if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
-        import bcrypt
-        return bcrypt.checkpw(password.encode(), stored_hash.encode())
+    try:
+        if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
+            import bcrypt
+            return bcrypt.checkpw(password.encode(), stored_hash.encode())
 
-    if stored_hash.startswith("$pbkdf2-sha256$"):
-        from passlib.hash import pbkdf2_sha256
-        return pbkdf2_sha256.verify(password, stored_hash)
+        if stored_hash.startswith("$pbkdf2-sha256$"):
+            from passlib.hash import pbkdf2_sha256
+            return pbkdf2_sha256.verify(password, stored_hash)
+    except Exception:
+        return False
 
     return False
 
