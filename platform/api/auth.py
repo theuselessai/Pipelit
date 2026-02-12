@@ -32,10 +32,11 @@ def _verify_password(stored_hash: str, password: str) -> bool:
     if not stored_hash:
         return False
 
+    import bcrypt
+
     try:
-        import bcrypt
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
-    except Exception:
+    except (ValueError, UnicodeDecodeError):
         return False
 
 
