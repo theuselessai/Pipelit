@@ -33,7 +33,7 @@ A visual workflow automation platform for building LLM-powered agents. Design wo
    npm install
    ```
 
-3. **Start Redis**
+3. **Start Redis** (see [Redis Setup](#redis-setup) below)
    ```bash
    # macOS
    brew services start redis
@@ -97,6 +97,44 @@ All endpoints under `/api/v1/`, authenticated via Bearer token (`Authorization: 
 - **Jinja2 Expressions** — template variables in prompts referencing upstream node outputs
 - **Credentials Management** — encrypted storage for LLM providers, Telegram bots, etc.
 - **Dark Mode** — system/light/dark theme via Shadcn CSS variables
+
+## Redis Setup
+
+Plain `redis-server` is sufficient for core functionality: job queues (RQ), WebSocket pub/sub, and graph caching.
+
+However, the `spawn_and_await` tool (agent-to-agent delegation) uses `langgraph-checkpoint-redis` which requires the **RediSearch** module. This is only available in **Redis Stack**, not plain Redis. Without it you'll get:
+
+```
+unknown command 'FT._LIST'
+```
+
+**Workaround without Redis Stack:** Enable `conversation_memory` on agent nodes that use `spawn_and_await`. This switches the checkpointer from RedisSaver to SqliteSaver, bypassing the RediSearch requirement.
+
+### Installing Redis Stack
+
+```bash
+# Docker (easiest)
+docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server:latest
+
+# Debian/Ubuntu
+curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+sudo apt update
+sudo apt install redis-stack-server
+sudo systemctl start redis-stack-server
+
+# macOS
+brew tap redis-stack/redis-stack
+brew install redis-stack-server
+redis-stack-server
+```
+
+Verify RediSearch is available:
+
+```bash
+redis-cli MODULE LIST
+# Should include "search" (ft) module
+```
 
 ## License
 
