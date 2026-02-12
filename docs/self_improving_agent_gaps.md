@@ -15,8 +15,48 @@
 
 ## 2. Bugs to Fix
 
-### identify_user registration
-The `identify_user` component may fail to register the user correctly when invoked from certain trigger contexts. Needs investigation into how `user_profile_id` is resolved for agent-created users.
+### identify_user — redesign as conversational TOTP authentication
+
+The current `identify_user` component parses channel-specific payloads (Telegram `from.id`, webhook `user_id`, etc.) to resolve identity. This is brittle, inelegant, and not actually authentication — it's just reading metadata from the transport layer.
+
+**The real purpose of identify_user is authentication**, especially as a required gate before human-in-the-loop interruptions. When an agent asks a human to approve a dangerous action, we must verify that the person responding is who they claim to be.
+
+**Target design — conversational TOTP:**
+
+```
+Agent: "Who are you?"
+User:  "Aka"
+Agent: "Enter your code."
+User:  "483291"
+Agent: (validates TOTP) → confirmed, this is Aka
+```
+
+The identity lives in the conversation, not in the transport layer. A ghost asks your name, then asks you to prove it. Pure and channel-agnostic — works identically across Telegram, web chat, webhooks, or any future channel.
+
+**Implementation outline:**
+
+*Backend:*
+- **TOTP secret storage** — encrypted column on `UserProfile` using existing `EncryptedString` (Fernet), plus `mfa_enabled` boolean
+- **API endpoints** — `POST /auth/mfa/setup/` (generate secret + QR URI), `POST /auth/mfa/verify/` (confirm setup with a code), `POST /auth/mfa/disable/` (requires valid code)
+- **Agent users** — `create_agent_user` auto-generates a TOTP secret at creation time. Agent tools include `get_my_totp_code` so agents can respond to identity challenges.
+- **`pyotp`** — dependency for TOTP generation and validation
+
+*identify_user node:*
+- **Conversational two-turn flow** — ask nickname, ask TOTP code, validate with `pyotp`
+- **Human interruption integration** — when an agent hits an approval gate, the interruption flow requires TOTP before accepting the response
+- **No channel-specific logic** — remove all Telegram/webhook/manual payload parsing from the identity flow
+- **Unified protocol** — same flow for humans and agents. A human reads their authenticator app, an agent calls `pyotp.TOTP(secret).now()`. The node doesn't need to know which it's talking to.
+
+*Frontend — Settings page MFA section:*
+- **Enable MFA** — generate TOTP secret, display QR code (`otpauth://` URI) for scanning into authenticator app
+- **Verify setup** — user enters a code to confirm their app works before the secret is saved
+- **Disable MFA** — requires a valid TOTP code to turn off
+- **Status indicator** — show whether MFA is currently enabled
+
+*Recovery — physical access only:*
+- **TOTP reset requires password + local access** — the reset/regenerate endpoint only works from the local web interface on the host machine. No remote reset, no email recovery, no backup codes.
+- This is deliberate: if you lose your authenticator, you must be physically present at the machine that hosts the platform. An agent (or remote attacker) cannot reset MFA on your behalf.
+- **Network restriction** — reset endpoint restricted to `localhost`, `127.0.0.1`, and `192.168.*.*`. Requests from any other origin are rejected regardless of valid credentials.
 
 ### error_handler NotImplementedError
 The error handler component raises `NotImplementedError` in some code paths. This should be replaced with a proper fallback that logs the error and marks the execution as failed gracefully.
