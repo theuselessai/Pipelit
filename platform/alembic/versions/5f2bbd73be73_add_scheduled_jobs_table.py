@@ -44,8 +44,14 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
     )
+    op.create_index("ix_scheduled_jobs_status", "scheduled_jobs", ["status"])
+    op.create_index("ix_scheduled_jobs_next_run_at", "scheduled_jobs", ["next_run_at"])
+    op.create_index("ix_scheduled_jobs_status_next_run_at", "scheduled_jobs", ["status", "next_run_at"])
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_index("ix_scheduled_jobs_status_next_run_at", table_name="scheduled_jobs")
+    op.drop_index("ix_scheduled_jobs_next_run_at", table_name="scheduled_jobs")
+    op.drop_index("ix_scheduled_jobs_status", table_name="scheduled_jobs")
     op.drop_table("scheduled_jobs")

@@ -76,10 +76,12 @@ def create_schedule(
 
     try:
         start_scheduled_job(job)
+        db.commit()
     except Exception:
+        db.rollback()
         logger.exception("Failed to enqueue first run for scheduled job %s", job.id)
+        raise HTTPException(status_code=500, detail="Failed to start scheduled job.")
 
-    db.commit()
     db.refresh(job)
     return _serialize(job)
 

@@ -26,7 +26,7 @@ def dispatch_event(
 ):
     """Unified entry point for all trigger types.
 
-    When workflow_id and/or trigger_node_id are provided (e.g. from the
+    When both workflow_id and trigger_node_id are provided (e.g. from the
     scheduler), the resolver is bypassed and the specific workflow/trigger
     is targeted directly.
     """

@@ -35,13 +35,13 @@ class ScheduledJob(Base):
     trigger_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # State
-    status: Mapped[str] = mapped_column(String(20), default="active")  # active | paused | stopped | dead | done
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active | paused | stopped | dead | done
     current_repeat: Mapped[int] = mapped_column(Integer, default=0)
     current_retry: Mapped[int] = mapped_column(Integer, default=0)
 
     # Tracking
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     run_count: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str] = mapped_column(Text, default="")

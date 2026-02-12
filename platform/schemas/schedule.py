@@ -26,11 +26,25 @@ class ScheduledJobCreate(BaseModel):
             raise ValueError("interval_seconds must be >= 1")
         return v
 
+    @field_validator("total_repeats")
+    @classmethod
+    def total_repeats_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("total_repeats must be >= 0")
+        return v
+
     @field_validator("max_retries")
     @classmethod
     def retries_non_negative(cls, v: int) -> int:
         if v < 0:
             raise ValueError("max_retries must be >= 0")
+        return v
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def timeout_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("timeout_seconds must be >= 1")
         return v
 
 
@@ -48,6 +62,27 @@ class ScheduledJobUpdate(BaseModel):
     def interval_positive(cls, v: int | None) -> int | None:
         if v is not None and v < 1:
             raise ValueError("interval_seconds must be >= 1")
+        return v
+
+    @field_validator("total_repeats")
+    @classmethod
+    def total_repeats_non_negative(cls, v: int | None) -> int | None:
+        if v is not None and v < 0:
+            raise ValueError("total_repeats must be >= 0")
+        return v
+
+    @field_validator("max_retries")
+    @classmethod
+    def retries_non_negative(cls, v: int | None) -> int | None:
+        if v is not None and v < 0:
+            raise ValueError("max_retries must be >= 0")
+        return v
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def timeout_positive(cls, v: int | None) -> int | None:
+        if v is not None and v < 1:
+            raise ValueError("timeout_seconds must be >= 1")
         return v
 
 
