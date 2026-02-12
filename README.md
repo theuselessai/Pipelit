@@ -100,33 +100,50 @@ All endpoints under `/api/v1/`, authenticated via Bearer token (`Authorization: 
 
 ## Redis Setup
 
-Plain `redis-server` is sufficient for core functionality: job queues (RQ), WebSocket pub/sub, and graph caching.
-
-However, the `spawn_and_await` tool (agent-to-agent delegation) uses `langgraph-checkpoint-redis` which requires the **RediSearch** module. This is only available in **Redis Stack**, not plain Redis. Without it you'll get:
+The `spawn_and_await` tool (agent-to-agent delegation) uses `langgraph-checkpoint-redis` which requires the **RediSearch** module. Without it you'll get:
 
 ```
 unknown command 'FT._LIST'
 ```
 
-**Workaround without Redis Stack:** Enable `conversation_memory` on agent nodes that use `spawn_and_await`. This switches the checkpointer from RedisSaver to SqliteSaver, bypassing the RediSearch requirement.
+**Redis 8.0+** includes RediSearch (and all former Redis Stack modules) natively — no separate `redis-stack-server` package needed. If you're running an older Redis version, upgrade to 8.0+.
 
-### Installing Redis Stack
+**Workaround without Redis 8:** Enable `conversation_memory` on agent nodes that use `spawn_and_await`. This switches the checkpointer from RedisSaver to SqliteSaver, bypassing the RediSearch requirement.
+
+### Removing existing Redis (<8.0)
+
+If you have an older Redis installed, stop and remove it first so it doesn't conflict on port 6379:
+
+```bash
+# Debian/Ubuntu
+sudo systemctl stop redis-server
+sudo systemctl disable redis-server
+sudo apt remove --purge redis-server
+
+# macOS
+brew services stop redis
+brew uninstall redis
+
+# Docker
+docker stop redis && docker rm redis
+```
+
+### Installing Redis 8.0+
 
 ```bash
 # Docker (easiest)
-docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server:latest
+docker run -d --name redis -p 6379:6379 redis:8
 
 # Debian/Ubuntu
 curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+sudo chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
-sudo apt update
-sudo apt install redis-stack-server
-sudo systemctl start redis-stack-server
+sudo apt-get update
+sudo apt-get install redis
 
 # macOS
-brew tap redis-stack/redis-stack
-brew install redis-stack-server
-redis-stack-server
+brew install redis
+brew services start redis
 ```
 
 Verify RediSearch is available:
