@@ -184,7 +184,7 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
         # Re-check status under fresh read to narrow race window with pause/stop.
         # SQLite doesn't support SELECT FOR UPDATE, but the TOCTOU gap is small
         # and worst case is one extra execution of a paused job.
-        job = db.query(ScheduledJob).get(job_id)
+        job = db.get(ScheduledJob, job_id)
         if not job or job.status != "active":
             return  # paused, stopped, or deleted — don't reschedule
 
@@ -257,7 +257,9 @@ def _dispatch_scheduled_trigger(job: ScheduledJob, db) -> dict:
     separate concern handled by the orchestrator.
     """
     from handlers import dispatch_event
-    user = db.query(UserProfile).get(job.user_profile_id)
+    user = db.get(UserProfile, job.user_profile_id)
+    if not user:
+        raise ValueError(f"User {job.user_profile_id} not found for scheduled job {job.id}")
     event_data = {
         "scheduled_job_id": job.id,
         "scheduled_job_name": job.name,
