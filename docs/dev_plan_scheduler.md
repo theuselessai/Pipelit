@@ -1,28 +1,114 @@
-# Plan: RQ Scheduler for Periodic Tasks
+# Plan: Scheduled Jobs via Self-Rescheduling
+
+> **Supersedes:** Previous plan based on `rq-scheduler` (separate process).
+> **Updated:** 2026-02-13
 
 ## Overview
 
-Add `rq-scheduler` support for periodic/scheduled tasks. This enables:
-- Cron and interval-based job scheduling
-- Agent tools to create/pause/resume/stop scheduled jobs
-- Database persistence for pause/resume (rq-scheduler has no native pause)
-- Integration with existing trigger system via `trigger_schedule`
+Add scheduled/recurring job execution using RQ's built-in `enqueue_in()` with a self-rescheduling pattern. No new dependencies, no new processes — just FastAPI + RQ worker as today.
+
+**Key insight:** RQ 2.6.1 (already installed) supports `enqueue_in()` and `enqueue_at()`. Combined with a self-rescheduling wrapper that carries state, this gives us interval-based recurring execution with retry/timeout logic — no `rq-scheduler` needed.
 
 ## Architecture
 
 ```
 ┌─────────────────┐         ┌─────────────┐         ┌────────────┐
-│  rqscheduler    │ ──────▶ │ RQ Queue    │ ──────▶ │ RQ Worker  │
-│  (process)      │  enqueue│ (Redis)     │  execute│ (process)  │
-└─────────────────┘         └─────────────┘         └────────────┘
-        │                                                  │
-        │ sync on startup                                  │
-        ▼                                                  ▼
-┌─────────────────┐                              ┌─────────────────┐
-│  ScheduledJob   │                              │  dispatch_event │
-│  (SQLite)       │                              │  → workflow     │
-└─────────────────┘                              └─────────────────┘
+│  FastAPI API     │ ──────▶ │ RQ Queue    │ ──────▶ │ RQ Worker  │
+│  (create job)    │ enqueue │ (Redis)     │  execute│ (--with-scheduler) │
+└─────────────────┘         └─────────────┘         └─────┬──────┘
+                                    ▲                      │
+                                    │    self-requeue      │
+                                    └──────────────────────┘
+                                                           │
+                                    ┌─────────────────┐    │ read/update
+                                    │  ScheduledJob   │◄───┘
+                                    │  (SQLite)       │
+                                    └─────────────────┘
 ```
+
+No third process. The RQ worker must run with `--with-scheduler` flag to process `enqueue_in()` jobs (this may already be the case — check).
+
+---
+
+## Execution Model: Repeat + Retry State Machine
+
+**Parameters per job:**
+- `R` — total repeats (0 = infinite)
+- `i` — interval between successful runs (seconds)
+- `mr` — max retries per repeat on failure
+- `tot` — timeout per execution (seconds)
+
+**State per run:**
+- `n` — current repeat number (0-indexed)
+- `rc` — retry count within current repeat
+
+**State machine:**
+
+```
+                    ┌─────────────────────────────────────┐
+                    │                                     │
+                    ▼                                     │
+              ┌──────────┐                                │
+         ┌───►│   RUN    │ (timeout: tot)                 │
+         │    └────┬─────┘                                │
+         │         │                                      │
+         │    ┌────┴────┐                                 │
+         │    ▼         ▼                                 │
+      ┌──────────┐ ┌──────────┐                           │
+      │ SUCCESS  │ │  FAIL    │                           │
+      └────┬─────┘ └────┬─────┘                           │
+           │            │                                 │
+           │            ▼                                 │
+           │      rc = rc + 1                             │
+           │      rc > mr?                                │
+           │       │      │                               │
+           │      YES     NO                              │
+           │       │      │                               │
+           │       ▼      ▼                               │
+           │    ┌──────┐  wait backoff(rc)                │
+           │    │ DEAD │  └──────► RUN (same n, rc)       │
+           │    └──────┘                                  │
+           │                                              │
+           ▼                                              │
+     rc = 0 (reset)                                       │
+     n = n + 1                                            │
+     n >= R? (skip if R=0)                                │
+      │      │                                            │
+     YES     NO                                           │
+      │      │                                            │
+      ▼      └── wait i seconds ──────────────────────────┘
+   ┌──────┐
+   │ DONE │
+   └──────┘
+```
+
+**Transition equation:**
+
+```
+next(n, rc, result) =
+    if result == SUCCESS:
+        if R > 0 and n + 1 >= R  → DONE
+        else                     → enqueue_in(i, run(n+1, 0))        # next repeat, retry reset
+
+    if result == FAIL or TIMEOUT:
+        if rc + 1 > mr           → DEAD
+        else                     → enqueue_in(backoff(rc+1), run(n, rc+1))  # same repeat, retry++
+```
+
+**Backoff function** (exponential, capped at 10× interval):
+
+```
+backoff(rc) = min(i × 2^(rc-1), i × 10)
+```
+
+Example with `i=300s, mr=3`:
+- retry 1: 300s
+- retry 2: 600s
+- retry 3: 1200s (cap would be 3000s)
+
+**Worst-case executions per cycle:** `R × (mr + 1)`
+
+**Key property:** Success at any point in the retry loop resets `rc=0` and breaks back into the normal repeat cycle. The retry budget is per-repeat, not global.
 
 ---
 
@@ -40,26 +126,28 @@ class ScheduledJob(Base):
 
     # Links
     workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"))
-    trigger_node_id: Mapped[int | None] = mapped_column(ForeignKey("workflow_nodes.id", ondelete="SET NULL"))
+    trigger_node_id: Mapped[str | None] = mapped_column(String, nullable=True)  # node_id of trigger_schedule
     user_profile_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id", ondelete="CASCADE"))
 
-    # Schedule (one of these)
-    schedule_type: Mapped[str] = mapped_column(String(20))  # "cron" | "interval"
-    cron_expression: Mapped[str | None] = mapped_column(String(100))
-    interval_seconds: Mapped[int | None] = mapped_column(Integer)
+    # Schedule config
+    interval_seconds: Mapped[int] = mapped_column(Integer)          # i — seconds between runs
+    total_repeats: Mapped[int] = mapped_column(Integer, default=0)  # R — 0 = infinite
+    max_retries: Mapped[int] = mapped_column(Integer, default=3)    # mr — per-repeat
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=600)  # tot — per-execution
 
     # Payload passed to trigger
     trigger_payload: Mapped[dict | None] = mapped_column(JSON)
 
-    # State (for pause/resume)
-    status: Mapped[str] = mapped_column(String(20), default="active")  # active | paused | stopped
-    rq_job_id: Mapped[str | None] = mapped_column(String(100))
+    # State
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | paused | stopped | dead | done
+    current_repeat: Mapped[int] = mapped_column(Integer, default=0)    # n
+    current_retry: Mapped[int] = mapped_column(Integer, default=0)     # rc
 
     # Tracking
     last_run_at: Mapped[datetime | None]
     next_run_at: Mapped[datetime | None]
-    run_count: Mapped[int] = mapped_column(default=0)
-    error_count: Mapped[int] = mapped_column(default=0)
+    run_count: Mapped[int] = mapped_column(default=0)       # total successful runs
+    error_count: Mapped[int] = mapped_column(default=0)     # total failed runs
     last_error: Mapped[str] = mapped_column(Text, default="")
 
     created_at: Mapped[datetime]
@@ -70,56 +158,131 @@ class ScheduledJob(Base):
 - Add `from models.scheduled_job import ScheduledJob`
 
 ### 1.3 Create Alembic migration
-- Remember: `PRAGMA foreign_keys = OFF` for batch operations (SQLite + CASCADE DELETE safety)
 
 ### 1.4 Create `platform/schemas/schedule.py`
-- `ScheduledJobIn`, `ScheduledJobOut`, `ScheduledJobUpdate` Pydantic schemas
+- `ScheduledJobCreate`, `ScheduledJobOut`, `ScheduledJobUpdate` Pydantic schemas
 
 ---
 
-## Phase 2: Scheduler Service
+## Phase 2: Scheduler Service (Self-Rescheduling Wrapper)
 
 ### 2.1 Create `platform/services/scheduler.py`
 
 ```python
-class SchedulerService:
-    def __init__(self):
-        self.conn = Redis.from_url(settings.REDIS_URL)
-        self.scheduler = Scheduler(connection=self.conn)
+def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: int = 0) -> None:
+    """Self-rescheduling wrapper. Called by RQ worker.
 
-    def schedule_job(self, job: ScheduledJob) -> str:
-        """Register job with rq-scheduler. Returns rq_job_id."""
+    Reads ScheduledJob from DB, dispatches workflow execution,
+    handles success/failure, and enqueues the next run.
+    """
+    db = SessionLocal()
+    try:
+        job = db.query(ScheduledJob).get(job_id)
+        if not job or job.status != "active":
+            return  # paused, stopped, or deleted — don't reschedule
 
-    def cancel_job(self, rq_job_id: str):
-        """Remove from rq-scheduler."""
+        # Execute the workflow trigger
+        try:
+            result = _dispatch_scheduled_trigger(job, db)
+            # SUCCESS path
+            job.run_count += 1
+            job.current_retry = 0
+            job.last_run_at = utcnow()
+            job.last_error = ""
+            next_n = current_repeat + 1
 
-    def sync_jobs_on_startup(self, db: Session):
-        """Re-register all active jobs from DB on startup."""
+            if job.total_repeats > 0 and next_n >= job.total_repeats:
+                job.status = "done"
+            else:
+                # Schedule next repeat
+                job.current_repeat = next_n
+                _enqueue_next(job, next_n, 0, job.interval_seconds)
 
-# Singleton getter
-_scheduler_service = None
-def get_scheduler_service() -> SchedulerService: ...
+        except Exception as e:
+            # FAIL path
+            next_rc = current_retry + 1
+            job.error_count += 1
+            job.last_error = str(e)
+
+            if next_rc > job.max_retries:
+                job.status = "dead"  # retries exhausted
+            else:
+                # Schedule retry with backoff
+                job.current_retry = next_rc
+                backoff = _backoff(job.interval_seconds, next_rc)
+                _enqueue_next(job, current_repeat, next_rc, backoff)
+
+        db.commit()
+    finally:
+        db.close()
+
+
+def _backoff(interval: int, retry_count: int) -> int:
+    """Exponential backoff capped at 10× interval."""
+    return min(interval * (2 ** (retry_count - 1)), interval * 10)
+
+
+def _enqueue_next(job: ScheduledJob, n: int, rc: int, delay_seconds: int) -> None:
+    """Enqueue the next run of the scheduled job."""
+    from tasks import _queue
+    q = _queue()
+    q.enqueue_in(
+        timedelta(seconds=delay_seconds),
+        execute_scheduled_job,
+        job.id, n, rc,
+    )
+    job.next_run_at = utcnow() + timedelta(seconds=delay_seconds)
+
+
+def _dispatch_scheduled_trigger(job: ScheduledJob, db) -> dict:
+    """Fire the workflow trigger. Returns execution result."""
+    from handlers import dispatch_event
+    user = db.query(UserProfile).get(job.user_profile_id)
+    event_data = {
+        "scheduled_job_id": job.id,
+        "scheduled_job_name": job.name,
+        "repeat_number": job.current_repeat,
+        "payload": job.trigger_payload or {},
+    }
+    return dispatch_event(
+        "schedule", event_data, user, db,
+        workflow_id=job.workflow_id,
+        trigger_node_id=job.trigger_node_id,
+    )
+
+
+def start_scheduled_job(job: ScheduledJob) -> None:
+    """Kick off the first run of a scheduled job (called on create/resume)."""
+    _enqueue_next(job, job.current_repeat, job.current_retry, job.interval_seconds)
+
+
+def pause_scheduled_job(job: ScheduledJob) -> None:
+    """Pause — just set status. The wrapper checks status before running."""
+    job.status = "paused"
+
+
+def resume_scheduled_job(job: ScheduledJob) -> None:
+    """Resume — set status back to active and enqueue next run."""
+    job.status = "active"
+    start_scheduled_job(job)
 ```
 
-### 2.2 Create `platform/scheduler_main.py`
+### 2.2 Startup recovery
 
-Entry point to run scheduler as separate process:
-```bash
-python -m platform.scheduler_main
-```
-
-Startup flow:
-1. Load active jobs from DB
-2. Register each with rq-scheduler
-3. Run scheduler loop
-
-### 2.3 Add task to `platform/tasks/__init__.py`
+On FastAPI startup, re-enqueue any active jobs whose `next_run_at` is in the past (missed while the worker was down):
 
 ```python
-def execute_scheduled_trigger(scheduled_job_id: str) -> None:
-    """Called by rq-scheduler when job fires."""
-    # Update job tracking (last_run_at, run_count)
-    # Call dispatch_event("schedule", event_data, user_profile, db)
+# In main.py @app.on_event("startup") or lifespan:
+def recover_scheduled_jobs():
+    db = SessionLocal()
+    stale = db.query(ScheduledJob).filter(
+        ScheduledJob.status == "active",
+        ScheduledJob.next_run_at < utcnow(),
+    ).all()
+    for job in stale:
+        start_scheduled_job(job)
+    db.commit()
+    db.close()
 ```
 
 ---
@@ -128,13 +291,17 @@ def execute_scheduled_trigger(scheduled_job_id: str) -> None:
 
 ### 3.1 Update `platform/triggers/resolver.py`
 
-Add `_match_schedule()` method:
+The resolver already maps `"schedule"` → `"trigger_schedule"` (line 16). Add `_match_schedule()`:
+
 ```python
 def _match_schedule(self, config: dict, event_data: dict) -> bool:
     """Match by scheduled_job_id or name pattern."""
+    job_id = event_data.get("scheduled_job_id")
+    filter_id = (config or {}).get("scheduled_job_id")
+    if filter_id:
+        return job_id == filter_id
+    return True  # no filter = match all schedule events
 ```
-
-The resolver already maps `"schedule"` → `"trigger_schedule"`.
 
 ---
 
@@ -144,70 +311,53 @@ The resolver already maps `"schedule"` → `"trigger_schedule"`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/schedules/` | GET | List jobs (filter by status) |
-| `/schedules/` | POST | Create job |
-| `/schedules/{id}/` | GET | Get job |
-| `/schedules/{id}/` | PATCH | Update job |
+| `/schedules/` | GET | List jobs (filter by status, workflow_id) |
+| `/schedules/` | POST | Create job → enqueues first run |
+| `/schedules/{id}/` | GET | Get job detail |
+| `/schedules/{id}/` | PATCH | Update job config |
 | `/schedules/{id}/` | DELETE | Delete job |
-| `/schedules/{id}/pause/` | POST | Pause job |
-| `/schedules/{id}/resume/` | POST | Resume job |
+| `/schedules/{id}/pause/` | POST | Pause (stops rescheduling) |
+| `/schedules/{id}/resume/` | POST | Resume (re-enqueues) |
+| `/schedules/batch-delete/` | POST | Batch delete |
 
 ### 4.2 Register router in `platform/main.py`
 
 ---
 
-## Phase 5: Agent Tool Components
+## Phase 5: Agent Tool Component
 
 ### 5.1 Create `platform/components/scheduler_tools.py`
 
-5 tools for agent job management:
+Single consolidated component (like `epic_tools`, `task_tools`) exposing 5 tools:
 
 | Tool | Description |
 |------|-------------|
-| `schedule_create` | Create a scheduled job |
-| `schedule_pause` | Pause a job (cancel in rq, set status=paused) |
-| `schedule_resume` | Resume a job (re-register in rq, set status=active) |
-| `schedule_stop` | Delete a job permanently |
-| `schedule_list` | List jobs with optional filters |
+| `create_schedule` | Create a scheduled job for a workflow |
+| `pause_schedule` | Pause a running schedule |
+| `resume_schedule` | Resume a paused schedule |
+| `stop_schedule` | Delete a schedule permanently |
+| `list_schedules` | List scheduled jobs with optional filters |
 
-Each follows the `@register("component_type")` pattern.
+### 5.2 Registration
 
-### 5.2 Update `platform/components/__init__.py`
-- Add `from components import scheduler_tools`
-
-### 5.3 Update `platform/schemas/node.py`
-Add to `ComponentTypeStr`:
-```python
-"schedule_create", "schedule_pause", "schedule_resume", "schedule_stop", "schedule_list"
-```
-
-### 5.4 Update `platform/schemas/node_type_defs.py`
-Register node type specs for each tool.
-
-### 5.5 Update `platform/models/node.py`
-Add polymorphic identity classes:
-```python
-class _ScheduleCreateConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "schedule_create"}
-# ... etc for each tool
-```
-
-Add to `COMPONENT_TYPE_TO_CONFIG` mapping.
+- `platform/components/__init__.py` — add import
+- `platform/schemas/node_type_defs.py` — register `scheduler_tools` node type
+- `platform/models/node.py` — add `_SchedulerToolsConfig` polymorphic identity + `COMPONENT_TYPE_MAP` entry
 
 ---
 
 ## Phase 6: Frontend Updates
 
-### 6.1 Update `platform/frontend/src/types/models.ts`
-- Add tool types to `ComponentType` union
+### 6.1 `platform/frontend/src/types/models.ts`
+- Add `scheduler_tools` to `ComponentType` union
 - Add `ScheduledJob` interface
 
-### 6.2 Update `platform/frontend/src/features/workflows/components/NodePalette.tsx`
-- Add icons and "Scheduler" category for tools
+### 6.2 `NodePalette.tsx`
+- Add `scheduler_tools` under "Tools" category with clock icon
 
-### 6.3 Update `platform/frontend/src/features/workflows/components/WorkflowCanvas.tsx`
-- Add to `COMPONENT_COLORS` (use amber/orange for scheduler tools)
-- Add to `COMPONENT_ICONS`
+### 6.3 `WorkflowCanvas.tsx`
+- Add to `COMPONENT_COLORS` (amber `#f59e0b`)
+- Add to `COMPONENT_ICONS` (`fa-clock`)
 - Add to `isTool` array
 
 ---
@@ -220,51 +370,56 @@ Add to `COMPONENT_TYPE_TO_CONFIG` mapping.
 | `platform/models/__init__.py` | Update import |
 | `platform/schemas/schedule.py` | Create |
 | `platform/services/scheduler.py` | Create |
-| `platform/scheduler_main.py` | Create |
-| `platform/tasks/__init__.py` | Add task |
-| `platform/triggers/resolver.py` | Add `_match_schedule` |
 | `platform/api/schedules.py` | Create |
-| `platform/main.py` | Register router |
+| `platform/main.py` | Register router, add startup recovery |
+| `platform/triggers/resolver.py` | Add `_match_schedule` |
+| `platform/tasks/__init__.py` | (only if wrapper needs RQ job registration) |
 | `platform/components/scheduler_tools.py` | Create |
 | `platform/components/__init__.py` | Add import |
-| `platform/schemas/node.py` | Update Literal |
-| `platform/schemas/node_type_defs.py` | Register specs |
-| `platform/models/node.py` | Add STI classes |
+| `platform/schemas/node_type_defs.py` | Register spec |
+| `platform/models/node.py` | Add STI class |
 | `platform/alembic/versions/xxx_scheduled_jobs.py` | Create migration |
 | `platform/frontend/src/types/models.ts` | Update types |
-| `platform/frontend/src/features/.../NodePalette.tsx` | Add icons |
+| `platform/frontend/src/features/.../NodePalette.tsx` | Add icon |
 | `platform/frontend/src/features/.../WorkflowCanvas.tsx` | Add colors/icons |
-| `requirements.txt` | Add `rq-scheduler` |
+
+**No new dependencies.** Uses `rq>=1.16` (already installed at 2.6.1).
 
 ---
 
 ## Verification
 
-1. **Unit tests**: Create `platform/tests/test_scheduler.py`
-   - Test job CRUD via API
-   - Test pause/resume state transitions
-   - Test tool invocations
+1. **Unit tests** (`platform/tests/test_scheduler.py`):
+   - Test state machine transitions (success → next repeat, fail → retry, exhaust → dead)
+   - Test backoff calculation
+   - Test pause/resume (wrapper exits early on paused status)
+   - Test infinite repeat (R=0 never reaches DONE)
+   - Test startup recovery of stale jobs
 
-2. **Integration test**:
-   - Create a workflow with `trigger_schedule`
+2. **API tests**:
+   - CRUD lifecycle
+   - Pause/resume state transitions
+   - Validation (interval > 0, max_retries >= 0)
+
+3. **Integration test**:
+   - Create workflow with `trigger_schedule`
    - Create scheduled job via API
-   - Verify job fires and workflow executes
-   - Test pause/resume cycle
+   - Verify workflow executes after interval
+   - Pause, verify no more executions
+   - Resume, verify execution resumes
 
-3. **Manual test**:
+4. **Manual test**:
    ```bash
    # Terminal 1: Redis
    redis-server
 
-   # Terminal 2: RQ Worker
-   rq worker workflows
+   # Terminal 2: RQ Worker (with scheduler flag for enqueue_in)
+   rq worker --with-scheduler workflows
 
-   # Terminal 3: RQ Scheduler
-   python -m platform.scheduler_main
-
-   # Terminal 4: FastAPI
+   # Terminal 3: FastAPI
    uvicorn platform.main:app --reload
    ```
-   - Create job via API: `POST /api/v1/schedules/`
-   - Watch logs for scheduled execution
-   - Test pause/resume via API
+   - `POST /api/v1/schedules/` with `interval_seconds=30`
+   - Watch logs for recurring execution every 30s
+   - `POST /api/v1/schedules/{id}/pause/` — verify it stops
+   - `POST /api/v1/schedules/{id}/resume/` — verify it restarts
