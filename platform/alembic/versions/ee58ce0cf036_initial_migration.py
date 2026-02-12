@@ -97,8 +97,8 @@ def upgrade() -> None:
     sa.Column('base_credentials_id', sa.Integer(), nullable=False),
     sa.Column('provider', sa.String(length=20), nullable=False),
     sa.Column('credential_type', sa.String(length=20), nullable=False),
-    sa.Column('ssh_private_key', models.credential.EncryptedString(length=2000), nullable=False),
-    sa.Column('access_token', models.credential.EncryptedString(length=500), nullable=False),
+    sa.Column('ssh_private_key', sa.Text(), nullable=False),
+    sa.Column('access_token', sa.Text(), nullable=False),
     sa.Column('username', sa.String(length=255), nullable=False),
     sa.Column('webhook_secret', sa.String(length=255), nullable=False),
     sa.ForeignKeyConstraint(['base_credentials_id'], ['credentials.id'], ondelete='CASCADE'),
@@ -109,7 +109,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('base_credentials_id', sa.Integer(), nullable=False),
     sa.Column('provider_type', sa.String(length=30), nullable=False),
-    sa.Column('api_key', models.credential.EncryptedString(length=500), nullable=False),
+    sa.Column('api_key', sa.Text(), nullable=False),
     sa.Column('base_url', sa.String(length=500), nullable=False),
     sa.Column('organization_id', sa.String(length=255), nullable=False),
     sa.Column('custom_headers', sa.JSON(), nullable=False),
@@ -133,7 +133,7 @@ def upgrade() -> None:
     op.create_table('telegram_credentials',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('base_credentials_id', sa.Integer(), nullable=False),
-    sa.Column('bot_token', models.credential.EncryptedString(length=500), nullable=False),
+    sa.Column('bot_token', sa.Text(), nullable=False),
     sa.Column('allowed_user_ids', sa.String(length=500), nullable=False),
     sa.ForeignKeyConstraint(['base_credentials_id'], ['credentials.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
@@ -418,111 +418,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_profile_id'], ['user_profiles.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('task_id')
     )
-    op.drop_index(op.f('credentials_basecredentials_user_profile_id_9dc1668a'), table_name='credentials_basecredentials')
-    op.drop_table('credentials_basecredentials')
-    op.drop_index(op.f('workflows_workflow_error_handler_workflow_id_4db00d0c'), table_name='workflows_workflow')
-    op.drop_index(op.f('workflows_workflow_forked_from_id_08689a35'), table_name='workflows_workflow')
-    op.drop_index(op.f('workflows_workflow_owner_id_7e397794'), table_name='workflows_workflow')
-    op.drop_table('workflows_workflow')
-    op.drop_table('workflows_codecomponentconfig')
-    op.drop_index(op.f('workflows_workflowexecution_parent_execution_id_475a99d0'), table_name='workflows_workflowexecution')
-    op.drop_index(op.f('workflows_workflowexecution_trigger_node_id_2de2ad9e'), table_name='workflows_workflowexecution')
-    op.drop_index(op.f('workflows_workflowexecution_user_profile_id_97f41cf7'), table_name='workflows_workflowexecution')
-    op.drop_index(op.f('workflows_workflowexecution_workflow_id_b382211d'), table_name='workflows_workflowexecution')
-    op.drop_table('workflows_workflowexecution')
-    op.drop_table('workflows_basecomponentconfig')
-    op.drop_table('auth_user')
-    op.drop_table('workflows_aicomponentconfig')
-    op.drop_index(op.f('workflows_codeblockversion_author_id_8e7afad7'), table_name='workflows_codeblockversion')
-    op.drop_index(op.f('workflows_codeblockversion_code_block_id_1401aa50'), table_name='workflows_codeblockversion')
-    op.drop_index(op.f('workflows_codeblockversion_code_block_id_version_number_8cb60125_uniq'), table_name='workflows_codeblockversion')
-    op.drop_index(op.f('workflows_codeblockversion_git_commit_id_247d9ee0'), table_name='workflows_codeblockversion')
-    op.drop_table('workflows_codeblockversion')
-    op.drop_index(op.f('workflows_workflowtool_tool_definition_id_7f5072bd'), table_name='workflows_workflowtool')
-    op.drop_index(op.f('workflows_workflowtool_workflow_id_87055ca8'), table_name='workflows_workflowtool')
-    op.drop_table('workflows_workflowtool')
-    op.drop_index(op.f('workflows_codeblocktestrun_test_id_1ff85d26'), table_name='workflows_codeblocktestrun')
-    op.drop_index(op.f('workflows_codeblocktestrun_version_id_bacc6146'), table_name='workflows_codeblocktestrun')
-    op.drop_table('workflows_codeblocktestrun')
-    op.drop_index(op.f('workflows_modelcomponentconfig_llm_credential_id_7dcaa83e'), table_name='workflows_modelcomponentconfig')
-    op.drop_table('workflows_modelcomponentconfig')
-    op.drop_table('credentials_telegramcredential')
-    op.drop_index(op.f('workflows_workflownode_code_block_id_d477ce1b'), table_name='workflows_workflownode')
-    op.drop_index(op.f('workflows_workflownode_component_config_id_0916047e'), table_name='workflows_workflownode')
-    op.drop_index(op.f('workflows_workflownode_subworkflow_id_766a4be0'), table_name='workflows_workflownode')
-    op.drop_index(op.f('workflows_workflownode_workflow_id_2de99647'), table_name='workflows_workflownode')
-    op.drop_index(op.f('workflows_workflownode_workflow_id_node_id_25d1dba5_uniq'), table_name='workflows_workflownode')
-    op.drop_table('workflows_workflownode')
-    op.drop_index(op.f('auth_group_permissions_group_id_b120cbf9'), table_name='auth_group_permissions')
-    op.drop_index(op.f('auth_group_permissions_group_id_permission_id_0cd325b0_uniq'), table_name='auth_group_permissions')
-    op.drop_index(op.f('auth_group_permissions_permission_id_84c5c92e'), table_name='auth_group_permissions')
-    op.drop_table('auth_group_permissions')
-    op.drop_index(op.f('auth_user_user_permissions_permission_id_1fbb5f2c'), table_name='auth_user_user_permissions')
-    op.drop_index(op.f('auth_user_user_permissions_user_id_a95ead1b'), table_name='auth_user_user_permissions')
-    op.drop_index(op.f('auth_user_user_permissions_user_id_permission_id_14a6b632_uniq'), table_name='auth_user_user_permissions')
-    op.drop_table('auth_user_user_permissions')
-    op.drop_index(op.f('workflows_codeblock_draft_version_id_f8222242'), table_name='workflows_codeblock')
-    op.drop_index(op.f('workflows_codeblock_published_version_id_7fb6d4ad'), table_name='workflows_codeblock')
-    op.drop_index(op.f('workflows_codeblock_workflow_id_21998300'), table_name='workflows_codeblock')
-    op.drop_table('workflows_codeblock')
-    op.drop_index(op.f('workflows_executionlog_execution_id_3a5dcb00'), table_name='workflows_executionlog')
-    op.drop_table('workflows_executionlog')
-    op.drop_table('users_apikey')
-    op.drop_index(op.f('workflows_workflowcollaborator_invited_by_id_b9f43923'), table_name='workflows_workflowcollaborator')
-    op.drop_index(op.f('workflows_workflowcollaborator_user_profile_id_48762982'), table_name='workflows_workflowcollaborator')
-    op.drop_index(op.f('workflows_workflowcollaborator_workflow_id_a7fae0f7'), table_name='workflows_workflowcollaborator')
-    op.drop_index(op.f('workflows_workflowcollaborator_workflow_id_user_profile_id_ab2f96a3_uniq'), table_name='workflows_workflowcollaborator')
-    op.drop_table('workflows_workflowcollaborator')
-    op.drop_index(op.f('django_session_expire_date_a5c62663'), table_name='django_session')
-    op.drop_table('django_session')
-    op.drop_index(op.f('auth_user_groups_group_id_97559544'), table_name='auth_user_groups')
-    op.drop_index(op.f('auth_user_groups_user_id_6a12ed8b'), table_name='auth_user_groups')
-    op.drop_index(op.f('auth_user_groups_user_id_group_id_94350c0c_uniq'), table_name='auth_user_groups')
-    op.drop_table('auth_user_groups')
-    op.drop_index(op.f('workflows_triggercomponentconfig_credential_id_d9238c5a'), table_name='workflows_triggercomponentconfig')
-    op.drop_table('workflows_triggercomponentconfig')
-    op.drop_index(op.f('system_systemconfig_default_llm_credential_id_25b56b5e'), table_name='system_systemconfig')
-    op.drop_table('system_systemconfig')
-    op.drop_table('django_migrations')
-    op.drop_index(op.f('workflows_gitcommit_author_id_5db3169c'), table_name='workflows_gitcommit')
-    op.drop_index(op.f('workflows_gitcommit_repository_id_df8ad31d'), table_name='workflows_gitcommit')
-    op.drop_table('workflows_gitcommit')
-    op.drop_index(op.f('django_admin_log_content_type_id_c4bce8eb'), table_name='django_admin_log')
-    op.drop_index(op.f('django_admin_log_user_id_c564eba6'), table_name='django_admin_log')
-    op.drop_table('django_admin_log')
-    op.drop_table('credentials_llmprovidercredentials')
-    op.drop_table('workflows_toolcomponentconfig')
-    op.drop_table('workflows_othercomponentconfig')
-    op.drop_table('users_userprofile')
-    op.drop_index(op.f('workflows_pendingtask_execution_id_160ab733'), table_name='workflows_pendingtask')
-    op.drop_index(op.f('workflows_pendingtask_user_profile_id_7113cc26'), table_name='workflows_pendingtask')
-    op.drop_table('workflows_pendingtask')
-    op.drop_table('credentials_gitcredential')
-    op.drop_table('auth_group')
-    op.drop_table('workflows_tooldefinition')
-    op.drop_index(op.f('auth_permission_content_type_id_2f476e4b'), table_name='auth_permission')
-    op.drop_index(op.f('auth_permission_content_type_id_codename_01ab375a_uniq'), table_name='auth_permission')
-    op.drop_table('auth_permission')
-    op.drop_index(op.f('workflows_toolcredentialmapping_tool_credential_id_17072c06'), table_name='workflows_toolcredentialmapping')
-    op.drop_index(op.f('workflows_toolcredentialmapping_tool_definition_id_063ebbbe'), table_name='workflows_toolcredentialmapping')
-    op.drop_index(op.f('workflows_toolcredentialmapping_user_profile_id_2e89b27c'), table_name='workflows_toolcredentialmapping')
-    op.drop_table('workflows_toolcredentialmapping')
-    op.drop_table('credentials_toolcredential')
-    op.drop_index(op.f('workflows_codeblocktest_code_block_id_f15cd036'), table_name='workflows_codeblocktest')
-    op.drop_table('workflows_codeblocktest')
-    op.drop_index(op.f('workflows_workflowedge_workflow_id_a3c150a4'), table_name='workflows_workflowedge')
-    op.drop_table('workflows_workflowedge')
-    op.drop_index(op.f('workflows_gitsynctask_repository_id_77112908'), table_name='workflows_gitsynctask')
-    op.drop_index(op.f('workflows_gitsynctask_triggered_by_id_2cf422ac'), table_name='workflows_gitsynctask')
-    op.drop_table('workflows_gitsynctask')
-    op.drop_index(op.f('workflows_gitrepository_credential_id_8f1bf06b'), table_name='workflows_gitrepository')
-    op.drop_table('workflows_gitrepository')
-    op.drop_index(op.f('django_content_type_app_label_model_76bd3d3b_uniq'), table_name='django_content_type')
-    op.drop_table('django_content_type')
-    op.drop_index(op.f('conversations_conversation_execution_id_60057cf4'), table_name='conversations_conversation')
-    op.drop_index(op.f('conversations_conversation_user_profile_id_dfa0bca2'), table_name='conversations_conversation')
-    op.drop_index(op.f('conversations_conversation_workflow_id_60d8ff08'), table_name='conversations_conversation')
-    op.drop_table('conversations_conversation')
     # ### end Alembic commands ###
 
 

@@ -204,6 +204,22 @@ class TestAuthTokenAPI:
         resp = client.get("/api/v1/workflows/", headers={"Authorization": f"Bearer {key}"})
         assert resp.status_code == 200
 
+    def test_obtain_token_malformed_hash(self, client, db):
+        from models.user import UserProfile
+
+        user = UserProfile(
+            username="badhashuser",
+            password_hash="$2b$invalid",
+        )
+        db.add(user)
+        db.commit()
+
+        resp = client.post(
+            "/api/v1/auth/token/",
+            json={"username": "badhashuser", "password": "anypass"},
+        )
+        assert resp.status_code == 401
+
 
 # ── Node CRUD ─────────────────────────────────────────────────────────────────
 

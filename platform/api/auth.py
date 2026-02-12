@@ -28,12 +28,16 @@ router = APIRouter()
 
 
 def _verify_password(stored_hash: str, password: str) -> bool:
-    """Verify password against stored hash."""
-    import bcrypt
-
+    """Verify password against stored bcrypt hash."""
     if not stored_hash:
         return False
-    return bcrypt.checkpw(password.encode(), stored_hash.encode())
+
+    import bcrypt
+
+    try:
+        return bcrypt.checkpw(password.encode(), stored_hash.encode())
+    except (ValueError, UnicodeDecodeError):
+        return False
 
 
 # ---------------------------------------------------------------------------
