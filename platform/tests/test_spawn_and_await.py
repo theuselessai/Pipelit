@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unittest.mock
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
@@ -492,6 +493,40 @@ class TestToolInvocation:
             })
 
         assert result == "child completed"
+
+    def test_tool_raises_tool_exception_on_child_error(self):
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        child_error = {"_error": "Child execution failed: division by zero"}
+
+        with patch("langgraph.types.interrupt", return_value=child_error):
+            with pytest.raises(ToolException, match="Child workflow failed"):
+                tool.invoke({
+                    "workflow_slug": "child-wf",
+                    "input_text": "hello",
+                })
+
+    def test_tool_returns_dict_without_error_normally(self):
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        # Dict without _error should be returned as JSON, not raise
+        child_output = {"output": "success", "_other_key": "fine"}
+
+        with patch("langgraph.types.interrupt", return_value=child_output):
+            result = tool.invoke({
+                "workflow_slug": "child-wf",
+                "input_text": "hello",
+            })
+
+        assert result == json.dumps(child_output, default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -1075,3 +1110,374 @@ class TestAgentNodeGraphInterrupt:
         assert "output" in result
         assert "spawn_and_await failed" in result["output"]
         assert "unable to create child execution" in result["output"]
+
+
+# ---------------------------------------------------------------------------
+# Child wait timeout & cleanup (orchestrator + tasks/cleanup.py)
+# ---------------------------------------------------------------------------
+
+
+class TestChildWaitTimeout:
+    """Test child_wait Redis key lifecycle and cleanup job."""
+
+    def test_child_wait_key_helper(self):
+        from services.orchestrator import _child_wait_key
+
+        key = _child_wait_key("exec-123", "agent_1")
+        assert key == "execution:exec-123:child_wait:agent_1"
+
+    def test_resume_from_child_deletes_wait_key(self):
+        """_resume_from_child should delete the child_wait key."""
+        from services.orchestrator import _child_wait_key, _resume_from_child
+
+        mock_redis = MagicMock()
+        mock_parent = MagicMock()
+        mock_parent.status = "running"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_parent
+
+        with patch("services.orchestrator._redis", return_value=mock_redis), \
+             patch("services.orchestrator.load_state", return_value={}), \
+             patch("services.orchestrator.save_state"), \
+             patch("services.orchestrator._queue", return_value=MagicMock()), \
+             patch("database.SessionLocal", return_value=mock_db):
+            _resume_from_child("parent-exec", "agent_1", {"result": "ok"})
+
+        mock_redis.delete.assert_called_once_with(
+            _child_wait_key("parent-exec", "agent_1")
+        )
+
+    def test_cleanup_expires_stuck_waits(self):
+        """cleanup_stuck_child_waits should call _resume_from_child for expired keys."""
+        import time as _time
+
+        from services.cleanup import cleanup_stuck_child_waits
+
+        expired_data = json.dumps({
+            "deadline": _time.time() - 100,  # already expired
+            "child_execution_id": "child-456",
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = expired_data
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child") as mock_resume:
+            count = cleanup_stuck_child_waits()
+
+        assert count == 1
+        mock_resume.assert_called_once_with(
+            parent_execution_id="parent-exec",
+            parent_node_id="agent_1",
+            child_output={"_error": "Child execution timed out"},
+        )
+        mock_redis.delete.assert_called_with("execution:parent-exec:child_wait:agent_1")
+
+    def test_cleanup_skips_non_expired_waits(self):
+        """cleanup_stuck_child_waits should skip keys whose deadline hasn't passed."""
+        import time as _time
+
+        from services.cleanup import cleanup_stuck_child_waits
+
+        future_data = json.dumps({
+            "deadline": _time.time() + 1000,  # still in the future
+            "child_execution_id": "child-789",
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = future_data
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child") as mock_resume:
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+        mock_resume.assert_not_called()
+
+    def test_cleanup_retains_key_on_resume_failure(self):
+        """When _resume_from_child raises, the key is kept for retry on next run."""
+        import time as _time
+
+        from services.cleanup import cleanup_stuck_child_waits
+
+        expired_data = json.dumps({
+            "deadline": _time.time() - 100,
+            "child_execution_id": "child-456",
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = expired_data
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child", side_effect=RuntimeError("transient")):
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+        # Key should NOT have been deleted since resume failed
+        mock_redis.delete.assert_not_called()
+
+    def test_cleanup_skips_empty_keys(self):
+        """cleanup_stuck_child_waits skips keys whose value is empty/gone."""
+        from services.cleanup import cleanup_stuck_child_waits
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:ex1:child_wait:n1"])
+        mock_redis.get.return_value = None  # key disappeared
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"):
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+
+    def test_cleanup_deletes_malformed_json_keys(self):
+        """cleanup_stuck_child_waits deletes keys with unparseable JSON."""
+        from services.cleanup import cleanup_stuck_child_waits
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:ex1:child_wait:n1"])
+        mock_redis.get.return_value = "not-json{{"
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"):
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+        mock_redis.delete.assert_called_once_with("execution:ex1:child_wait:n1")
+
+    def test_cleanup_deletes_malformed_key_pattern(self):
+        """cleanup_stuck_child_waits deletes keys that don't match expected pattern."""
+        import time as _time
+
+        from services.cleanup import cleanup_stuck_child_waits
+
+        expired_data = json.dumps({"deadline": _time.time() - 100})
+
+        mock_redis = MagicMock()
+        # Key without "child_wait" sentinel
+        mock_redis.scan.return_value = (0, ["execution:ex1:bogus:n1"])
+        mock_redis.get.return_value = expired_data
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"):
+            count = cleanup_stuck_child_waits()
+
+        assert count == 0
+        mock_redis.delete.assert_called_once_with("execution:ex1:bogus:n1")
+
+    def test_cleanup_job_wrapper(self):
+        """services.cleanup_stuck_child_waits_job delegates to the real function."""
+        from tasks import cleanup_stuck_child_waits_job
+
+        with patch("services.cleanup.cleanup_stuck_child_waits", return_value=3) as mock_fn:
+            result = cleanup_stuck_child_waits_job()
+
+        assert result == 3
+        mock_fn.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _propagate_failure_to_parent helper (orchestrator.py)
+# ---------------------------------------------------------------------------
+
+
+class TestPropagateFailureToParent:
+    """Test the _propagate_failure_to_parent helper."""
+
+    def test_no_op_when_no_parent(self):
+        """Does nothing when execution has no parent_execution_id."""
+        from services.orchestrator import _propagate_failure_to_parent
+
+        execution = MagicMock()
+        execution.parent_execution_id = None
+        execution.parent_node_id = None
+
+        with patch("services.orchestrator._resume_from_child") as mock_resume:
+            _propagate_failure_to_parent(execution, RuntimeError("fail"))
+
+        mock_resume.assert_not_called()
+
+    def test_calls_resume_from_child(self):
+        """Calls _resume_from_child with error payload when parent exists."""
+        from services.orchestrator import _propagate_failure_to_parent
+
+        execution = MagicMock()
+        execution.parent_execution_id = "parent-exec-1"
+        execution.parent_node_id = "agent_1"
+
+        with patch("services.orchestrator._resume_from_child") as mock_resume:
+            _propagate_failure_to_parent(execution, RuntimeError("something broke"))
+
+        mock_resume.assert_called_once_with(
+            parent_execution_id="parent-exec-1",
+            parent_node_id="agent_1",
+            child_output={"_error": "Child execution failed: something broke"},
+        )
+
+    def test_swallows_resume_exception(self):
+        """Does not raise when _resume_from_child fails."""
+        from services.orchestrator import _propagate_failure_to_parent
+
+        execution = MagicMock()
+        execution.parent_execution_id = "parent-exec-1"
+        execution.parent_node_id = "agent_1"
+
+        with patch("services.orchestrator._resume_from_child", side_effect=RuntimeError("redis down")):
+            # Should not raise
+            _propagate_failure_to_parent(execution, RuntimeError("original error"))
+
+
+# ---------------------------------------------------------------------------
+# execute_node_job integration paths (orchestrator.py changed lines)
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteNodeJobSpawnPaths:
+    """Cover the changed lines inside execute_node_job for subworkflow/propagation."""
+
+    def _make_topo_data(self, node_id="agent_1", component_type="agent"):
+        return {
+            "workflow_slug": "test-wf",
+            "nodes": {
+                node_id: {
+                    "node_id": node_id,
+                    "component_type": component_type,
+                    "db_id": 1,
+                    "component_config_id": 1,
+                    "interrupt_before": False,
+                    "interrupt_after": False,
+                },
+            },
+            "edges_by_source": {},
+            "incoming_count": {},
+            "entry_node_ids": [node_id],
+            "loop_bodies": {},
+            "loop_return_nodes": {},
+            "loop_body_all_nodes": {},
+        }
+
+    @patch("services.orchestrator._cleanup_redis")
+    @patch("services.orchestrator._complete_episode")
+    @patch("services.orchestrator._publish_event")
+    @patch("services.orchestrator._clear_stale_checkpoints")
+    @patch("services.orchestrator._sync_task_costs")
+    @patch("services.orchestrator._propagate_failure_to_parent")
+    def test_inner_failure_calls_propagate(
+        self, mock_propagate, mock_sync, mock_clear, mock_publish, mock_episode, mock_cleanup,
+    ):
+        """When a node fails permanently (max retries), _propagate_failure_to_parent is called."""
+        from services.orchestrator import execute_node_job
+
+        mock_exec = MagicMock()
+        mock_exec.status = "running"
+        mock_exec.execution_id = "exec-1"
+        mock_exec.trigger_payload = {}
+
+        mock_db_node = MagicMock()
+        mock_db_node.component_config.system_prompt = None
+        mock_db_node.component_config.extra_config = {}
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_exec
+        mock_db.get.return_value = mock_db_node
+
+        topo = self._make_topo_data()
+
+        def fake_factory(node):
+            def fn(state):
+                raise RuntimeError("component exploded")
+            return fn
+
+        with patch("database.SessionLocal", return_value=mock_db), \
+             patch("services.orchestrator._load_topology", return_value=topo), \
+             patch("services.orchestrator.load_state", return_value={"node_outputs": {}, "messages": []}), \
+             patch("services.orchestrator.save_state"), \
+             patch("services.orchestrator._redis", return_value=MagicMock()), \
+             patch("services.orchestrator._queue", return_value=MagicMock()), \
+             patch("services.orchestrator._write_log"), \
+             patch("components.get_component_factory", return_value=fake_factory), \
+             patch("services.expressions.resolve_expressions", side_effect=lambda s, *a: s), \
+             patch("services.expressions.resolve_config_expressions", side_effect=lambda c, *a: c):
+            execute_node_job("exec-1", "agent_1", retry_count=3)
+
+        mock_propagate.assert_called_once_with(mock_exec, unittest.mock.ANY)
+
+    @patch("services.orchestrator._advance")
+    @patch("services.orchestrator._publish_event")
+    def test_subworkflow_stores_deadline(self, mock_publish, mock_advance):
+        """When component returns _subworkflow, a deadline key is stored in Redis."""
+        from services.orchestrator import _child_wait_key, execute_node_job
+
+        mock_exec = MagicMock()
+        mock_exec.status = "running"
+        mock_exec.execution_id = "exec-2"
+        mock_exec.trigger_payload = {}
+
+        mock_db_node = MagicMock()
+        mock_db_node.component_config.system_prompt = None
+        mock_db_node.component_config.extra_config = {}
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_exec
+        mock_db.get.return_value = mock_db_node
+
+        topo = self._make_topo_data()
+        mock_redis = MagicMock()
+
+        def fake_factory(node):
+            def fn(state):
+                return {"_subworkflow": {"child_execution_id": "child-99"}, "output": "ok"}
+            return fn
+
+        with patch("database.SessionLocal", return_value=mock_db), \
+             patch("services.orchestrator._load_topology", return_value=topo), \
+             patch("services.orchestrator.load_state", return_value={"node_outputs": {}, "messages": []}), \
+             patch("services.orchestrator.save_state"), \
+             patch("services.orchestrator._redis", return_value=mock_redis), \
+             patch("services.orchestrator._write_log"), \
+             patch("components.get_component_factory", return_value=fake_factory), \
+             patch("services.expressions.resolve_expressions", side_effect=lambda s, *a: s), \
+             patch("services.expressions.resolve_config_expressions", side_effect=lambda c, *a: c):
+            execute_node_job("exec-2", "agent_1")
+
+        # Verify deadline was stored in Redis
+        mock_redis.set.assert_any_call(
+            _child_wait_key("exec-2", "agent_1"),
+            unittest.mock.ANY,
+            ex=unittest.mock.ANY,
+        )
+        # Verify _advance was NOT called (node stays waiting)
+        mock_advance.assert_not_called()
+
+    @patch("services.orchestrator._propagate_failure_to_parent")
+    @patch("services.orchestrator._complete_episode")
+    @patch("services.orchestrator._publish_event")
+    def test_outer_handler_propagates_to_parent(
+        self, mock_publish, mock_episode, mock_propagate,
+    ):
+        """Outer except handler calls _propagate_failure_to_parent."""
+        from services.orchestrator import execute_node_job
+
+        mock_exec = MagicMock()
+        mock_exec.status = "running"
+        mock_exec.execution_id = "exec-3"
+        mock_exec.trigger_payload = {}
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_exec
+
+        # Make _load_topology raise to trigger the outer except handler
+        with patch("database.SessionLocal", return_value=mock_db), \
+             patch("services.orchestrator._load_topology", side_effect=RuntimeError("topo missing")), \
+             patch("services.orchestrator._clear_stale_checkpoints"), \
+             patch("services.orchestrator._sync_task_costs"):
+            execute_node_job("exec-3", "agent_1")
+
+        mock_propagate.assert_called_once_with(mock_exec, unittest.mock.ANY)
