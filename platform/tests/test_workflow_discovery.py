@@ -220,43 +220,43 @@ class TestScoreWorkflow:
         reqs = {"triggers": ["telegram", "webhook"], "node_types": ["agent"], "tools": ["web_search"]}
         score = _score_workflow(caps, reqs, 1.0, "")
         # 2 out of 4 required items matched → capability = 0.5
-        # no tags on either side → tag_overlap = 1.0
+        # no tags requested → tag_overlap = 1.0
         # success_rate = 1.0
-        # 0.5 * 0.6 + 1.0 * 0.2 + 1.0 * 0.2 = 0.3 + 0.2 + 0.2 = 0.7
-        assert score == pytest.approx(0.7)
+        # 0.5 * 0.8 + 1.0 * 0.1 + 1.0 * 0.1 = 0.4 + 0.1 + 0.1 = 0.6
+        assert score == pytest.approx(0.6)
 
     def test_no_match(self):
         caps = {"triggers": ["telegram"], "node_types": ["agent"], "tools": [], "model_names": [], "tags": []}
         reqs = {"triggers": ["webhook"], "node_types": ["code"], "tools": ["calculator"]}
         score = _score_workflow(caps, reqs, 0.0, "")
         # 0 out of 3 matched → capability = 0.0
-        # no tags → 1.0
+        # no tags requested → 1.0
         # sr = 0.0
-        # 0.0 * 0.6 + 1.0 * 0.2 + 0.0 * 0.2 = 0.2
-        assert score == pytest.approx(0.2)
+        # 0.0 * 0.8 + 1.0 * 0.1 + 0.0 * 0.1 = 0.1
+        assert score == pytest.approx(0.1)
 
     def test_empty_requirements(self):
         caps = {"triggers": ["telegram"], "node_types": ["agent"], "tools": [], "model_names": [], "tags": []}
         reqs = {}
         score = _score_workflow(caps, reqs, None, "")
         # capability = 1.0 (nothing required), tags = 1.0, sr = 0.5 (default)
-        # 1.0 * 0.6 + 1.0 * 0.2 + 0.5 * 0.2 = 0.6 + 0.2 + 0.1 = 0.9
-        assert score == pytest.approx(0.9)
+        # 1.0 * 0.8 + 1.0 * 0.1 + 0.5 * 0.1 = 0.8 + 0.1 + 0.05 = 0.95
+        assert score == pytest.approx(0.95)
 
     def test_tag_jaccard(self):
         caps = {"triggers": [], "node_types": [], "tools": [], "model_names": [], "tags": ["a", "b", "c"]}
         reqs = {"tags": ["b", "c", "d"]}
         score = _score_workflow(caps, reqs, 1.0, "")
         # capability = 1.0, tags = |{b,c}| / |{a,b,c,d}| = 2/4 = 0.5, sr = 1.0
-        # 1.0 * 0.6 + 0.5 * 0.2 + 1.0 * 0.2 = 0.6 + 0.1 + 0.2 = 0.9
-        assert score == pytest.approx(0.9)
+        # 1.0 * 0.8 + 0.5 * 0.1 + 1.0 * 0.1 = 0.8 + 0.05 + 0.1 = 0.95
+        assert score == pytest.approx(0.95)
 
     def test_model_capability_substring(self):
         caps = {"triggers": [], "node_types": [], "tools": [], "model_names": ["gpt-4-turbo"], "tags": []}
         reqs = {"model_capability": "gpt-4"}
         score = _score_workflow(caps, reqs, 1.0, "")
         # model_capability matched (substring) → 1/1 = 1.0
-        # 1.0 * 0.6 + 1.0 * 0.2 + 1.0 * 0.2 = 1.0
+        # 1.0 * 0.8 + 1.0 * 0.1 + 1.0 * 0.1 = 1.0
         assert score == pytest.approx(1.0)
 
     def test_model_capability_no_match(self):
@@ -264,8 +264,8 @@ class TestScoreWorkflow:
         reqs = {"model_capability": "gpt-4"}
         score = _score_workflow(caps, reqs, 1.0, "")
         # 0/1 = 0.0
-        # 0.0 * 0.6 + 1.0 * 0.2 + 1.0 * 0.2 = 0.4
-        assert score == pytest.approx(0.4)
+        # 0.0 * 0.8 + 1.0 * 0.1 + 1.0 * 0.1 = 0.2
+        assert score == pytest.approx(0.2)
 
     def test_description_bonus(self):
         caps = {"triggers": [], "node_types": [], "tools": [], "model_names": [], "tags": []}

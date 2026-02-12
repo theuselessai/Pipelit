@@ -12,6 +12,7 @@ class WorkflowIn(BaseModel):
     is_active: bool = True
     is_public: bool = False
     is_default: bool = False
+    tags: list[str] | None = None
     error_handler_workflow_id: int | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
@@ -24,6 +25,7 @@ class WorkflowUpdate(BaseModel):
     is_active: bool | None = None
     is_public: bool | None = None
     is_default: bool | None = None
+    tags: list[str] | None = None
     error_handler_workflow_id: int | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
@@ -37,6 +39,7 @@ class WorkflowOut(BaseModel):
     is_active: bool
     is_public: bool
     is_default: bool
+    tags: list[str] | None = None
     error_handler_workflow_id: int | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
