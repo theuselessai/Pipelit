@@ -1123,7 +1123,7 @@ class TestChildWaitTimeout:
         from services.orchestrator import _child_wait_key
 
         key = _child_wait_key("exec-123", "agent_1")
-        assert key == "exec:exec-123:child_wait:agent_1"
+        assert key == "execution:exec-123:child_wait:agent_1"
 
     def test_resume_from_child_deletes_wait_key(self):
         """_resume_from_child should delete the child_wait key."""
@@ -1151,7 +1151,7 @@ class TestChildWaitTimeout:
         """cleanup_stuck_child_waits should call _resume_from_child for expired keys."""
         import time as _time
 
-        from tasks.cleanup import cleanup_stuck_child_waits
+        from services.cleanup import cleanup_stuck_child_waits
 
         expired_data = json.dumps({
             "deadline": _time.time() - 100,  # already expired
@@ -1159,11 +1159,11 @@ class TestChildWaitTimeout:
         })
 
         mock_redis = MagicMock()
-        mock_redis.scan.return_value = (0, ["exec:parent-exec:child_wait:agent_1"])
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
         mock_redis.get.return_value = expired_data
 
-        with patch("tasks.cleanup.redis_lib.from_url", return_value=mock_redis), \
-             patch("tasks.cleanup.settings"), \
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
              patch("services.orchestrator._resume_from_child") as mock_resume:
             count = cleanup_stuck_child_waits()
 
@@ -1173,13 +1173,13 @@ class TestChildWaitTimeout:
             parent_node_id="agent_1",
             child_output={"_error": "Child execution timed out after 600s"},
         )
-        mock_redis.delete.assert_called_with("exec:parent-exec:child_wait:agent_1")
+        mock_redis.delete.assert_called_with("execution:parent-exec:child_wait:agent_1")
 
     def test_cleanup_skips_non_expired_waits(self):
         """cleanup_stuck_child_waits should skip keys whose deadline hasn't passed."""
         import time as _time
 
-        from tasks.cleanup import cleanup_stuck_child_waits
+        from services.cleanup import cleanup_stuck_child_waits
 
         future_data = json.dumps({
             "deadline": _time.time() + 1000,  # still in the future
@@ -1187,11 +1187,11 @@ class TestChildWaitTimeout:
         })
 
         mock_redis = MagicMock()
-        mock_redis.scan.return_value = (0, ["exec:parent-exec:child_wait:agent_1"])
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
         mock_redis.get.return_value = future_data
 
-        with patch("tasks.cleanup.redis_lib.from_url", return_value=mock_redis), \
-             patch("tasks.cleanup.settings"), \
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
              patch("services.orchestrator._resume_from_child") as mock_resume:
             count = cleanup_stuck_child_waits()
 
@@ -1199,10 +1199,10 @@ class TestChildWaitTimeout:
         mock_resume.assert_not_called()
 
     def test_cleanup_job_wrapper(self):
-        """tasks.cleanup_stuck_child_waits_job delegates to the real function."""
+        """services.cleanup_stuck_child_waits_job delegates to the real function."""
         from tasks import cleanup_stuck_child_waits_job
 
-        with patch("tasks.cleanup.cleanup_stuck_child_waits", return_value=3) as mock_fn:
+        with patch("services.cleanup.cleanup_stuck_child_waits", return_value=3) as mock_fn:
             result = cleanup_stuck_child_waits_job()
 
         assert result == 3

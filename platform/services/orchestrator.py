@@ -65,7 +65,7 @@ def _inflight_key(execution_id: str) -> str:
 
 
 def _child_wait_key(execution_id: str, node_id: str) -> str:
-    return f"exec:{execution_id}:child_wait:{node_id}"
+    return f"execution:{execution_id}:child_wait:{node_id}"
 
 
 def _loop_key(execution_id: str, loop_id: str) -> str:

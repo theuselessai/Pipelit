@@ -29,5 +29,5 @@ def start_execution_job(execution_id: str) -> None:
 
 
 def cleanup_stuck_child_waits_job() -> int:
-    from tasks.cleanup import cleanup_stuck_child_waits
+    from services.cleanup import cleanup_stuck_child_waits
     return cleanup_stuck_child_waits()

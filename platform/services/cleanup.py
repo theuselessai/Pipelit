@@ -1,6 +1,6 @@
 """Periodic cleanup job: expire stuck child-wait nodes.
 
-Scans Redis for ``exec:*:child_wait:*`` keys whose deadline has passed and
+Scans Redis for ``execution:*:child_wait:*`` keys whose deadline has passed and
 resumes the parent execution with an ``_error`` payload so the parent doesn't
 stay stuck in "running" forever.
 
@@ -31,7 +31,7 @@ def cleanup_stuck_child_waits() -> int:
     expired_count = 0
     cursor = 0
     while True:
-        cursor, keys = r.scan(cursor, match="exec:*:child_wait:*", count=100)
+        cursor, keys = r.scan(cursor, match="execution:*:child_wait:*", count=100)
         for key in keys:
             raw = r.get(key)
             if not raw:
@@ -47,9 +47,9 @@ def cleanup_stuck_child_waits() -> int:
                 continue
 
             # Extract execution_id and node_id from key pattern:
-            # exec:<execution_id>:child_wait:<node_id>
+            # execution:<execution_id>:child_wait:<node_id>
             parts = key.split(":")
-            # parts = ["exec", execution_id, "child_wait", node_id]
+            # parts = ["execution", execution_id, "child_wait", node_id]
             if len(parts) < 4:
                 r.delete(key)
                 continue
