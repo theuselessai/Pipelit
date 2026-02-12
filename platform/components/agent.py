@@ -12,6 +12,11 @@ from langgraph.prebuilt import create_react_agent
 
 from components import register
 from services.llm import resolve_llm_for_node
+from services.token_usage import (
+    calculate_cost,
+    extract_usage_from_messages,
+    get_model_name_for_node,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,7 @@ def _get_redis_checkpointer():
 def agent_factory(node):
     """Build an agent graph node."""
     llm = resolve_llm_for_node(node)
+    model_name = get_model_name_for_node(node)
     concrete = node.component_config.concrete
     system_prompt = getattr(concrete, "system_prompt", None) or ""
     extra = getattr(concrete, "extra_config", None) or {}
@@ -204,8 +210,20 @@ def agent_factory(node):
                 final_content = msg.content
                 break
 
+        # Extract token usage from AI messages
+        usage = extract_usage_from_messages(out_messages)
+        usage["cost_usd"] = calculate_cost(
+            model_name, usage["input_tokens"], usage["output_tokens"]
+        )
+        usage["tool_invocations"] = sum(
+            len(getattr(msg, "tool_calls", []) or [])
+            for msg in out_messages
+            if hasattr(msg, "type") and msg.type == "ai"
+        )
+
         return {
             "_messages": out_messages,
+            "_token_usage": usage,
             "output": final_content,
         }
 

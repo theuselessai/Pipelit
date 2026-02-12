@@ -9,12 +9,18 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from components import register
 from services.llm import resolve_llm_for_node
+from services.token_usage import (
+    calculate_cost,
+    extract_usage_from_response,
+    get_model_name_for_node,
+)
 
 
 @register("categorizer")
 def categorizer_factory(node):
     """Build a categorizer graph node."""
     llm = resolve_llm_for_node(node)
+    model_name = get_model_name_for_node(node)
     extra = node.component_config.extra_config
     categories = extra.get("categories", [])
 
@@ -46,9 +52,21 @@ def categorizer_factory(node):
         response = llm.invoke(messages)
         content = response.content.strip()
 
+        # Extract token usage
+        usage = extract_usage_from_response(response)
+        usage["llm_calls"] = 1
+        usage["cost_usd"] = calculate_cost(
+            model_name, usage["input_tokens"], usage["output_tokens"]
+        )
+
         # Parse category from response
         category = _parse_category(content, category_names)
-        return {"_route": category, "category": category, "raw": content}
+        return {
+            "_route": category,
+            "_token_usage": usage,
+            "category": category,
+            "raw": content,
+        }
 
     return categorizer_node
 

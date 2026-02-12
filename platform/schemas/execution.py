@@ -13,6 +13,9 @@ class ExecutionOut(BaseModel):
     error_message: str = ""
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    llm_calls: int = 0
 
     model_config = {"from_attributes": True}
 
