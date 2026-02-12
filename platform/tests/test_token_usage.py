@@ -237,6 +237,7 @@ class TestGetModelNameForNode:
         with patch("database.SessionLocal", return_value=mock_db):
             result = get_model_name_for_node(node)
         assert result == ""
+        mock_db.close.assert_called_once()
 
 
 class TestMergeUsageEdgeCases:
