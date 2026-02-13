@@ -298,7 +298,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "workflow_create": _WorkflowCreateConfig,
     "workflow_discover": _WorkflowDiscoverConfig,
     "scheduler_tools": _SchedulerToolsConfig,
-    "system_health": ToolComponentConfig,
+    "system_health": _SystemHealthConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,
