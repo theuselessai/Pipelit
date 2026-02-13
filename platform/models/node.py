@@ -204,6 +204,10 @@ class _SchedulerToolsConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "scheduler_tools"}
 
 
+class _SystemHealthConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "system_health"}
+
+
 class OtherComponentConfig(BaseComponentConfig):
     """Config for human_confirmation, aggregator, workflow, output_parser."""
     __mapper_args__ = {"polymorphic_identity": "human_confirmation"}
@@ -294,6 +298,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "workflow_create": _WorkflowCreateConfig,
     "workflow_discover": _WorkflowDiscoverConfig,
     "scheduler_tools": _SchedulerToolsConfig,
+    "system_health": _SystemHealthConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

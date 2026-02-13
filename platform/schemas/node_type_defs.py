@@ -281,6 +281,14 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="system_health",
+    display_name="System Health",
+    description="Check platform infrastructure health: Redis, RQ workers, queues, stuck executions, failed executions, and scheduled jobs",
+    category="agent",
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON health report with summary, checks, and issues")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",
