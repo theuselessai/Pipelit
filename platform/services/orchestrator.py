@@ -30,7 +30,7 @@ def _redis() -> redis_lib.Redis:
 
 def _queue() -> Queue:
     conn = redis_lib.from_url(settings.REDIS_URL)
-    return Queue("workflows", connection=conn)
+    return Queue("workflows", connection=conn, default_timeout=600)
 
 
 # ── Redis state helpers ────────────────────────────────────────────────────────
