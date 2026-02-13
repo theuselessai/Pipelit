@@ -92,16 +92,22 @@ def save_state(execution_id: str, state: dict) -> None:
 
 
 def _publish_event(execution_id: str, event_type: str, data: dict | None = None, workflow_slug: str | None = None) -> None:
-    r = _redis()
-    payload = {"type": event_type, "execution_id": execution_id, "timestamp": time.time()}
-    if data:
-        payload["data"] = data
-    raw = json.dumps(payload)
-    r.publish(f"{PUBSUB_CHANNEL_PREFIX}{execution_id}", raw)
-    # Also publish to workflow channel so global WS subscribers get execution events
-    if workflow_slug:
-        payload["channel"] = f"workflow:{workflow_slug}"
-        r.publish(f"workflow:{workflow_slug}", json.dumps(payload))
+    try:
+        r = _redis()
+        payload = {"type": event_type, "execution_id": execution_id, "timestamp": time.time()}
+        if data:
+            payload["data"] = data
+        raw = json.dumps(payload)
+        r.publish(f"{PUBSUB_CHANNEL_PREFIX}{execution_id}", raw)
+        # Also publish to workflow channel so global WS subscribers get execution events
+        if workflow_slug:
+            payload["channel"] = f"workflow:{workflow_slug}"
+            r.publish(f"workflow:{workflow_slug}", json.dumps(payload))
+    except Exception:
+        logger.warning(
+            "Failed to publish event %s for execution %s (non-fatal)",
+            event_type, execution_id, exc_info=True,
+        )
 
 
 def _save_topology(execution_id: str, topo) -> None:
@@ -251,17 +257,30 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         )
         if not execution or execution.status not in ("running",):
             logger.warning("Execution %s not runnable (status=%s)", execution_id, execution.status if execution else "?")
+            # Decrement inflight so execution can finalize if all other nodes are done
+            r = _redis()
+            remaining = r.decr(_inflight_key(execution_id))
+            if remaining <= 0 and execution and execution.status == "running":
+                _finalize(execution_id, db)
             return
 
         topo_data = _load_topology(execution_id)
         node_info = topo_data["nodes"].get(node_id)
         if not node_info:
             logger.error("Node %s not in topology for execution %s", node_id, execution_id)
+            r = _redis()
+            remaining = r.decr(_inflight_key(execution_id))
+            if remaining <= 0:
+                _finalize(execution_id, db)
             return
 
         # Check interrupt_before
         if node_info.get("interrupt_before"):
             _handle_interrupt(execution, node_id, "before", db)
+            # Decrement inflight — execution is now "interrupted" so _finalize()
+            # will no-op even if counter reaches 0. resume_node_job() re-increments.
+            r = _redis()
+            r.decr(_inflight_key(execution_id))
             return
 
         state = load_state(execution_id)
@@ -511,6 +530,9 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         # Check interrupt_after
         if node_info.get("interrupt_after"):
             _handle_interrupt(execution, node_id, "after", db)
+            # Decrement inflight — execution is now "interrupted" so _finalize()
+            # will no-op even if counter reaches 0. resume_node_job() re-increments.
+            r.decr(_inflight_key(execution_id))
             return
 
         # Handle loop: if component returned _loop, start iteration
@@ -546,7 +568,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 "node_id": node_id, "status": NodeStatus.WAITING.value,
                 "child_execution_id": child_id,
             }, workflow_slug=slug)
-            # Do NOT advance or decrement inflight — node stays in-flight
+            # Do NOT advance or decrement inflight — node stays inflight
             # until child completes and _resume_from_child is called.
             return
 
@@ -569,9 +591,20 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 _clear_stale_checkpoints(execution_id, db)
                 _sync_task_costs(execution_id, db)
         except Exception:
-            pass
+            logger.exception(
+                "Failed to persist failure status for execution %s", execution_id
+            )
+        # Decrement inflight so execution can finalize if other nodes are still inflight
+        try:
+            r = _redis()
+            r.decr(_inflight_key(execution_id))
+        except Exception:
+            logger.exception("Failed to decrement inflight for execution %s", execution_id)
         _ws_slug = topo_data.get("workflow_slug", "") if "topo_data" in locals() else None
-        _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=_ws_slug)
+        try:
+            _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=_ws_slug)
+        except Exception:
+            logger.exception("Failed to publish execution_failed event for %s", execution_id)
         _complete_episode(
             execution_id=execution_id,
             success=False,
@@ -582,6 +615,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         # Propagate failure to parent (if this is a child execution)
         if _exec:
             _propagate_failure_to_parent(_exec, exc)
+        _cleanup_redis(execution_id)
     finally:
         db.close()
 
@@ -623,7 +657,10 @@ def resume_node_job(execution_id: str, user_input: str) -> None:
         state["_resume_input"] = user_input
         save_state(execution_id, state)
 
-        # Re-enqueue the node
+        # Re-enqueue the node (increment inflight to match the decrement on interrupt)
+        r = _redis()
+        r.incr(_inflight_key(execution_id))
+        r.expire(_inflight_key(execution_id), STATE_TTL)
         from tasks import execute_node_job as _enqueue_node
         q = _queue()
         q.enqueue(_enqueue_node, execution_id, node_id)
@@ -933,44 +970,66 @@ def _finalize(execution_id: str, db: Session) -> None:
     if not execution or execution.status != "running":
         return
 
-    state = load_state(execution_id)
-    execution.status = "completed"
-    execution.final_output = _extract_output(state)
-    execution.completed_at = datetime.now(timezone.utc)
-    _persist_execution_costs(execution, state)
-    db.commit()
+    try:
+        state = load_state(execution_id)
+        execution.status = "completed"
+        execution.final_output = _extract_output(state)
+        execution.completed_at = datetime.now(timezone.utc)
+        _persist_execution_costs(execution, state)
+        db.commit()
 
-    _sync_task_costs(execution_id, db)
+        _sync_task_costs(execution_id, db)
 
-    logger.info("Execution %s completed", execution_id)
-    slug = _get_workflow_slug(execution_id, db)
-    _publish_event(execution_id, "execution_completed", {"output": execution.final_output}, workflow_slug=slug)
+        logger.info("Execution %s completed", execution_id)
+        slug = _get_workflow_slug(execution_id, db)
+        _publish_event(execution_id, "execution_completed", {"output": execution.final_output}, workflow_slug=slug)
 
-    # Complete memory episode
-    _complete_episode(
-        execution_id=execution_id,
-        success=True,
-        final_output=execution.final_output,
-    )
-
-    from services.delivery import output_delivery
-    output_delivery.deliver(execution, db)
-
-    # If this execution has a parent, resume the parent's subworkflow node
-    parent_eid = getattr(execution, "parent_execution_id", None)
-    parent_nid = getattr(execution, "parent_node_id", None)
-    if parent_eid and parent_nid and isinstance(parent_eid, str):
-        logger.info(
-            "Child execution %s completed, resuming parent %s at node %s",
-            execution_id, parent_eid, parent_nid,
-        )
-        _resume_from_child(
-            parent_execution_id=parent_eid,
-            parent_node_id=parent_nid,
-            child_output=execution.final_output,
+        # Complete memory episode
+        _complete_episode(
+            execution_id=execution_id,
+            success=True,
+            final_output=execution.final_output,
         )
 
-    _cleanup_redis(execution_id)
+        from services.delivery import output_delivery
+        output_delivery.deliver(execution, db)
+
+        # If this execution has a parent, resume the parent's subworkflow node
+        parent_eid = getattr(execution, "parent_execution_id", None)
+        parent_nid = getattr(execution, "parent_node_id", None)
+        if parent_eid and parent_nid and isinstance(parent_eid, str):
+            logger.info(
+                "Child execution %s completed, resuming parent %s at node %s",
+                execution_id, parent_eid, parent_nid,
+            )
+            _resume_from_child(
+                parent_execution_id=parent_eid,
+                parent_node_id=parent_nid,
+                child_output=execution.final_output,
+            )
+
+    except Exception as exc:
+        logger.exception("Failed to finalize execution %s", execution_id)
+        # Ensure execution is marked as failed if finalization crashes
+        try:
+            db.rollback()
+            execution = (
+                db.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == execution_id)
+                .first()
+            )
+            if execution and execution.status not in ("failed", "completed"):
+                execution.status = "failed"
+                execution.error_message = f"Finalization error: {str(exc)[:1900]}"
+                execution.completed_at = datetime.now(timezone.utc)
+                db.commit()
+        except Exception:
+            logger.exception(
+                "Failed to persist failure status during finalize recovery for %s",
+                execution_id,
+            )
+    finally:
+        _cleanup_redis(execution_id)
 
 
 def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
