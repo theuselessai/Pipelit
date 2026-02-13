@@ -40,6 +40,21 @@ async def lifespan(app: FastAPI):
         import logging
         logging.getLogger(__name__).exception("Failed to recover scheduled jobs on startup")
 
+    # Recover any executions stuck in "running" from a previous crash
+    try:
+        from services.execution_recovery import recover_zombie_executions
+        recovered_executions = recover_zombie_executions()
+        if recovered_executions:
+            import logging
+            logging.getLogger(__name__).info(
+                "Recovered %d zombie executions", recovered_executions
+            )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "Failed to recover zombie executions on startup"
+        )
+
     yield
 
 

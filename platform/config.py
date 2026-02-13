@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     CORS_ALLOW_ALL_ORIGINS: bool = True
 
+    ZOMBIE_EXECUTION_THRESHOLD_SECONDS: int = 900  # 15 min
+
     model_config = ConfigDict(
         env_file=str(BASE_DIR.parent / ".env"),
         env_file_encoding="utf-8",

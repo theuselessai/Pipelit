@@ -36,3 +36,8 @@ def cleanup_stuck_child_waits_job() -> int:
 def execute_scheduled_job_task(job_id: str, current_repeat: int = 0, current_retry: int = 0) -> None:
     from services.scheduler import execute_scheduled_job
     execute_scheduled_job(job_id, current_repeat, current_retry)
+
+
+def recover_zombie_executions_job() -> int:
+    from services.execution_recovery import recover_zombie_executions
+    return recover_zombie_executions()
