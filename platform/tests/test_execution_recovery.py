@@ -19,6 +19,7 @@ from services.execution_recovery import (
     _recover_one,
     _publish_zombie_event,
     _cleanup_redis,
+    on_execution_job_failure,
 )
 
 
@@ -344,3 +345,112 @@ class TestRQTaskWrapper:
         result = recover_zombie_executions_job()
         assert result == 5
         mock_recover.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# on_execution_job_failure callback tests
+# ---------------------------------------------------------------------------
+
+def _make_mock_job(execution_id: str):
+    """Create a mock RQ job with the given execution_id as first arg."""
+    job = MagicMock()
+    job.args = (execution_id,)
+    return job
+
+
+class TestOnExecutionJobFailure:
+    """Tests for the RQ on_failure callback."""
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_marks_running_execution_as_failed(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """A running execution is marked failed when the RQ job fails."""
+        ex = _make_execution(
+            db, workflow, user_profile,
+            status="running",
+            started_at=_utcnow_naive() - timedelta(seconds=30),
+        )
+        job = _make_mock_job(ex.execution_id)
+
+        with _patch_session(db):
+            on_execution_job_failure(job, None, RuntimeError, RuntimeError("OOM killed"), None)
+
+        db.refresh(ex)
+        assert ex.status == "failed"
+        assert "RuntimeError" in ex.error_message
+        assert "OOM killed" in ex.error_message
+        assert ex.completed_at is not None
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_publishes_ws_event(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """The callback publishes a WS event for the failed execution."""
+        ex = _make_execution(
+            db, workflow, user_profile,
+            status="running",
+            started_at=_utcnow_naive() - timedelta(seconds=30),
+        )
+        job = _make_mock_job(ex.execution_id)
+
+        with _patch_session(db):
+            on_execution_job_failure(job, None, RuntimeError, RuntimeError("timeout"), None)
+
+        mock_pub.assert_called_once_with(ex.execution_id, workflow.slug)
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_cleans_up_redis_keys(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """The callback cleans up Redis keys for the execution."""
+        ex = _make_execution(
+            db, workflow, user_profile,
+            status="running",
+            started_at=_utcnow_naive() - timedelta(seconds=30),
+        )
+        job = _make_mock_job(ex.execution_id)
+
+        with _patch_session(db):
+            on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
+
+        mock_redis.assert_called_once_with(ex.execution_id)
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_non_running_execution_not_modified(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """An already-completed execution is not modified (idempotent)."""
+        ex = _make_execution(
+            db, workflow, user_profile,
+            status="completed",
+            started_at=_utcnow_naive() - timedelta(seconds=30),
+        )
+        job = _make_mock_job(ex.execution_id)
+
+        with _patch_session(db):
+            on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
+
+        db.refresh(ex)
+        assert ex.status == "completed"
+        mock_pub.assert_not_called()
+        mock_redis.assert_not_called()
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_missing_execution_does_not_crash(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """A missing execution_id does not raise."""
+        job = _make_mock_job("nonexistent-id")
+
+        with _patch_session(db):
+            # Should not raise
+            on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
+
+        mock_pub.assert_not_called()
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_callback_exception_does_not_propagate(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """If the callback itself errors, it does not propagate."""
+        job = _make_mock_job("some-id")
+
+        # Force SessionLocal to raise
+        with patch("database.SessionLocal", side_effect=Exception("DB connection pool exhausted")):
+            # Should not raise
+            on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
