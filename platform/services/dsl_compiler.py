@@ -51,7 +51,6 @@ STEP_TYPE_MAP: dict[str, str] = {
 }
 
 TRIGGER_TYPE_MAP: dict[str, str] = {
-    "webhook": "trigger_webhook",
     "telegram": "trigger_telegram",
     "chat": "trigger_chat",
     "none": "trigger_workflow",
@@ -219,8 +218,8 @@ def _parse_dsl(yaml_str: str) -> dict:
     if not isinstance(parsed["steps"], list) or len(parsed["steps"]) == 0:
         raise ValueError("`steps` must be a non-empty list")
 
-    # Normalize and validate trigger — accept both string ("webhook")
-    # and dict ({"type": "webhook"}) forms per the DSL spec.
+    # Normalize and validate trigger — accept both string ("manual")
+    # and dict ({"type": "manual"}) forms per the DSL spec.
     trigger = parsed.setdefault("trigger", "none")
     if isinstance(trigger, dict):
         trigger = trigger.get("type", "none")

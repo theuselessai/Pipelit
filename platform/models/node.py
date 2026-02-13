@@ -246,10 +246,6 @@ class TriggerComponentConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "trigger_telegram"}
 
 
-class _TriggerWebhookConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "trigger_webhook"}
-
-
 class _TriggerScheduleConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "trigger_schedule"}
 
@@ -308,7 +304,6 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "identify_user": OtherComponentConfig,
     "code_execute": OtherComponentConfig,
     "trigger_telegram": TriggerComponentConfig,
-    "trigger_webhook": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,
     "trigger_manual": TriggerComponentConfig,
     "trigger_workflow": TriggerComponentConfig,

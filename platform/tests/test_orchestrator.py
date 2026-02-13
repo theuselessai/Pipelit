@@ -192,7 +192,7 @@ class TestBuildTopology:
 
     def test_trigger_scoping(self, db, workflow):
         trigger_a = _add_node(db, workflow, "trigger_a", "trigger_telegram")
-        _add_node(db, workflow, "trigger_b", "trigger_webhook")
+        _add_node(db, workflow, "trigger_b", "trigger_schedule")
         _add_node(db, workflow, "agent_a", "agent")
         _add_node(db, workflow, "agent_b", "agent")
         _add_edge(db, workflow, "trigger_a", "agent_a")

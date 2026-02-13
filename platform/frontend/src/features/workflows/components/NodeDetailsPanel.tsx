@@ -29,7 +29,7 @@ interface Props {
   onClose: () => void
 }
 
-const TRIGGER_TYPES = ["trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat"]
+const TRIGGER_TYPES = ["trigger_telegram", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat"]
 
 const OPERATOR_OPTIONS = [
   { group: "Universal", options: [

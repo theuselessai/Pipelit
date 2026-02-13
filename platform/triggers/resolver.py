@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 EVENT_TYPE_TO_COMPONENT = {
     "telegram_message": "trigger_telegram",
     "telegram_chat": "trigger_telegram",
-    "webhook": "trigger_webhook",
     "schedule": "trigger_schedule",
     "manual": "trigger_manual",
     "workflow": "trigger_workflow",
@@ -78,8 +77,6 @@ class TriggerResolver:
 
         if event_type in ("telegram_message", "telegram_chat"):
             return self._match_telegram(trigger_config, event_data)
-        if event_type == "webhook":
-            return self._match_webhook(trigger_config, event_data)
         if event_type == "manual":
             return True
         if event_type == "workflow":
@@ -107,12 +104,6 @@ class TriggerResolver:
             text = event_data.get("text", "")
             if not text.startswith(f"/{command}"):
                 return False
-        return True
-
-    def _match_webhook(self, config: dict, event_data: dict) -> bool:
-        expected_path = config.get("path")
-        if expected_path:
-            return event_data.get("path") == expected_path
         return True
 
     def _match_schedule(self, config: dict, event_data: dict) -> bool:

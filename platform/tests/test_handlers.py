@@ -106,14 +106,6 @@ class TestTriggerResolver:
         assert resolver._match_telegram({"command": "start"}, {"text": "/start"}) is True
         assert resolver._match_telegram({"command": "help"}, {"text": "/start"}) is False
 
-    def test_match_webhook_path(self):
-        from triggers.resolver import TriggerResolver
-
-        resolver = TriggerResolver()
-        assert resolver._match_webhook({"path": "my-hook"}, {"path": "my-hook"}) is True
-        assert resolver._match_webhook({"path": "my-hook"}, {"path": "other"}) is False
-        assert resolver._match_webhook({}, {"path": "any"}) is True
-
     def test_matches_workflow_source(self):
         from triggers.resolver import TriggerResolver
 
@@ -344,66 +336,3 @@ class TestTelegramHandler:
         assert "cancelled" in mock_delivery.send_telegram_message.call_args[0][2]
 
 
-# ── Webhook handler ──────────────────────────────────────────────────────────
-
-class TestWebhookHandler:
-    @patch("handlers.webhook.dispatch_event")
-    def test_webhook_view_success(self, mock_dispatch):
-        from handlers.webhook import webhook_view
-
-        mock_dispatch.return_value = MagicMock(
-            execution_id="exec-1",
-            status="pending",
-        )
-        mock_request = MagicMock()
-        mock_request._body = b'{"key": "value"}'
-        mock_request.headers = {"content-type": "application/json"}
-
-        result = webhook_view("my-hook", mock_request, MagicMock(), MagicMock())
-        assert result["execution_id"] == "exec-1"
-
-    @patch("handlers.webhook.dispatch_event", return_value=None)
-    def test_webhook_view_no_match(self, mock_dispatch):
-        from fastapi import HTTPException
-        from handlers.webhook import webhook_view
-
-        mock_request = MagicMock()
-        mock_request._body = b'{}'
-        mock_request.headers = {}
-
-        with pytest.raises(HTTPException) as exc_info:
-            webhook_view("unknown", mock_request, MagicMock(), MagicMock())
-        assert exc_info.value.status_code == 404
-
-    @patch("handlers.webhook.dispatch_event")
-    def test_webhook_view_with_secret(self, mock_dispatch):
-        from handlers.webhook import webhook_view
-
-        mock_dispatch.return_value = MagicMock(
-            execution_id="exec-1",
-            status="pending",
-        )
-        mock_request = MagicMock()
-        mock_request._body = b'{}'
-        mock_request.headers = {"x-webhook-secret": "my-secret", "content-type": "application/json"}
-
-        result = webhook_view("my-hook", mock_request, MagicMock(), MagicMock())
-        # Verify secret was passed in event_data
-        call_args = mock_dispatch.call_args[0]
-        assert call_args[1]["provided_secret"] == "my-secret"
-
-    @patch("handlers.webhook.dispatch_event")
-    def test_webhook_view_bad_json(self, mock_dispatch):
-        from handlers.webhook import webhook_view
-
-        mock_dispatch.return_value = MagicMock(
-            execution_id="exec-1",
-            status="pending",
-        )
-        mock_request = MagicMock()
-        mock_request._body = b'not json'
-        mock_request.headers = {}
-
-        result = webhook_view("my-hook", mock_request, MagicMock(), MagicMock())
-        # Should still work with empty body
-        assert result["execution_id"] == "exec-1"

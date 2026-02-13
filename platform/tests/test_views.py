@@ -42,35 +42,6 @@ def anon_client(app):
     return TestClient(app)
 
 
-class TestWebhookView:
-    def test_valid_webhook(self, authed_client, db, user_profile, webhook_trigger):
-        with patch("handlers.redis") as mock_redis, \
-             patch("handlers.Queue") as mock_queue_cls:
-            mock_queue_cls.return_value.enqueue.return_value = None
-            response = authed_client.post(
-                "/api/webhooks/test-hook/",
-                json={"key": "val"},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "execution_id" in data
-
-    def test_no_matching_webhook(self, authed_client, db, user_profile):
-        response = authed_client.post(
-            "/api/webhooks/unknown/",
-            json={},
-        )
-        assert response.status_code == 404
-
-    def test_unauthenticated(self, anon_client):
-        response = anon_client.post(
-            "/api/webhooks/test/",
-            json={},
-        )
-        assert response.status_code in (401, 403)
-
-
 class TestManualExecuteView:
     def test_valid_manual_trigger(self, authed_client, db, user_profile, manual_trigger, workflow):
         with patch("handlers.redis") as mock_redis, \

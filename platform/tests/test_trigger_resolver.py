@@ -16,9 +16,6 @@ class TestEventTypeMapping:
     def test_manual_maps_correctly(self):
         assert EVENT_TYPE_TO_COMPONENT["manual"] == "trigger_manual"
 
-    def test_webhook_maps_correctly(self):
-        assert EVENT_TYPE_TO_COMPONENT["webhook"] == "trigger_webhook"
-
     def test_schedule_maps_correctly(self):
         assert EVENT_TYPE_TO_COMPONENT["schedule"] == "trigger_schedule"
 
@@ -43,16 +40,6 @@ class TestResolve:
         wf, node = result
         assert wf.id == workflow.id
         assert node.component_type == "trigger_manual"
-
-    def test_webhook_trigger_matches_path(self, resolver, db, workflow, webhook_trigger):
-        result = resolver.resolve("webhook", {"path": "test-hook"}, db)
-        assert result is not None
-        wf, node = result
-        assert wf.id == workflow.id
-
-    def test_webhook_trigger_no_path_match(self, resolver, db, workflow, webhook_trigger):
-        result = resolver.resolve("webhook", {"path": "wrong-path"}, db)
-        assert result is None
 
     def test_no_triggers_returns_none(self, resolver, db, workflow):
         result = resolver.resolve("manual", {}, db)
@@ -109,7 +96,7 @@ class TestResolve:
         from models.node import BaseComponentConfig, WorkflowNode
         from models.workflow import Workflow
 
-        # Create a default workflow with a manual trigger that has path-specific webhook matching
+        # Create a default workflow with a manual trigger
         default_wf = Workflow(
             name="Default", slug="default", owner_id=user_profile.id,
             is_active=True, is_default=True,
@@ -118,39 +105,24 @@ class TestResolve:
         db.commit()
 
         cc = BaseComponentConfig(
-            component_type="trigger_webhook",
-            trigger_config={"path": "specific-path"},
+            component_type="trigger_manual",
+            trigger_config={},
             is_active=True,
             priority=0,
         )
         db.add(cc)
         db.flush()
         db.add(WorkflowNode(
-            workflow_id=default_wf.id, node_id="webhook_default",
-            component_type="trigger_webhook", component_config_id=cc.id,
+            workflow_id=default_wf.id, node_id="manual_default",
+            component_type="trigger_manual", component_config_id=cc.id,
         ))
         db.commit()
 
-        # Query for webhook with non-matching path — primary trigger won't match,
-        # but default workflow fallback should return it
-        result = resolver.resolve("webhook", {"path": "other-path"}, db)
+        # No non-default workflows have manual triggers, so default should be used
+        result = resolver.resolve("manual", {}, db)
         assert result is not None
         wf, node = result
         assert wf.id == default_wf.id
-
-
-class TestWebhookMatching:
-    def test_matches_exact_path(self, resolver):
-        config = {"path": "my-hook"}
-        assert resolver._match_webhook(config, {"path": "my-hook"})
-
-    def test_no_match_wrong_path(self, resolver):
-        config = {"path": "my-hook"}
-        assert not resolver._match_webhook(config, {"path": "other"})
-
-    def test_no_path_config_matches_any(self, resolver):
-        config = {}
-        assert resolver._match_webhook(config, {"path": "anything"})
 
 
 class TestTelegramMatching:

@@ -138,7 +138,7 @@ class TestBuildTopology:
         self._add_edge(db, workflow, "trigger_a", "code_a")
 
         # Separate branch not connected to trigger_a
-        trigger_b = self._add_node(db, workflow, "trigger_b", "trigger_webhook")
+        trigger_b = self._add_node(db, workflow, "trigger_b", "trigger_schedule")
         code_b = self._add_node(db, workflow, "code_b", "code")
         self._add_edge(db, workflow, "trigger_b", "code_b")
         db.commit()
