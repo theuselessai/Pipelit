@@ -65,7 +65,9 @@ def dispatch_event(
 
     conn = redis.from_url(settings.REDIS_URL)
     queue = Queue("workflows", connection=conn)
-    queue.enqueue(execute_workflow_job, str(execution.execution_id))
+    from services.execution_recovery import on_execution_job_failure
+    queue.enqueue(execute_workflow_job, str(execution.execution_id),
+                  on_failure=on_execution_job_failure)
 
     logger.info(
         "Dispatched event '%s' → workflow '%s' (execution %s)",

@@ -67,11 +67,13 @@ def manual_execute_view(
         from rq import Queue
 
         from config import settings
+        from services.execution_recovery import on_execution_job_failure
         from tasks import execute_workflow_job
 
         conn = redis.from_url(settings.REDIS_URL)
         queue = Queue("workflows", connection=conn)
-        queue.enqueue(execute_workflow_job, str(execution.execution_id))
+        queue.enqueue(execute_workflow_job, str(execution.execution_id),
+                      on_failure=on_execution_job_failure)
     else:
         # Fallback — existing dispatch_event path
         event_data = {"text": payload.text, "workflow_slug": workflow_slug}

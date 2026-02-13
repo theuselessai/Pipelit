@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -96,8 +97,24 @@ def cancel_execution(
         raise HTTPException(status_code=404, detail="Execution not found.")
     if execution.status in ("pending", "running", "interrupted"):
         execution.status = "cancelled"
+        execution.completed_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(execution)
+
+        # Clean up Redis keys for this execution
+        from services.execution_recovery import _cleanup_redis
+        _cleanup_redis(execution.execution_id)
+
+        # Notify frontend via WebSocket (best-effort)
+        try:
+            from ws.broadcast import broadcast
+            wf = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+            if wf:
+                broadcast(f"workflow:{wf.slug}", "execution_cancelled",
+                          {"execution_id": execution.execution_id})
+        except Exception:
+            pass
+
     return _serialize_execution(execution, db)
 
 
@@ -180,7 +197,9 @@ def send_chat_message(
 
     conn = redis.from_url(settings.REDIS_URL)
     queue = Queue("workflows", connection=conn)
-    queue.enqueue(execute_workflow_job, str(execution.execution_id))
+    from services.execution_recovery import on_execution_job_failure
+    queue.enqueue(execute_workflow_job, str(execution.execution_id),
+                  on_failure=on_execution_job_failure)
 
     return ChatMessageOut(
         execution_id=execution.execution_id,

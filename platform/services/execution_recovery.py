@@ -103,7 +103,11 @@ def _recover_one(execution, db: Session) -> None:
     _cleanup_redis(execution_id)
 
 
-def _publish_zombie_event(execution_id: str, workflow_slug: str | None) -> None:
+def _publish_zombie_event(
+    execution_id: str,
+    workflow_slug: str | None,
+    error: str = "Execution recovered as failed (zombie)",
+) -> None:
     """Publish an ``execution_failed`` event via Redis pub/sub (best-effort)."""
     try:
         r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
@@ -112,7 +116,7 @@ def _publish_zombie_event(execution_id: str, workflow_slug: str | None) -> None:
                 "type": "execution_failed",
                 "execution_id": execution_id,
                 "timestamp": time.time(),
-                "data": {"error": "Execution recovered as failed (zombie)"},
+                "data": {"error": error},
             }
             raw = json.dumps(payload)
             r.publish(f"execution:{execution_id}", raw)
@@ -145,6 +149,61 @@ def _cleanup_redis(execution_id: str) -> None:
             execution_id,
             exc_info=True,
         )
+
+
+def on_execution_job_failure(job, connection, exc_type, exc_value, traceback):
+    """RQ on_failure callback — marks execution as failed when the RQ job itself fails.
+
+    Called by RQ when a job raises an unhandled exception or is killed (timeout).
+    The signature is mandated by RQ's callback protocol.
+    """
+    try:
+        from database import SessionLocal
+        from models.execution import WorkflowExecution
+        from models.workflow import Workflow
+
+        if not job.args:
+            logger.error("RQ failure callback called with no args on job %s", job.id)
+            return
+        execution_id = job.args[0]  # first positional arg to all task wrappers
+        error_msg = f"RQ job failed: {exc_type.__name__}: {exc_value}" if exc_type else "RQ job failed (unknown error)"
+
+        db: Session = SessionLocal()
+        try:
+            execution = (
+                db.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == execution_id)
+                .first()
+            )
+            if not execution or execution.status != "running":
+                return
+
+            execution.status = "failed"
+            execution.error_message = error_msg
+            execution.completed_at = datetime.now(timezone.utc)
+            db.commit()
+
+            # Best-effort WS event
+            workflow_slug = None
+            try:
+                wf = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+                if wf:
+                    workflow_slug = wf.slug
+            except Exception:
+                pass
+
+            _publish_zombie_event(execution_id, workflow_slug, error=error_msg)
+            _cleanup_redis(execution_id)
+
+            logger.warning(
+                "RQ failure callback marked execution %s as failed: %s",
+                execution_id,
+                error_msg,
+            )
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Error in on_execution_job_failure callback (non-fatal)")
 
 
 def _timedelta(seconds: int):
