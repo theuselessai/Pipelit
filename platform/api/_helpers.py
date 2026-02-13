@@ -77,7 +77,7 @@ def serialize_config(cc: BaseComponentConfig) -> dict:
 
 
 def _serialize_scheduled_job(job: ScheduledJob) -> dict:
-    """Serialize a ScheduledJob to ScheduleJobInfo shape."""
+    """Serialize a ScheduledJob to ScheduledJobInfo shape."""
     return {
         "id": job.id,
         "status": job.status,
