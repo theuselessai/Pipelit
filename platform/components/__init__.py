@@ -59,5 +59,6 @@ from components import (  # noqa: E402, F401
     switch,
     trigger,
     scheduler_tools,
+    system_health,
     web_search,
 )
