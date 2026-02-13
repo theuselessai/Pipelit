@@ -77,7 +77,17 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
                 "model_name and llm_credential on its config."
             )
         base_cred = db.query(BaseCredential).filter(BaseCredential.id == cc.llm_credential_id).first()
+        if not base_cred:
+            raise ValueError(
+                f"Credential ID {cc.llm_credential_id} not found for node '{node.node_id}'. "
+                "It may have been deleted."
+            )
         llm_cred = base_cred.llm_credential
+        if not llm_cred:
+            raise ValueError(
+                f"Credential ID {cc.llm_credential_id} for node '{node.node_id}' "
+                "has no LLM provider configuration."
+            )
         return create_llm_from_db(
             llm_cred,
             cc.model_name,
@@ -97,7 +107,17 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
         tc = db.get(BCC, cc.llm_model_config_id)
         if tc and tc.component_type == "ai_model" and tc.model_name and tc.llm_credential_id:
             base_cred = db.query(BaseCredential).filter(BaseCredential.id == tc.llm_credential_id).first()
+            if not base_cred:
+                raise ValueError(
+                    f"Credential ID {tc.llm_credential_id} not found for ai_model config "
+                    f"linked to node '{node.node_id}'. It may have been deleted."
+                )
             llm_cred = base_cred.llm_credential
+            if not llm_cred:
+                raise ValueError(
+                    f"Credential ID {tc.llm_credential_id} for ai_model config "
+                    f"linked to node '{node.node_id}' has no LLM provider configuration."
+                )
             return create_llm_from_db(
                 llm_cred,
                 tc.model_name,
