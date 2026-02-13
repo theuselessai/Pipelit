@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
@@ -414,6 +415,24 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const schedulePause = useSchedulePause(slug)
   const scheduleStop = useScheduleStop(slug)
   const [schedJob, setSchedJob] = useState<ScheduleJobInfo | null>(node.schedule_job ?? null)
+  const queryClient = useQueryClient()
+
+  // Sync schedJob when node prop updates (e.g. via WS node_updated)
+  useEffect(() => {
+    setSchedJob(node.schedule_job ?? null)
+  }, [node.schedule_job])
+
+  // Refresh schedule data when executions complete
+  useEffect(() => {
+    if (node.component_type !== "trigger_schedule") return
+    const handlerId = `schedule-panel-${node.node_id}`
+    wsManager.registerHandler(handlerId, (msg) => {
+      if (msg.type === "execution_completed" || msg.type === "execution_failed") {
+        queryClient.invalidateQueries({ queryKey: ["workflows", slug] })
+      }
+    })
+    return () => wsManager.unregisterHandler(handlerId)
+  }, [node.node_id, node.component_type, slug, queryClient])
 
   const manualExecute = useManualExecute(slug, node.node_id)
 
