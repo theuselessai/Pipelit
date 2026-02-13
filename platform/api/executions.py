@@ -105,12 +105,15 @@ def cancel_execution(
         from services.execution_recovery import _cleanup_redis
         _cleanup_redis(execution.execution_id)
 
-        # Notify frontend via WebSocket
-        from ws.broadcast import broadcast
-        wf = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
-        if wf:
-            broadcast(f"workflow:{wf.slug}", "execution_cancelled",
-                      {"execution_id": execution.execution_id})
+        # Notify frontend via WebSocket (best-effort)
+        try:
+            from ws.broadcast import broadcast
+            wf = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+            if wf:
+                broadcast(f"workflow:{wf.slug}", "execution_cancelled",
+                          {"execution_id": execution.execution_id})
+        except Exception:
+            pass
 
     return _serialize_execution(execution, db)
 

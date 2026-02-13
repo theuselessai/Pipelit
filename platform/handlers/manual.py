@@ -67,11 +67,11 @@ def manual_execute_view(
         from rq import Queue
 
         from config import settings
+        from services.execution_recovery import on_execution_job_failure
         from tasks import execute_workflow_job
 
         conn = redis.from_url(settings.REDIS_URL)
         queue = Queue("workflows", connection=conn)
-        from services.execution_recovery import on_execution_job_failure
         queue.enqueue(execute_workflow_job, str(execution.execution_id),
                       on_failure=on_execution_job_failure)
     else:
