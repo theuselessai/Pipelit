@@ -129,6 +129,74 @@ class TestInflightDecrementOnEarlyReturn:
         mock_finalize.assert_not_called()
 
 
+    @patch("services.orchestrator._handle_interrupt")
+    @patch("services.orchestrator._publish_event")
+    @patch("services.orchestrator._redis")
+    @patch("services.orchestrator._load_topology")
+    @patch("services.orchestrator.load_state")
+    def test_interrupt_before_decrements_inflight(self, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub, mock_interrupt):
+        """interrupt_before path must decrement inflight (execution becomes 'interrupted')."""
+        from services.orchestrator import execute_node_job
+
+        mock_r = _mock_redis()
+        mock_redis_fn.return_value = mock_r
+
+        topo_data = _make_topo_data(nodes={
+            "human_1": {
+                "node_id": "human_1",
+                "component_type": "human",
+                "db_id": 10,
+                "component_config_id": 20,
+                "interrupt_before": True,
+                "interrupt_after": False,
+            }
+        })
+        mock_load_topo.return_value = topo_data
+
+        mock_db = MagicMock()
+        mock_execution = MagicMock()
+        mock_execution.status = "running"
+        mock_execution.execution_id = "exec-1"
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
+
+        with patch("database.SessionLocal", return_value=mock_db):
+            execute_node_job("exec-1", "human_1")
+
+        mock_interrupt.assert_called_once()
+        mock_r.decr.assert_called()
+
+    @patch("services.orchestrator._queue")
+    @patch("services.orchestrator.save_state")
+    @patch("services.orchestrator.load_state")
+    @patch("services.orchestrator._redis")
+    def test_resume_node_increments_inflight(self, mock_redis_fn, mock_load, mock_save, mock_queue_fn):
+        """resume_node_job must increment inflight when re-enqueuing."""
+        from services.orchestrator import resume_node_job
+
+        mock_r = _mock_redis()
+        mock_redis_fn.return_value = mock_r
+        mock_load.return_value = {"messages": []}
+        mock_q = MagicMock()
+        mock_queue_fn.return_value = mock_q
+
+        mock_db = MagicMock()
+        mock_execution = MagicMock()
+        mock_execution.execution_id = "exec-1"
+        mock_execution.status = "interrupted"
+
+        mock_pending = MagicMock()
+        mock_pending.node_id = "human_1"
+
+        mock_db.query.return_value.filter.return_value.first.side_effect = [mock_execution, mock_pending]
+
+        with patch("database.SessionLocal", return_value=mock_db):
+            resume_node_job("exec-1", "yes")
+
+        # Must increment inflight before re-enqueuing
+        mock_r.incr.assert_called()
+        mock_q.enqueue.assert_called_once()
+
+
 # ── Fix 1.2: Inflight decrement in outer exception handler ───────────────────
 
 

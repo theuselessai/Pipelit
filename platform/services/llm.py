@@ -65,72 +65,77 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
     from database import SessionLocal
     from models.credential import BaseCredential
 
-    if db is None:
+    own_session = db is None
+    if own_session:
         db = SessionLocal()
 
-    cc = node.component_config
+    try:
+        cc = node.component_config
 
-    if cc.component_type == "ai_model":
-        if not cc.model_name or not cc.llm_credential_id:
-            raise ValueError(
-                f"Node '{node.node_id}' (ai_model) requires both "
-                "model_name and llm_credential on its config."
-            )
-        base_cred = db.query(BaseCredential).filter(BaseCredential.id == cc.llm_credential_id).first()
-        if not base_cred:
-            raise ValueError(
-                f"Credential ID {cc.llm_credential_id} not found for node '{node.node_id}'. "
-                "It may have been deleted."
-            )
-        llm_cred = base_cred.llm_credential
-        if not llm_cred:
-            raise ValueError(
-                f"Credential ID {cc.llm_credential_id} for node '{node.node_id}' "
-                "has no LLM provider configuration."
-            )
-        return create_llm_from_db(
-            llm_cred,
-            cc.model_name,
-            temperature=cc.temperature,
-            max_tokens=cc.max_tokens,
-            frequency_penalty=cc.frequency_penalty,
-            presence_penalty=cc.presence_penalty,
-            top_p=cc.top_p,
-            timeout=cc.timeout,
-            max_retries=cc.max_retries,
-            response_format=cc.response_format,
-        )
-
-    # AI nodes: resolve via llm_model_config_id FK (set when ai_model edge is created)
-    if cc.llm_model_config_id:
-        from models.node import BaseComponentConfig as BCC
-        tc = db.get(BCC, cc.llm_model_config_id)
-        if tc and tc.component_type == "ai_model" and tc.model_name and tc.llm_credential_id:
-            base_cred = db.query(BaseCredential).filter(BaseCredential.id == tc.llm_credential_id).first()
+        if cc.component_type == "ai_model":
+            if not cc.model_name or not cc.llm_credential_id:
+                raise ValueError(
+                    f"Node '{node.node_id}' (ai_model) requires both "
+                    "model_name and llm_credential on its config."
+                )
+            base_cred = db.query(BaseCredential).filter(BaseCredential.id == cc.llm_credential_id).first()
             if not base_cred:
                 raise ValueError(
-                    f"Credential ID {tc.llm_credential_id} not found for ai_model config "
-                    f"linked to node '{node.node_id}'. It may have been deleted."
+                    f"Credential ID {cc.llm_credential_id} not found for node '{node.node_id}'. "
+                    "It may have been deleted."
                 )
             llm_cred = base_cred.llm_credential
             if not llm_cred:
                 raise ValueError(
-                    f"Credential ID {tc.llm_credential_id} for ai_model config "
-                    f"linked to node '{node.node_id}' has no LLM provider configuration."
+                    f"Credential ID {cc.llm_credential_id} for node '{node.node_id}' "
+                    "has no LLM provider configuration."
                 )
             return create_llm_from_db(
                 llm_cred,
-                tc.model_name,
-                temperature=tc.temperature,
-                max_tokens=tc.max_tokens,
-                frequency_penalty=tc.frequency_penalty,
-                presence_penalty=tc.presence_penalty,
-                top_p=tc.top_p,
-                timeout=tc.timeout,
-                max_retries=tc.max_retries,
-                response_format=tc.response_format,
+                cc.model_name,
+                temperature=cc.temperature,
+                max_tokens=cc.max_tokens,
+                frequency_penalty=cc.frequency_penalty,
+                presence_penalty=cc.presence_penalty,
+                top_p=cc.top_p,
+                timeout=cc.timeout,
+                max_retries=cc.max_retries,
+                response_format=cc.response_format,
             )
 
-    raise ValueError(
-        f"Node '{node.node_id}' has no connected ai_model node via edge_label='llm'."
-    )
+        # AI nodes: resolve via llm_model_config_id FK (set when ai_model edge is created)
+        if cc.llm_model_config_id:
+            from models.node import BaseComponentConfig as BCC
+            tc = db.get(BCC, cc.llm_model_config_id)
+            if tc and tc.component_type == "ai_model" and tc.model_name and tc.llm_credential_id:
+                base_cred = db.query(BaseCredential).filter(BaseCredential.id == tc.llm_credential_id).first()
+                if not base_cred:
+                    raise ValueError(
+                        f"Credential ID {tc.llm_credential_id} not found for ai_model config "
+                        f"linked to node '{node.node_id}'. It may have been deleted."
+                    )
+                llm_cred = base_cred.llm_credential
+                if not llm_cred:
+                    raise ValueError(
+                        f"Credential ID {tc.llm_credential_id} for ai_model config "
+                        f"linked to node '{node.node_id}' has no LLM provider configuration."
+                    )
+                return create_llm_from_db(
+                    llm_cred,
+                    tc.model_name,
+                    temperature=tc.temperature,
+                    max_tokens=tc.max_tokens,
+                    frequency_penalty=tc.frequency_penalty,
+                    presence_penalty=tc.presence_penalty,
+                    top_p=tc.top_p,
+                    timeout=tc.timeout,
+                    max_retries=tc.max_retries,
+                    response_format=tc.response_format,
+                )
+
+        raise ValueError(
+            f"Node '{node.node_id}' has no connected ai_model node via edge_label='llm'."
+        )
+    finally:
+        if own_session:
+            db.close()

@@ -277,8 +277,10 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         # Check interrupt_before
         if node_info.get("interrupt_before"):
             _handle_interrupt(execution, node_id, "before", db)
-            # Note: interrupt keeps node inflight — do NOT decrement here.
-            # The node will be re-enqueued when resume_node_job() is called.
+            # Decrement inflight — execution is now "interrupted" so _finalize()
+            # will no-op even if counter reaches 0. resume_node_job() re-increments.
+            r = _redis()
+            r.decr(_inflight_key(execution_id))
             return
 
         state = load_state(execution_id)
@@ -528,6 +530,9 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         # Check interrupt_after
         if node_info.get("interrupt_after"):
             _handle_interrupt(execution, node_id, "after", db)
+            # Decrement inflight — execution is now "interrupted" so _finalize()
+            # will no-op even if counter reaches 0. resume_node_job() re-increments.
+            r.decr(_inflight_key(execution_id))
             return
 
         # Handle loop: if component returned _loop, start iteration
@@ -563,7 +568,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 "node_id": node_id, "status": NodeStatus.WAITING.value,
                 "child_execution_id": child_id,
             }, workflow_slug=slug)
-            # Do NOT advance or decrement inflight — node stays in-flight
+            # Do NOT advance or decrement inflight — node stays inflight
             # until child completes and _resume_from_child is called.
             return
 
@@ -589,7 +594,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             logger.exception(
                 "Failed to persist failure status for execution %s", execution_id
             )
-        # Decrement inflight so execution can finalize if other nodes are still in-flight
+        # Decrement inflight so execution can finalize if other nodes are still inflight
         try:
             r = _redis()
             r.decr(_inflight_key(execution_id))
@@ -652,7 +657,10 @@ def resume_node_job(execution_id: str, user_input: str) -> None:
         state["_resume_input"] = user_input
         save_state(execution_id, state)
 
-        # Re-enqueue the node
+        # Re-enqueue the node (increment inflight to match the decrement on interrupt)
+        r = _redis()
+        r.incr(_inflight_key(execution_id))
+        r.expire(_inflight_key(execution_id), STATE_TTL)
         from tasks import execute_node_job as _enqueue_node
         q = _queue()
         q.enqueue(_enqueue_node, execution_id, node_id)
