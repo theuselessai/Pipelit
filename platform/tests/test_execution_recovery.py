@@ -395,7 +395,10 @@ class TestOnExecutionJobFailure:
         with _patch_session(db):
             on_execution_job_failure(job, None, RuntimeError, RuntimeError("timeout"), None)
 
-        mock_pub.assert_called_once_with(ex.execution_id, workflow.slug)
+        mock_pub.assert_called_once_with(
+            ex.execution_id, workflow.slug,
+            error="RQ job failed: RuntimeError: timeout",
+        )
 
     @patch("services.execution_recovery._cleanup_redis")
     @patch("services.execution_recovery._publish_zombie_event")
@@ -443,6 +446,7 @@ class TestOnExecutionJobFailure:
             on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
 
         mock_pub.assert_not_called()
+        mock_redis.assert_not_called()
 
     @patch("services.execution_recovery._cleanup_redis")
     @patch("services.execution_recovery._publish_zombie_event")

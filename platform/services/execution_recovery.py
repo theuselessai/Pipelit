@@ -103,7 +103,11 @@ def _recover_one(execution, db: Session) -> None:
     _cleanup_redis(execution_id)
 
 
-def _publish_zombie_event(execution_id: str, workflow_slug: str | None) -> None:
+def _publish_zombie_event(
+    execution_id: str,
+    workflow_slug: str | None,
+    error: str = "Execution recovered as failed (zombie)",
+) -> None:
     """Publish an ``execution_failed`` event via Redis pub/sub (best-effort)."""
     try:
         r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
@@ -112,7 +116,7 @@ def _publish_zombie_event(execution_id: str, workflow_slug: str | None) -> None:
                 "type": "execution_failed",
                 "execution_id": execution_id,
                 "timestamp": time.time(),
-                "data": {"error": "Execution recovered as failed (zombie)"},
+                "data": {"error": error},
             }
             raw = json.dumps(payload)
             r.publish(f"execution:{execution_id}", raw)
@@ -188,7 +192,7 @@ def on_execution_job_failure(job, connection, exc_type, exc_value, traceback):
             except Exception:
                 pass
 
-            _publish_zombie_event(execution_id, workflow_slug)
+            _publish_zombie_event(execution_id, workflow_slug, error=error_msg)
             _cleanup_redis(execution_id)
 
             logger.warning(
