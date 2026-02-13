@@ -6,7 +6,7 @@ import {
   faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart, faBrain,
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
   faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
-  faBolt, faCalendarDays, faHandPointer, faHourglass,
+  faBolt, faCalendarDays, faHandPointer, faHourglass, faHeartPulse,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
   faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard, faLaptopCode,
@@ -76,6 +76,7 @@ const COMPONENT_COLORS: Record<string, string> = {
   spawn_and_await: "#14b8a6",
   workflow_create: "#14b8a6",
   scheduler_tools: "#14b8a6",
+  system_health: "#14b8a6",
   switch: "#6366f1",
   loop: "#6366f1",
   filter: "#6366f1",
@@ -103,7 +104,7 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   ai_model: faMicrochip, agent: faRobot,
   categorizer: faTags, router: faCodeBranch, switch: faCodeBranch, extractor: faMagnifyingGlassChart,
   run_command: faTerminal, http_request: faGlobe, web_search: faMagnifyingGlass, calculator: faCalculator, datetime: faClock,
-  create_agent_user: faUserPlus, platform_api: faPlug, whoami: faFingerprint, epic_tools: faClipboardList, task_tools: faListCheck, scheduler_tools: faCalendarDays, spawn_and_await: faRocket, workflow_create: faPenRuler,
+  create_agent_user: faUserPlus, platform_api: faPlug, whoami: faFingerprint, epic_tools: faClipboardList, task_tools: faListCheck, scheduler_tools: faCalendarDays, system_health: faHeartPulse, spawn_and_await: faRocket, workflow_create: faPenRuler,
   workflow: faSitemap,
   code: faCode, code_execute: faLaptopCode, error_handler: faTriangleExclamation,
   memory_read: faDatabase, memory_write: faFloppyDisk, identify_user: faIdCard,
@@ -129,8 +130,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isTrigger = data.componentType.startsWith("trigger_")
   const isLoop = data.componentType === "loop"
   const isFixedWidth = ["router", "categorizer", "agent", "extractor", "switch", "loop"].includes(data.componentType)
-  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "spawn_and_await", "workflow_create"].includes(data.componentType)
-  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "spawn_and_await", "workflow_create"].includes(data.componentType)
+  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent"].includes(data.componentType)
