@@ -76,7 +76,7 @@ def serialize_config(cc: BaseComponentConfig) -> dict:
     return result
 
 
-def _serialize_schedule_job(job: ScheduledJob) -> dict:
+def _serialize_scheduled_job(job: ScheduledJob) -> dict:
     """Serialize a ScheduledJob to ScheduleJobInfo shape."""
     return {
         "id": job.id,
@@ -119,7 +119,7 @@ def serialize_node(node: WorkflowNode, db: Session | None = None) -> dict:
             ScheduledJob.trigger_node_id == node.node_id,
         ).first()
         if job:
-            result["schedule_job"] = _serialize_schedule_job(job)
+            result["schedule_job"] = _serialize_scheduled_job(job)
     return result
 
 
