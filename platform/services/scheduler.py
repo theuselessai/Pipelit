@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from database import SessionLocal
+from models.execution import WorkflowExecution
 from models.scheduled_job import ScheduledJob
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,22 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
         job = db.get(ScheduledJob, job_id)
         if not job or job.status != "active":
             return
+
+        # Overlap protection: skip if a previous execution is still running
+        running_execs = db.query(WorkflowExecution).filter(
+            WorkflowExecution.workflow_id == job.workflow_id,
+            WorkflowExecution.status.in_(["pending", "running"]),
+        ).all()
+        for ex in running_execs:
+            payload = ex.trigger_payload or {}
+            if payload.get("scheduled_job_id") == job.id:
+                logger.info(
+                    "Skipping scheduled job %s — execution %s still running",
+                    job.id, ex.execution_id,
+                )
+                _enqueue_next(job, current_repeat, current_retry, job.interval_seconds)
+                db.commit()
+                return
 
         try:
             _dispatch_scheduled_trigger(job, db)

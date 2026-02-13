@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { useUpdateNode, useDeleteNode } from "@/api/nodes"
+import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
 import { useSendChatMessage, useChatHistory, useDeleteChatHistory } from "@/api/chat"
@@ -15,12 +15,12 @@ import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus, Play } from "lucide-react"
+import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus, Play, Pause, Square, ChevronDown, ChevronUp } from "lucide-react"
 import { format } from "date-fns"
 import ExpressionTextarea from "@/components/ExpressionTextarea"
 import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
-import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule } from "@/types/models"
+import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule, ScheduleJobInfo } from "@/types/models"
 
 interface Props {
   slug: string
@@ -401,6 +401,20 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [triggerPriority, setTriggerPriority] = useState<string>(node.config.priority?.toString() ?? "0")
   const [triggerConfig, setTriggerConfig] = useState(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
 
+  // Schedule trigger state
+  const [schedInterval, setSchedInterval] = useState<string>((node.config.extra_config?.interval_seconds as number)?.toString() ?? "300")
+  const [schedRepeats, setSchedRepeats] = useState<string>((node.config.extra_config?.total_repeats as number)?.toString() ?? "0")
+  const [schedRetries, setSchedRetries] = useState<string>((node.config.extra_config?.max_retries as number)?.toString() ?? "3")
+  const [schedTimeout, setSchedTimeout] = useState<string>((node.config.extra_config?.timeout_seconds as number)?.toString() ?? "600")
+  const [schedPayload, setSchedPayload] = useState<string>(
+    node.config.extra_config?.trigger_payload ? JSON.stringify(node.config.extra_config.trigger_payload, null, 2) : "{}"
+  )
+  const [schedErrorExpanded, setSchedErrorExpanded] = useState(false)
+  const scheduleStart = useScheduleStart(slug)
+  const schedulePause = useSchedulePause(slug)
+  const scheduleStop = useScheduleStop(slug)
+  const [schedJob, setSchedJob] = useState<ScheduleJobInfo | null>(node.schedule_job ?? null)
+
   const manualExecute = useManualExecute(slug, node.node_id)
 
   const credId = llmCredentialId ? Number(llmCredentialId) : undefined
@@ -442,6 +456,18 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     }
     if (node.component_type === "workflow") {
       parsedExtra = { ...parsedExtra, target_workflow: subworkflowTarget || undefined, trigger_mode: subworkflowTriggerMode }
+    }
+    if (node.component_type === "trigger_schedule") {
+      let parsedPayload = {}
+      try { parsedPayload = JSON.parse(schedPayload) } catch { /* keep empty */ }
+      parsedExtra = {
+        ...parsedExtra,
+        interval_seconds: Number(schedInterval) || 300,
+        total_repeats: Number(schedRepeats) || 0,
+        max_retries: Number(schedRetries) || 3,
+        timeout_seconds: Number(schedTimeout) || 600,
+        trigger_payload: parsedPayload,
+      }
     }
     let parsedTriggerConfig = {}
     try { parsedTriggerConfig = JSON.parse(triggerConfig) } catch { /* keep empty */ }
@@ -512,22 +538,156 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               Run
             </Button>
           )}
-          <div className="space-y-2">
-            <Label className="text-xs">Credential</Label>
-            <Select value={triggerCredentialId || "none"} onValueChange={(v) => setTriggerCredentialId(v === "none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Select credential (optional)" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                {allCredentials.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">Active</Label>
-            <Switch checked={triggerIsActive} onCheckedChange={setTriggerIsActive} />
-          </div>
+          {node.component_type !== "trigger_schedule" && (
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs">Credential</Label>
+                <Select value={triggerCredentialId || "none"} onValueChange={(v) => setTriggerCredentialId(v === "none" ? "" : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select credential (optional)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {allCredentials.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Active</Label>
+                <Switch checked={triggerIsActive} onCheckedChange={setTriggerIsActive} />
+              </div>
+            </>
+          )}
+
+          {node.component_type === "trigger_schedule" && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <Label className="text-xs font-semibold">Schedule Configuration</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Interval (seconds)</Label>
+                    <Input type="number" min="1" value={schedInterval} onChange={(e) => setSchedInterval(e.target.value)} className="text-xs h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Total Repeats</Label>
+                    <Input type="number" min="0" value={schedRepeats} onChange={(e) => setSchedRepeats(e.target.value)} className="text-xs h-7" />
+                    <p className="text-[10px] text-muted-foreground">0 = infinite</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Max Retries</Label>
+                    <Input type="number" min="0" value={schedRetries} onChange={(e) => setSchedRetries(e.target.value)} className="text-xs h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Timeout (seconds)</Label>
+                    <Input type="number" min="1" value={schedTimeout} onChange={(e) => setSchedTimeout(e.target.value)} className="text-xs h-7" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Payload (JSON)</Label>
+                  <Textarea
+                    value={schedPayload}
+                    onChange={(e) => setSchedPayload(e.target.value)}
+                    rows={3}
+                    className="text-xs font-mono"
+                    placeholder='{ "key": "value" }'
+                  />
+                  <p className="text-[10px] text-muted-foreground">Data passed to downstream nodes on each run</p>
+                </div>
+              </div>
+              <Separator />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Schedule Status</Label>
+                  <div className="flex items-center gap-1">
+                    {(!schedJob || schedJob.status === "paused" || schedJob.status === "done" || schedJob.status === "dead") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title={!schedJob ? "Start" : schedJob.status === "paused" ? "Resume" : "Restart"}
+                        disabled={scheduleStart.isPending}
+                        onClick={() => scheduleStart.mutate(node.node_id, {
+                          onSuccess: (data) => setSchedJob(data.schedule_job ?? null),
+                        })}
+                      >
+                        {scheduleStart.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                    {schedJob?.status === "active" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title="Pause"
+                        disabled={schedulePause.isPending}
+                        onClick={() => schedulePause.mutate(node.node_id, {
+                          onSuccess: (data) => setSchedJob(data.schedule_job ?? null),
+                        })}
+                      >
+                        {schedulePause.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pause className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                    {schedJob && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title="Stop (delete job)"
+                        disabled={scheduleStop.isPending}
+                        onClick={() => scheduleStop.mutate(node.node_id, {
+                          onSuccess: () => setSchedJob(null),
+                        })}
+                      >
+                        {scheduleStop.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block h-2 w-2 rounded-full ${
+                    schedJob?.status === "active" ? "bg-green-500" :
+                    schedJob?.status === "paused" ? "bg-yellow-500" :
+                    schedJob?.status === "dead" ? "bg-red-500" :
+                    schedJob?.status === "done" ? "bg-gray-400" :
+                    "bg-gray-300"
+                  }`} />
+                  <span className="text-xs">{schedJob ? schedJob.status : "No schedule"}</span>
+                </div>
+                {schedJob && (
+                  <>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                      <span className="text-muted-foreground">Runs</span>
+                      <span>{schedJob.current_repeat} / {schedJob.total_repeats === 0 ? "\u221E" : schedJob.total_repeats}</span>
+                      <span className="text-muted-foreground">Errors</span>
+                      <span>{schedJob.error_count}</span>
+                      <span className="text-muted-foreground">Retry</span>
+                      <span>{schedJob.current_retry} / {schedJob.max_retries}</span>
+                      <span className="text-muted-foreground">Last run</span>
+                      <span>{schedJob.last_run_at ? formatTimestamp(schedJob.last_run_at) : "—"}</span>
+                      <span className="text-muted-foreground">Next run</span>
+                      <span>{schedJob.next_run_at ? formatTimestamp(schedJob.next_run_at) : "—"}</span>
+                    </div>
+                    {schedJob.last_error && (
+                      <div className="space-y-1">
+                        <button
+                          className="flex items-center gap-1 text-xs text-red-500 hover:text-red-400"
+                          onClick={() => setSchedErrorExpanded(!schedErrorExpanded)}
+                        >
+                          {schedErrorExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          Last error
+                        </button>
+                        {schedErrorExpanded && (
+                          <pre className="text-[10px] text-red-400 bg-muted rounded p-2 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">{schedJob.last_error}</pre>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
           <div className="space-y-2">
             <Label className="text-xs">Priority</Label>
             <Input type="number" value={triggerPriority} onChange={(e) => setTriggerPriority(e.target.value)} className="text-xs" />
