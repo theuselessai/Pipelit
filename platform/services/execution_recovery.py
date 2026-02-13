@@ -158,6 +158,9 @@ def on_execution_job_failure(job, connection, exc_type, exc_value, traceback):
         from models.execution import WorkflowExecution
         from models.workflow import Workflow
 
+        if not job.args:
+            logger.error("RQ failure callback called with no args on job %s", job.id)
+            return
         execution_id = job.args[0]  # first positional arg to all task wrappers
         error_msg = f"RQ job failed: {exc_type.__name__}: {exc_value}" if exc_type else "RQ job failed (unknown error)"
 
