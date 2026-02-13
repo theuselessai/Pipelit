@@ -81,8 +81,8 @@ class ScheduleJobInfo(BaseModel):
     interval_seconds: int
     last_run_at: datetime | None
     next_run_at: datetime | None
-    last_error: str
-    created_at: datetime | None
+    last_error: str = ""
+    created_at: datetime | None = None
 
 
 class NodeOut(BaseModel):

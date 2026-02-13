@@ -15,13 +15,13 @@ export function useDeleteNode(slug: string) {
 }
 
 export function useScheduleStart(slug: string) {
-  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/start`, { method: "POST" }) })
+  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/start/`, { method: "POST" }) })
 }
 
 export function useSchedulePause(slug: string) {
-  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/pause`, { method: "POST" }) })
+  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/pause/`, { method: "POST" }) })
 }
 
 export function useScheduleStop(slug: string) {
-  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/stop`, { method: "POST" }) })
+  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/stop/`, { method: "POST" }) })
 }

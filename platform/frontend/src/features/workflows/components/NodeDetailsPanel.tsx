@@ -432,7 +432,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       }
     })
     return () => wsManager.unregisterHandler(handlerId)
-  }, [node.node_id, node.component_type, slug, queryClient])
+  }, [node.node_id, slug, queryClient])
 
   const manualExecute = useManualExecute(slug, node.node_id)
 
@@ -677,7 +677,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                   <>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                       <span className="text-muted-foreground">Runs</span>
-                      <span>{schedJob.current_repeat} / {schedJob.total_repeats === 0 ? "\u221E" : schedJob.total_repeats}</span>
+                      <span>{schedJob.run_count} / {schedJob.total_repeats === 0 ? "\u221E" : schedJob.total_repeats}</span>
                       <span className="text-muted-foreground">Errors</span>
                       <span>{schedJob.error_count}</span>
                       <span className="text-muted-foreground">Retry</span>

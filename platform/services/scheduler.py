@@ -52,12 +52,12 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
             job.last_run_at = _utcnow()
             job.last_error = ""
             next_n = current_repeat + 1
+            job.current_repeat = next_n
 
             if job.total_repeats > 0 and next_n >= job.total_repeats:
                 job.status = "done"
                 job.next_run_at = None
             else:
-                job.current_repeat = next_n
                 _enqueue_next(job, next_n, 0, job.interval_seconds)
 
         except Exception as e:
