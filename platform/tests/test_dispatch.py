@@ -35,22 +35,6 @@ class TestDispatchEvent:
         assert result.trigger_payload["text"] == "hello"
         assert result.user_profile_id == user_profile.id
 
-    def test_webhook_dispatch(self, db, user_profile, webhook_trigger):
-        with patch("handlers.redis") as mock_redis, \
-             patch("handlers.Queue") as mock_queue_cls:
-            mock_queue = mock_queue_cls.return_value
-            mock_queue.enqueue.return_value = None
-
-            result = dispatch_event(
-                "webhook",
-                {"path": "test-hook", "body": {"key": "val"}},
-                user_profile,
-                db,
-            )
-
-        assert result is not None
-        assert result.trigger_node_id == webhook_trigger.id
-
     def test_manual_dispatch(self, db, user_profile, manual_trigger):
         with patch("handlers.redis") as mock_redis, \
              patch("handlers.Queue") as mock_queue_cls:

@@ -73,10 +73,10 @@ def wf_webhook_code(db, user_profile):
     db.add(wf)
     db.flush()
 
-    cfg = BaseComponentConfig(component_type="trigger_webhook", is_active=True, trigger_config={})
+    cfg = BaseComponentConfig(component_type="trigger_manual", is_active=True, trigger_config={})
     db.add(cfg)
     db.flush()
-    db.add(WorkflowNode(workflow_id=wf.id, node_id="trigger_webhook_1", component_type="trigger_webhook", component_config_id=cfg.id))
+    db.add(WorkflowNode(workflow_id=wf.id, node_id="trigger_manual_1", component_type="trigger_manual", component_config_id=cfg.id))
 
     cfg2 = BaseComponentConfig(component_type="code", code_snippet="pass", code_language="python")
     db.add(cfg2)
@@ -148,9 +148,9 @@ class TestExtractCapabilities:
         assert "automation" in caps["tags"]
         assert "telegram" in caps["tags"]
 
-    def test_webhook_code_workflow(self, db, wf_webhook_code):
+    def test_manual_code_workflow(self, db, wf_webhook_code):
         caps = _extract_capabilities(wf_webhook_code.id, db)
-        assert "webhook" in caps["triggers"]
+        assert "manual" in caps["triggers"]
         assert "code" in caps["node_types"]
         assert caps["tools"] == []
         assert caps["model_names"] == []

@@ -17,7 +17,6 @@ def _make_trigger_passthrough(component_type: str):
 
 for _ct in (
     "trigger_telegram",
-    "trigger_webhook",
     "trigger_schedule",
     "trigger_manual",
     "trigger_workflow",

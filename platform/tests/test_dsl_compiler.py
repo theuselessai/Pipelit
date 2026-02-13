@@ -33,7 +33,7 @@ from services.dsl_compiler import (
 
 MINIMAL_YAML = """\
 name: Test Workflow
-trigger: webhook
+trigger: manual
 steps:
   - type: code
     id: code_1
@@ -86,7 +86,7 @@ class TestParseDsl:
     def test_parse_minimal(self):
         parsed = _parse_dsl(MINIMAL_YAML)
         assert parsed["name"] == "Test Workflow"
-        assert parsed["trigger"] == "webhook"
+        assert parsed["trigger"] == "manual"
         assert len(parsed["steps"]) == 1
 
     def test_parse_invalid_yaml(self):
@@ -186,13 +186,13 @@ class TestBuildGraph:
         nodes, edges = _build_graph(parsed, model_info, MagicMock())
 
         assert len(nodes) == 2  # trigger + code
-        assert nodes[0]["component_type"] == "trigger_webhook"
+        assert nodes[0]["component_type"] == "trigger_manual"
         assert nodes[1]["component_type"] == "code"
         assert nodes[1]["config"]["extra_config"]["code"] == "print('hello')"
         assert nodes[1]["is_entry_point"] is True
 
         assert len(edges) == 1
-        assert edges[0]["source_node_id"] == "trigger_webhook_1"
+        assert edges[0]["source_node_id"] == "trigger_manual_1"
         assert edges[0]["target_node_id"] == "code_1"
 
     def test_agent_with_model_and_tools(self):
@@ -234,7 +234,7 @@ class TestBuildGraph:
     def test_multi_step_linear_chain(self):
         yaml_str = """\
 name: Multi
-trigger: webhook
+trigger: manual
 steps:
   - type: code
     id: step_1
@@ -251,7 +251,7 @@ steps:
 
         # 3 edges: trigger→step_1, step_1→step_2, step_2→step_3
         assert len(edges) == 3
-        assert edges[0]["source_node_id"] == "trigger_webhook_1"
+        assert edges[0]["source_node_id"] == "trigger_manual_1"
         assert edges[0]["target_node_id"] == "step_1"
         assert edges[1]["source_node_id"] == "step_1"
         assert edges[1]["target_node_id"] == "step_2"

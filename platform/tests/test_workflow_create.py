@@ -197,7 +197,7 @@ class TestCompileDslDB:
     def test_create_simple_workflow(self, mock_broadcast, db, user_profile):
         yaml_str = """\
 name: Simple Test
-trigger: webhook
+trigger: manual
 steps:
   - type: code
     id: code_1
@@ -298,11 +298,11 @@ steps:
 
     @patch("services.dsl_compiler.broadcast", create=True)
     def test_dict_form_trigger(self, mock_broadcast, db, user_profile):
-        """Dict-form trigger (type: webhook) should work same as string form."""
+        """Dict-form trigger (type: manual) should work same as string form."""
         yaml_str = """\
 name: Dict Trigger Test
 trigger:
-  type: webhook
+  type: manual
 steps:
   - type: code
     id: code_1
@@ -315,7 +315,7 @@ steps:
         wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
         nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
         trigger = next(n for n in nodes if n.component_type.startswith("trigger_"))
-        assert trigger.component_type == "trigger_webhook"
+        assert trigger.component_type == "trigger_manual"
 
     @patch("services.dsl_compiler.broadcast", create=True)
     def test_code_key_alias_for_snippet(self, mock_broadcast, db, user_profile):

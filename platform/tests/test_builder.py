@@ -114,7 +114,7 @@ class TestBuilderTriggerScoping:
     def test_only_reachable_nodes_from_trigger(self, db, workflow):
         """Nodes not connected downstream from the fired trigger are excluded."""
         trigger_a = _add_node(db, workflow, "trigger_a", "trigger_telegram")
-        _add_node(db, workflow, "trigger_b", "trigger_webhook")
+        _add_node(db, workflow, "trigger_b", "trigger_schedule")
         _add_node(db, workflow, "agent_a", "agent")
         _add_node(db, workflow, "agent_b", "categorizer")
         _add_edge(db, workflow, "trigger_a", "agent_a")
@@ -169,7 +169,7 @@ class TestBuilderTriggerScoping:
     def test_no_trigger_node_id_includes_all(self, db, workflow):
         """Without trigger_node_id, all nodes are included (backwards-compatible)."""
         _add_node(db, workflow, "trigger_a", "trigger_telegram")
-        _add_node(db, workflow, "trigger_b", "trigger_webhook")
+        _add_node(db, workflow, "trigger_b", "trigger_schedule")
         _add_node(db, workflow, "agent_a", "agent")
         _add_node(db, workflow, "agent_b", "categorizer")
         _add_edge(db, workflow, "trigger_a", "agent_a")

@@ -52,7 +52,7 @@ class TestRegistration:
         from schemas.node_types import NODE_TYPE_REGISTRY
         assert "workflow_discover" in NODE_TYPE_REGISTRY
         spec = NODE_TYPE_REGISTRY["workflow_discover"]
-        assert spec.category == "agent"
+        assert spec.category == "sub_component"
 
     def test_in_component_type_to_config(self):
         assert "workflow_discover" in COMPONENT_TYPE_TO_CONFIG

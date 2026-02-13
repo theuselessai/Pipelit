@@ -18,16 +18,6 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="trigger_webhook",
-    display_name="Webhook Trigger",
-    category="trigger",
-    outputs=[
-        PortDefinition(name="body", data_type=DataType.OBJECT),
-        PortDefinition(name="headers", data_type=DataType.OBJECT),
-    ],
-))
-
-register_node_type(NodeTypeSpec(
     component_type="trigger_manual",
     display_name="Manual Trigger",
     category="trigger",
@@ -268,7 +258,7 @@ register_node_type(NodeTypeSpec(
     component_type="workflow_discover",
     display_name="Workflow Discover",
     description="Search existing workflows by requirements and get reuse recommendations",
-    category="agent",
+    category="sub_component",
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON with matches, scores, and recommendations")],
 ))
 

@@ -142,30 +142,6 @@ def telegram_trigger(db, workflow, telegram_credential):
 
 
 @pytest.fixture
-def webhook_trigger(db, workflow):
-    from models.node import BaseComponentConfig, WorkflowNode
-
-    cc = BaseComponentConfig(
-        component_type="trigger_webhook",
-        trigger_config={"path": "test-hook"},
-        is_active=True,
-        priority=10,
-    )
-    db.add(cc)
-    db.flush()
-    node = WorkflowNode(
-        workflow_id=workflow.id,
-        node_id="webhook_trigger_1",
-        component_type="trigger_webhook",
-        component_config_id=cc.id,
-    )
-    db.add(node)
-    db.commit()
-    db.refresh(node)
-    return node
-
-
-@pytest.fixture
 def manual_trigger(db, workflow):
     from models.node import BaseComponentConfig, WorkflowNode
 

@@ -19,7 +19,6 @@ from api import api_router
 from api.executions import chat_router
 from config import settings
 from database import Base, engine
-from handlers.webhook import router as webhook_router
 from handlers.manual import router as manual_router
 from ws import ws_router
 
@@ -75,8 +74,7 @@ app.include_router(api_router)
 # Chat router (nested under /api/v1/workflows)
 app.include_router(chat_router, prefix="/api/v1/workflows", tags=["chat"])
 
-# Webhook & manual execution endpoints
-app.include_router(webhook_router, prefix="/api", tags=["webhooks"])
+# Manual execution endpoint
 app.include_router(manual_router, prefix="/api/v1", tags=["manual"])
 
 # WebSocket endpoints

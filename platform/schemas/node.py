@@ -13,7 +13,7 @@ ComponentTypeStr = Literal[
     "code", "code_execute", "loop", "wait", "merge", "filter",
     "error_handler", "output_parser",
     "memory_read", "memory_write", "identify_user",
-    "trigger_telegram", "trigger_webhook", "trigger_schedule",
+    "trigger_telegram", "trigger_schedule",
     "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat",
 ]
 EdgeTypeStr = Literal["direct", "conditional"]

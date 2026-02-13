@@ -3,7 +3,7 @@ import { useCreateNode } from "@/api/nodes"
 import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
 import {
-  MessageSquare, Send, Webhook, Clock, Hand, Workflow, AlertTriangle, Compass,
+  MessageSquare, Send, Clock, Hand, Workflow, AlertTriangle, Compass,
   Cpu, Bot,
   GitFork, Route, FileOutput, Split,
   Terminal, Globe, Search, Calculator,
@@ -17,7 +17,6 @@ import {
 const ICONS: Record<ComponentType, LucideIcon> = {
   trigger_chat: MessageSquare,
   trigger_telegram: Send,
-  trigger_webhook: Webhook,
   trigger_schedule: Clock,
   trigger_manual: Hand,
   trigger_workflow: Workflow,
@@ -61,12 +60,12 @@ const ICONS: Record<ComponentType, LucideIcon> = {
 }
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
-  { label: "Triggers", types: ["trigger_chat", "trigger_telegram", "trigger_webhook", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error"] },
+  { label: "Triggers", types: ["trigger_chat", "trigger_telegram", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error"] },
   { label: "AI", types: ["ai_model", "agent"] },
   { label: "Routing", types: ["categorizer", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
-  { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"] },
-  { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute"] },
+  { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"] },
+  { label: "Tools", types: ["run_command", "http_request", "web_search", "calculator", "datetime", "code_execute", "workflow_discover"] },
   { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "aggregator", "error_handler", "output_parser"] },
 ]

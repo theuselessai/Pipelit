@@ -144,7 +144,7 @@ class TestTrigger:
     def test_all_trigger_types_registered(self):
         from components import COMPONENT_REGISTRY
         expected = [
-            "trigger_telegram", "trigger_webhook", "trigger_schedule",
+            "trigger_telegram", "trigger_schedule",
             "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat",
         ]
         for ct in expected:
