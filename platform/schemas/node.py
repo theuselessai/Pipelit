@@ -68,6 +68,23 @@ class NodeUpdate(BaseModel):
     code_block_id: int | None = None
 
 
+class ScheduleJobInfo(BaseModel):
+    id: str
+    status: str
+    run_count: int
+    error_count: int
+    current_repeat: int
+    current_retry: int
+    total_repeats: int
+    max_retries: int
+    timeout_seconds: int
+    interval_seconds: int
+    last_run_at: datetime | None
+    next_run_at: datetime | None
+    last_error: str = ""
+    created_at: datetime | None = None
+
+
 class NodeOut(BaseModel):
     id: int
     node_id: str
@@ -81,6 +98,7 @@ class NodeOut(BaseModel):
     subworkflow_id: int | None = None
     code_block_id: int | None = None
     updated_at: datetime
+    schedule_job: ScheduleJobInfo | None = None
 
     model_config = {"from_attributes": True}
 

@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from database import SessionLocal
+from models.execution import WorkflowExecution
 from models.scheduled_job import ScheduledJob
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,22 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
         if not job or job.status != "active":
             return
 
+        # Overlap protection: skip if a previous execution is still running
+        running_execs = db.query(WorkflowExecution).filter(
+            WorkflowExecution.workflow_id == job.workflow_id,
+            WorkflowExecution.status.in_(["pending", "running"]),
+        ).all()
+        for ex in running_execs:
+            payload = ex.trigger_payload or {}
+            if payload.get("scheduled_job_id") == job.id:
+                logger.info(
+                    "Skipping scheduled job %s — execution %s still running",
+                    job.id, ex.execution_id,
+                )
+                _enqueue_next(job, current_repeat, current_retry, job.interval_seconds)
+                db.commit()
+                return
+
         try:
             _dispatch_scheduled_trigger(job, db)
             # SUCCESS path
@@ -35,12 +52,12 @@ def execute_scheduled_job(job_id: str, current_repeat: int = 0, current_retry: i
             job.last_run_at = _utcnow()
             job.last_error = ""
             next_n = current_repeat + 1
+            job.current_repeat = next_n
 
             if job.total_repeats > 0 and next_n >= job.total_repeats:
                 job.status = "done"
                 job.next_run_at = None
             else:
-                job.current_repeat = next_n
                 _enqueue_next(job, next_n, 0, job.interval_seconds)
 
         except Exception as e:

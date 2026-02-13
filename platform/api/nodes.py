@@ -15,9 +15,11 @@ from models.node import (
     WorkflowEdge,
     WorkflowNode,
 )
+from models.scheduled_job import ScheduledJob
 from models.user import UserProfile
 from schemas.node import EdgeIn, EdgeOut, EdgeUpdate, NodeIn, NodeOut, NodeUpdate
 from api._helpers import get_workflow, serialize_edge, serialize_node
+from services.scheduler import pause_scheduled_job, resume_scheduled_job, start_scheduled_job
 from ws.broadcast import broadcast
 
 router = APIRouter()
@@ -60,7 +62,7 @@ def list_nodes(
 ):
     wf = get_workflow(slug, profile, db)
     nodes = db.query(WorkflowNode).filter(WorkflowNode.workflow_id == wf.id).all()
-    return [serialize_node(n) for n in nodes]
+    return [serialize_node(n, db) for n in nodes]
 
 
 @router.post("/{slug}/nodes/", response_model=NodeOut, status_code=201)
@@ -119,7 +121,7 @@ def create_node(
     db.add(node)
     db.commit()
     db.refresh(node)
-    result = serialize_node(node)
+    result = serialize_node(node, db)
     broadcast(f"workflow:{slug}", "node_created", result)
     return result
 
@@ -168,7 +170,7 @@ def update_node(
 
     db.commit()
     db.refresh(node)
-    result = serialize_node(node)
+    result = serialize_node(node, db)
     broadcast(f"workflow:{slug}", "node_updated", result)
     return result
 
@@ -189,6 +191,17 @@ def delete_node(
     if not node:
         raise HTTPException(status_code=404, detail="Node not found.")
 
+    # Clean up any scheduled job for trigger_schedule nodes
+    if node.component_type == "trigger_schedule":
+        sched_job = db.query(ScheduledJob).filter(
+            ScheduledJob.workflow_id == wf.id,
+            ScheduledJob.trigger_node_id == node_id,
+        ).first()
+        if sched_job:
+            if sched_job.status == "active":
+                pause_scheduled_job(sched_job)
+            db.delete(sched_job)
+
     # Delete edges referencing this node
     db.query(WorkflowEdge).filter(
         WorkflowEdge.workflow_id == wf.id,
@@ -204,6 +217,153 @@ def delete_node(
         db.delete(cc)
     db.commit()
     broadcast(f"workflow:{slug}", "node_deleted", {"node_id": deleted_node_id})
+
+
+# ── Schedule Actions ──────────────────────────────────────────────────────────
+
+
+def _get_schedule_node(slug: str, node_id: str, db: Session, profile: UserProfile):
+    """Fetch workflow + trigger_schedule node, raising 404/400 as needed."""
+    wf = get_workflow(slug, profile, db)
+    node = (
+        db.query(WorkflowNode)
+        .filter(WorkflowNode.workflow_id == wf.id, WorkflowNode.node_id == node_id)
+        .first()
+    )
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found.")
+    if node.component_type != "trigger_schedule":
+        raise HTTPException(status_code=400, detail="Node is not a trigger_schedule.")
+    return wf, node
+
+
+@router.post("/{slug}/nodes/{node_id}/schedule/start", response_model=NodeOut)
+def schedule_start(
+    slug: str,
+    node_id: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    wf, node = _get_schedule_node(slug, node_id, db, profile)
+    cc = node.component_config
+    extra = cc.extra_config or {}
+
+    interval = int(extra.get("interval_seconds", 300))
+    total_repeats = int(extra.get("total_repeats", 0))
+    max_retries = int(extra.get("max_retries", 3))
+    timeout = int(extra.get("timeout_seconds", 600))
+    payload = extra.get("trigger_payload") or {}
+
+    if interval < 1:
+        raise HTTPException(status_code=422, detail="interval_seconds must be >= 1")
+
+    job = db.query(ScheduledJob).filter(
+        ScheduledJob.workflow_id == wf.id,
+        ScheduledJob.trigger_node_id == node_id,
+    ).first()
+
+    if not job:
+        # Create new job
+        job = ScheduledJob(
+            name=f"schedule:{node_id}",
+            workflow_id=wf.id,
+            trigger_node_id=node_id,
+            user_profile_id=profile.id,
+            interval_seconds=interval,
+            total_repeats=total_repeats,
+            max_retries=max_retries,
+            timeout_seconds=timeout,
+            trigger_payload=payload if payload else None,
+        )
+        db.add(job)
+        db.flush()
+        start_scheduled_job(job)
+    elif job.status == "paused":
+        job.interval_seconds = interval
+        job.total_repeats = total_repeats
+        job.max_retries = max_retries
+        job.timeout_seconds = timeout
+        job.trigger_payload = payload if payload else None
+        resume_scheduled_job(job)
+    elif job.status in ("done", "dead"):
+        job.current_repeat = 0
+        job.current_retry = 0
+        job.error_count = 0
+        job.run_count = 0
+        job.last_error = ""
+        job.interval_seconds = interval
+        job.total_repeats = total_repeats
+        job.max_retries = max_retries
+        job.timeout_seconds = timeout
+        job.trigger_payload = payload if payload else None
+        job.status = "active"
+        start_scheduled_job(job)
+    else:
+        # Active — just update params
+        job.interval_seconds = interval
+        job.total_repeats = total_repeats
+        job.max_retries = max_retries
+        job.timeout_seconds = timeout
+        job.trigger_payload = payload if payload else None
+
+    cc.is_active = True
+    db.commit()
+    db.refresh(node)
+    result = serialize_node(node, db)
+    broadcast(f"workflow:{slug}", "node_updated", result)
+    return result
+
+
+@router.post("/{slug}/nodes/{node_id}/schedule/pause", response_model=NodeOut)
+def schedule_pause(
+    slug: str,
+    node_id: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    wf, node = _get_schedule_node(slug, node_id, db, profile)
+    job = db.query(ScheduledJob).filter(
+        ScheduledJob.workflow_id == wf.id,
+        ScheduledJob.trigger_node_id == node_id,
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="No scheduled job found for this node.")
+    if job.status != "active":
+        raise HTTPException(status_code=400, detail=f"Cannot pause job with status '{job.status}'.")
+
+    pause_scheduled_job(job)
+    node.component_config.is_active = False
+    db.commit()
+    db.refresh(node)
+    result = serialize_node(node, db)
+    broadcast(f"workflow:{slug}", "node_updated", result)
+    return result
+
+
+@router.post("/{slug}/nodes/{node_id}/schedule/stop", response_model=NodeOut)
+def schedule_stop(
+    slug: str,
+    node_id: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    wf, node = _get_schedule_node(slug, node_id, db, profile)
+    job = db.query(ScheduledJob).filter(
+        ScheduledJob.workflow_id == wf.id,
+        ScheduledJob.trigger_node_id == node_id,
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="No scheduled job found for this node.")
+
+    if job.status == "active":
+        pause_scheduled_job(job)
+    db.delete(job)
+    node.component_config.is_active = False
+    db.commit()
+    db.refresh(node)
+    result = serialize_node(node, db)
+    broadcast(f"workflow:{slug}", "node_updated", result)
+    return result
 
 
 # ── Edges ─────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.node import BaseComponentConfig, ModelComponentConfig, TriggerComponentConfig, WorkflowEdge, WorkflowNode
+from models.scheduled_job import ScheduledJob
 from models.user import UserProfile
 from models.workflow import Workflow, WorkflowCollaborator
 
@@ -75,9 +76,29 @@ def serialize_config(cc: BaseComponentConfig) -> dict:
     return result
 
 
-def serialize_node(node: WorkflowNode) -> dict:
-    """Serialize a WorkflowNode to NodeOut shape."""
+def _serialize_scheduled_job(job: ScheduledJob) -> dict:
+    """Serialize a ScheduledJob to ScheduledJobInfo shape."""
     return {
+        "id": job.id,
+        "status": job.status,
+        "run_count": job.run_count,
+        "error_count": job.error_count,
+        "current_repeat": job.current_repeat,
+        "current_retry": job.current_retry,
+        "total_repeats": job.total_repeats,
+        "max_retries": job.max_retries,
+        "timeout_seconds": job.timeout_seconds,
+        "interval_seconds": job.interval_seconds,
+        "last_run_at": job.last_run_at,
+        "next_run_at": job.next_run_at,
+        "last_error": job.last_error,
+        "created_at": job.created_at,
+    }
+
+
+def serialize_node(node: WorkflowNode, db: Session | None = None) -> dict:
+    """Serialize a WorkflowNode to NodeOut shape."""
+    result = {
         "id": node.id,
         "node_id": node.node_id,
         "component_type": node.component_type,
@@ -90,7 +111,16 @@ def serialize_node(node: WorkflowNode) -> dict:
         "subworkflow_id": node.subworkflow_id,
         "code_block_id": node.code_block_id,
         "updated_at": node.updated_at,
+        "schedule_job": None,
     }
+    if db and node.component_type == "trigger_schedule":
+        job = db.query(ScheduledJob).filter(
+            ScheduledJob.workflow_id == node.workflow_id,
+            ScheduledJob.trigger_node_id == node.node_id,
+        ).first()
+        if job:
+            result["schedule_job"] = _serialize_scheduled_job(job)
+    return result
 
 
 def serialize_edge(edge: WorkflowEdge) -> dict:
@@ -135,6 +165,6 @@ def serialize_workflow_detail(wf: Workflow, db: Session) -> dict:
     nodes = db.query(WorkflowNode).filter(WorkflowNode.workflow_id == wf.id).all()
     edges = db.query(WorkflowEdge).filter(WorkflowEdge.workflow_id == wf.id).all()
     data = serialize_workflow(wf, db)
-    data["nodes"] = [serialize_node(n) for n in nodes]
+    data["nodes"] = [serialize_node(n, db) for n in nodes]
     data["edges"] = [serialize_edge(e) for e in edges]
     return data
