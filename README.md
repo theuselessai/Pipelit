@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/theuselessai/Pipelit/actions/workflows/ci.yml"><img src="https://github.com/theuselessai/Pipelit/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://app.codecov.io/gh/theuselessai/Pipelit"><img src="https://codecov.io/gh/theuselessai/Pipelit/graph/badge.svg" alt="codecov" /></a>
+  <a href="https://app.codecov.io/gh/theuselessai/Pipelit"><img alt="Codecov" src="https://img.shields.io/codecov/c/github/theuselessai/pipelit"></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
 </p>
 
