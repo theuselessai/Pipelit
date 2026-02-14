@@ -25,14 +25,22 @@ def memory_read_factory(node):
 
     @tool
     def recall(key: str = "", query: str = "") -> str:
-        """Recall information from memory. Use key for exact lookup, or query to search."""
-        if not key and not query:
-            return "Error: Either 'key' or 'query' must be provided"
-
+        """Recall information from memory. Use key for exact lookup, query to search, or call with no arguments to list all memories."""
         db = SessionLocal()
         try:
             memory = MemoryService(db)
             results = []
+
+            if not key and not query:
+                # List all memories
+                facts = memory.list_facts(agent_id="global", limit=limit)
+                if not facts:
+                    return "Memory is empty — no facts stored."
+                return json.dumps(
+                    [{"key": f.key, "value": f.value, "confidence": f.confidence}
+                     for f in facts],
+                    default=str,
+                )
 
             if key:
                 # Exact key lookup — global scope
@@ -42,6 +50,19 @@ def memory_read_factory(node):
                 )
                 if value is not None:
                     return f"{key} = {value}"
+                # Fall back to search using key as query
+                facts = memory.search_facts(
+                    query=key,
+                    agent_id="global",
+                    limit=limit,
+                    min_confidence=min_confidence,
+                )
+                if facts:
+                    return json.dumps(
+                        [{"key": f.key, "value": f.value, "confidence": f.confidence}
+                         for f in facts],
+                        default=str,
+                    )
                 return f"No memory found for key: {key}"
 
             # Search — global scope

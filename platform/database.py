@@ -12,6 +12,7 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
     echo=False,
+    isolation_level="SERIALIZABLE" if "sqlite" in settings.DATABASE_URL else None,
 )
 
 # Enable WAL mode and foreign keys for SQLite
