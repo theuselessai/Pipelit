@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import String, and_, cast, or_, select
 from sqlalchemy.orm import Session
 
 from models.memory import MemoryEpisode, MemoryFact, MemoryProcedure, MemoryUser
@@ -170,14 +171,19 @@ class MemoryService:
                 and_(MemoryFact.scope == "user", MemoryFact.user_id == user_id)
             )
 
+        # Normalize query: treat spaces, underscores, hyphens as equivalent
+        # so "local time" matches keys like "lesson_local_time_command"
+        normalized = re.sub(r"[\s_\-]+", "%", query.strip())
+        pattern = f"%{normalized}%"
+
         stmt = (
             select(MemoryFact)
             .where(
                 MemoryFact.confidence >= min_confidence,
                 or_(*scope_conditions),
                 or_(
-                    MemoryFact.key.ilike(f"%{query}%"),
-                    # Note: JSON value search is basic - will be replaced with vector search
+                    MemoryFact.key.ilike(pattern),
+                    cast(MemoryFact.value, String).ilike(pattern),
                 ),
             )
             .order_by(MemoryFact.confidence.desc())
@@ -187,6 +193,24 @@ class MemoryService:
         if fact_types:
             stmt = stmt.where(MemoryFact.fact_type.in_(fact_types))
 
+        return list(self.db.execute(stmt).scalars().all())
+
+    def list_facts(
+        self,
+        agent_id: str,
+        limit: int = 50,
+    ) -> list[MemoryFact]:
+        """List all facts visible to the given agent (global + agent-scoped)."""
+        scope_conditions = [
+            MemoryFact.scope == "global",
+            and_(MemoryFact.scope == "agent", MemoryFact.agent_id == agent_id),
+        ]
+        stmt = (
+            select(MemoryFact)
+            .where(or_(*scope_conditions))
+            .order_by(MemoryFact.updated_at.desc())
+            .limit(limit)
+        )
         return list(self.db.execute(stmt).scalars().all())
 
     def get_user_facts(

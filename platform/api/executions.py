@@ -292,18 +292,26 @@ def get_chat_history(
                     # Convert Unix timestamp to ISO
                     timestamp = datetime.fromtimestamp(created).isoformat()
 
+            # msg.content can be a string or a list of content blocks
+            content = msg.content
+            if isinstance(content, list):
+                content = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in content
+                )
+
             if msg.type == "human":
                 all_messages.append(ChatHistoryMessageOut(
                     role="user",
-                    text=msg.content,
+                    text=content,
                     timestamp=timestamp,
                 ))
             elif msg.type == "ai":
                 # Skip empty AI messages (often tool calls)
-                if msg.content:
+                if content:
                     all_messages.append(ChatHistoryMessageOut(
                         role="assistant",
-                        text=msg.content,
+                        text=content,
                         timestamp=timestamp,
                     ))
 

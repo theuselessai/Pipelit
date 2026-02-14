@@ -568,7 +568,8 @@ class TestMemoryRead:
         node = _make_node("memory_read", extra_config={})
         tool = memory_read_factory(node)
         result = tool.invoke({})
-        assert "Error" in result or "must be provided" in result
+        # With no args, recall now lists all memories (or reports empty)
+        assert "empty" in result.lower() or "[" in result
 
     @patch("components.memory_read.SessionLocal")
     @patch("components.memory_read.MemoryService")
