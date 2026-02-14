@@ -16,10 +16,11 @@ import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { X, Trash2, Send, Loader2, Expand, RotateCcw, CalendarIcon, Plus, Play, Pause, Square, ChevronDown, ChevronUp } from "lucide-react"
+import { X, Trash2, Send, Loader2, Expand, ExternalLink, RotateCcw, CalendarIcon, Plus, Play, Pause, Square, ChevronDown, ChevronUp } from "lucide-react"
 import { format } from "date-fns"
 import ExpressionTextarea from "@/components/ExpressionTextarea"
 import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
+import PopoutWindow from "@/components/PopoutWindow"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
 import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule, ScheduleJobInfo } from "@/types/models"
 
@@ -79,6 +80,12 @@ const OPERATOR_OPTIONS = [
 
 const UNARY_OPERATORS = new Set(["exists", "does_not_exist", "is_empty", "is_not_empty", "is_true", "is_false"])
 
+/** Close a popout window and clear its state. Use for Save/Cancel buttons — NOT for onClose (which fires from beforeunload when the popup is already closing). */
+function closePopout(popup: Window | null, setter: (w: Window | null) => void) {
+  if (popup && !popup.closed) popup.close()
+  setter(null)
+}
+
 function generateRuleId(): string {
   return "r_" + Math.random().toString(36).slice(2, 8)
 }
@@ -104,6 +111,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
   const [beforeDate, setBeforeDate] = useState<Date | undefined>(undefined)
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [chatPopoutWindow, setChatPopoutWindow] = useState<Window | null>(null)
 
   // Convert date to ISO string for API (end of day)
   const beforeDateISO = beforeDate
@@ -187,6 +195,139 @@ function ChatPanel({ slug, node, onClose }: Props) {
     })
   }
 
+  const handleChatPopout = () => {
+    const popup = window.open("", "", "width=900,height=700,left=200,top=100")
+    if (!popup) return
+    setChatPopoutWindow(popup)
+  }
+
+  const handleChatPopoutClose = useCallback(() => {
+    setChatPopoutWindow(null)
+  }, [])
+
+  const handleChatPopoutCloseButton = useCallback(() => {
+    closePopout(chatPopoutWindow, setChatPopoutWindow)
+  }, [chatPopoutWindow])
+
+  const chatToolbar = (closeFn: () => void) => (
+    <div className="flex items-center gap-2">
+      <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="sm" title={beforeDate ? format(beforeDate, "MMM d, yyyy") : "Filter by date"}>
+            <CalendarIcon className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="end">
+          <Calendar
+            mode="single"
+            selected={beforeDate}
+            onSelect={(date) => {
+              setBeforeDate(date)
+              setCalendarOpen(false)
+            }}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+      {beforeDate && (
+        <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setBeforeDate(undefined)} title="Clear date filter">
+          <X className="h-3 w-3" />
+        </Button>
+      )}
+      <Button variant="ghost" size="sm" onClick={() => refetchHistory()} title="Reload history">
+        <RotateCcw className="h-4 w-4" />
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} title="Clear chat history">
+        <Trash2 className="h-4 w-4" />
+      </Button>
+      {!chatPopoutWindow && (
+        <Button variant="ghost" size="sm" onClick={handleChatPopout} title="Pop out to window">
+          <ExternalLink className="h-4 w-4" />
+        </Button>
+      )}
+      <Button variant="ghost" size="sm" onClick={closeFn}>
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+
+  const chatBody = (
+    <>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        {historyData?.has_more && (
+          <div className="text-xs text-muted-foreground text-center py-2">
+            Showing last 10 messages. Use the date picker to view older messages.
+          </div>
+        )}
+        {messages.length === 0 && <div className="text-xs text-muted-foreground text-center py-8">Send a message to test this workflow</div>}
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+              {msg.text}
+            </div>
+            {msg.timestamp && (
+              <div className="text-[10px] text-muted-foreground mt-0.5 px-1">
+                {formatTimestamp(msg.timestamp)}
+              </div>
+            )}
+          </div>
+        ))}
+        {(sendMessage.isPending || waiting) && (
+          <div className="flex justify-start">
+            <div className="bg-muted rounded-lg px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
+          </div>
+        )}
+      </div>
+      <div className="p-4 border-t flex gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+          placeholder="Type a message..."
+          className="text-sm"
+          disabled={sendMessage.isPending || waiting}
+        />
+        <Button size="sm" onClick={handleSend} disabled={sendMessage.isPending || waiting || !input.trim()}>
+          <Send className="h-4 w-4" />
+        </Button>
+      </div>
+    </>
+  )
+
+  const confirmDeleteDialog = (
+    <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Clear Chat History</DialogTitle></DialogHeader>
+        <p>Are you sure you want to clear all chat history for this workflow? This cannot be undone.</p>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button variant="destructive" onClick={handleDeleteHistory} disabled={deleteChatHistory.isPending}>
+            {deleteChatHistory.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Clear History
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+
+  if (chatPopoutWindow) {
+    return (
+      <PopoutWindow popupWindow={chatPopoutWindow} title={`Chat — ${node.node_id}`} onClose={handleChatPopoutClose}>
+        <div className="flex flex-col h-screen">
+          <div className="p-4 border-b flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">{node.node_id}</h2>
+              <div className="text-xs text-muted-foreground mt-1">Chat Trigger</div>
+            </div>
+            {chatToolbar(handleChatPopoutCloseButton)}
+          </div>
+          {chatBody}
+          {confirmDeleteDialog}
+        </div>
+      </PopoutWindow>
+    )
+  }
+
   return (
     <Dialog open={true} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-[90vw] w-[900px] h-[80vh] flex flex-col p-0" showCloseButton={false}>
@@ -195,94 +336,11 @@ function ChatPanel({ slug, node, onClose }: Props) {
             <DialogTitle>{node.node_id}</DialogTitle>
             <div className="text-xs text-muted-foreground mt-1">Chat Trigger</div>
           </div>
-          <div className="flex items-center gap-2">
-            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" title={beforeDate ? format(beforeDate, "MMM d, yyyy") : "Filter by date"}>
-                  <CalendarIcon className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
-                <Calendar
-                  mode="single"
-                  selected={beforeDate}
-                  onSelect={(date) => {
-                    setBeforeDate(date)
-                    setCalendarOpen(false)
-                  }}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-            {beforeDate && (
-              <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setBeforeDate(undefined)} title="Clear date filter">
-                <X className="h-3 w-3" />
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => refetchHistory()} title="Reload history">
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} title="Clear chat history">
-              <Trash2 className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          {chatToolbar(onClose)}
         </DialogHeader>
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-          {historyData?.has_more && (
-            <div className="text-xs text-muted-foreground text-center py-2">
-              Showing last 10 messages. Use the date picker to view older messages.
-            </div>
-          )}
-          {messages.length === 0 && <div className="text-xs text-muted-foreground text-center py-8">Send a message to test this workflow</div>}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
-              <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                {msg.text}
-              </div>
-              {msg.timestamp && (
-                <div className="text-[10px] text-muted-foreground mt-0.5 px-1">
-                  {formatTimestamp(msg.timestamp)}
-                </div>
-              )}
-            </div>
-          ))}
-          {(sendMessage.isPending || waiting) && (
-            <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
-            </div>
-          )}
-        </div>
-        <div className="p-4 border-t flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-            placeholder="Type a message..."
-            className="text-sm"
-            disabled={sendMessage.isPending || waiting}
-          />
-          <Button size="sm" onClick={handleSend} disabled={sendMessage.isPending || waiting || !input.trim()}>
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+        {chatBody}
       </DialogContent>
-
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Clear Chat History</DialogTitle></DialogHeader>
-          <p>Are you sure you want to clear all chat history for this workflow? This cannot be undone.</p>
-          <DialogFooter>
-            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-            <Button variant="destructive" onClick={handleDeleteHistory} disabled={deleteChatHistory.isPending}>
-              {deleteChatHistory.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Clear History
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {confirmDeleteDialog}
     </Dialog>
   )
 }
@@ -391,10 +449,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [promptModalOpen, setPromptModalOpen] = useState(false)
   const [promptDraft, setPromptDraft] = useState("")
   const [promptLanguage, setPromptLanguage] = useState<CodeMirrorLanguage>("markdown")
+  const [promptPopoutWindow, setPromptPopoutWindow] = useState<Window | null>(null)
 
   // Extra config modal state
   const [extraConfigModalOpen, setExtraConfigModalOpen] = useState(false)
   const [extraConfigDraft, setExtraConfigDraft] = useState("")
+  const [extraConfigPopoutWindow, setExtraConfigPopoutWindow] = useState<Window | null>(null)
+
+  // Code popout state
+  const [codePopoutWindow, setCodePopoutWindow] = useState<Window | null>(null)
 
   // Trigger fields
   const [triggerCredentialId, setTriggerCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
@@ -513,6 +576,16 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       },
     })
   }
+
+  // When a popout Save button is clicked, it updates local state (e.g. setSystemPrompt)
+  // and sets this ref. On the next render — after state has settled — the effect calls handleSave.
+  const saveOnNextRender = useRef(false)
+  useEffect(() => {
+    if (saveOnNextRender.current) {
+      saveOnNextRender.current = false
+      handleSave()
+    }
+  })
 
   function handleDelete() {
     deleteNode.mutate(node.node_id)
@@ -777,15 +850,32 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs">System Prompt</Label>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2"
-              onClick={() => { setPromptDraft(systemPrompt ?? ""); setPromptModalOpen(true) }}
-            >
-              <Expand className="h-3 w-3 mr-1" />
-              <span className="text-xs">Expand</span>
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => { setPromptDraft(systemPrompt ?? ""); setPromptModalOpen(true) }}
+              >
+                <Expand className="h-3 w-3 mr-1" />
+                <span className="text-xs">Expand</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                title="Pop out to window"
+                onClick={() => {
+                  const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                  if (!popup) return
+                  setPromptDraft(systemPrompt ?? "")
+                  setPromptPopoutWindow(popup)
+                  setPromptModalOpen(false)
+                }}
+              >
+                <ExternalLink className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
           {workflow ? (
             <ExpressionTextarea
@@ -822,6 +912,20 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                     >
                       TOML
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      title="Pop out to window"
+                      onClick={() => {
+                        const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                        if (!popup) return
+                        setPromptPopoutWindow(popup)
+                        setPromptModalOpen(false)
+                      }}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </Button>
                   </div>
                 </div>
               </DialogHeader>
@@ -849,6 +953,58 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {promptPopoutWindow && (
+            <PopoutWindow popupWindow={promptPopoutWindow} title="Edit System Prompt" onClose={() => setPromptPopoutWindow(null)}>
+              <div className="flex flex-col h-screen p-4 gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Edit System Prompt</h2>
+                  <div className="flex items-center gap-1 text-xs">
+                    <Button
+                      variant={promptLanguage === "markdown" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setPromptLanguage("markdown")}
+                    >
+                      Markdown
+                    </Button>
+                    <Button
+                      variant={promptLanguage === "toml" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setPromptLanguage("toml")}
+                    >
+                      TOML
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex-1 min-h-0">
+                  {workflow ? (
+                    <CodeMirrorExpressionEditor
+                      value={promptDraft}
+                      onChange={setPromptDraft}
+                      slug={slug}
+                      nodeId={node.node_id}
+                      workflow={workflow}
+                      language={promptLanguage}
+                      placeholder="Enter system prompt instructions..."
+                    />
+                  ) : (
+                    <Textarea
+                      className="h-full font-mono text-sm resize-none"
+                      value={promptDraft}
+                      onChange={(e) => setPromptDraft(e.target.value)}
+                      placeholder="Enter system prompt instructions..."
+                    />
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => closePopout(promptPopoutWindow, setPromptPopoutWindow)}>Cancel</Button>
+                  <Button onClick={() => { setSystemPrompt(promptDraft); saveOnNextRender.current = true; closePopout(promptPopoutWindow, setPromptPopoutWindow) }}>Save</Button>
+                </div>
+              </div>
+            </PopoutWindow>
+          )}
         </div>
       )}
 
@@ -938,15 +1094,32 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs">Code</Label>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2"
-                onClick={() => { setCodeDraft(codeSnippet); setCodeModalOpen(true) }}
-              >
-                <Expand className="h-3 w-3 mr-1" />
-                <span className="text-xs">Expand</span>
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2"
+                  onClick={() => { setCodeDraft(codeSnippet); setCodeModalOpen(true) }}
+                >
+                  <Expand className="h-3 w-3 mr-1" />
+                  <span className="text-xs">Expand</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  title="Pop out to window"
+                  onClick={() => {
+                    const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                    if (!popup) return
+                    setCodeDraft(codeSnippet)
+                    setCodePopoutWindow(popup)
+                    setCodeModalOpen(false)
+                  }}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
             {workflow ? (
               <ExpressionTextarea
@@ -971,7 +1144,23 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           <Dialog open={codeModalOpen} onOpenChange={setCodeModalOpen}>
             <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
               <DialogHeader>
-                <DialogTitle>Edit Code — {codeLanguage}</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>Edit Code — {codeLanguage}</DialogTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    title="Pop out to window"
+                    onClick={() => {
+                      const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                      if (!popup) return
+                      setCodePopoutWindow(popup)
+                      setCodeModalOpen(false)
+                    }}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </Button>
+                </div>
               </DialogHeader>
               {workflow ? (
                 <CodeMirrorExpressionEditor
@@ -997,6 +1186,40 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {codePopoutWindow && (
+            <PopoutWindow popupWindow={codePopoutWindow} title={`Edit Code — ${codeLanguage}`} onClose={() => setCodePopoutWindow(null)}>
+              <div className="flex flex-col h-screen p-4 gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Edit Code — {codeLanguage}</h2>
+                </div>
+                <div className="flex-1 min-h-0">
+                  {workflow ? (
+                    <CodeMirrorExpressionEditor
+                      value={codeDraft}
+                      onChange={setCodeDraft}
+                      slug={slug}
+                      nodeId={node.node_id}
+                      workflow={workflow}
+                      language={codeLanguage as CodeMirrorLanguage}
+                      placeholder="# Write your code here..."
+                    />
+                  ) : (
+                    <Textarea
+                      className="h-full font-mono text-sm resize-none"
+                      value={codeDraft}
+                      onChange={(e) => setCodeDraft(e.target.value)}
+                      placeholder="# Write your code here..."
+                    />
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => closePopout(codePopoutWindow, setCodePopoutWindow)}>Cancel</Button>
+                  <Button onClick={() => { setCodeSnippet(codeDraft); saveOnNextRender.current = true; closePopout(codePopoutWindow, setCodePopoutWindow) }}>Save</Button>
+                </div>
+              </div>
+            </PopoutWindow>
+          )}
         </>
       )}
 
@@ -1384,15 +1607,32 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs">Extra Config (JSON)</Label>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2"
-              onClick={() => { setExtraConfigDraft(extraConfig); setExtraConfigModalOpen(true) }}
-            >
-              <Expand className="h-3 w-3 mr-1" />
-              <span className="text-xs">Expand</span>
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => { setExtraConfigDraft(extraConfig); setExtraConfigModalOpen(true) }}
+              >
+                <Expand className="h-3 w-3 mr-1" />
+                <span className="text-xs">Expand</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                title="Pop out to window"
+                onClick={() => {
+                  const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                  if (!popup) return
+                  setExtraConfigDraft(extraConfig)
+                  setExtraConfigPopoutWindow(popup)
+                  setExtraConfigModalOpen(false)
+                }}
+              >
+                <ExternalLink className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
           {workflow ? (
             <ExpressionTextarea slug={slug} nodeId={node.node_id} workflow={workflow} value={extraConfig} onChange={setExtraConfig} className="text-xs font-mono" />
@@ -1403,7 +1643,23 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           <Dialog open={extraConfigModalOpen} onOpenChange={setExtraConfigModalOpen}>
             <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
               <DialogHeader>
-                <DialogTitle>Edit Extra Config (JSON)</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>Edit Extra Config (JSON)</DialogTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    title="Pop out to window"
+                    onClick={() => {
+                      const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                      if (!popup) return
+                      setExtraConfigPopoutWindow(popup)
+                      setExtraConfigModalOpen(false)
+                    }}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </Button>
+                </div>
               </DialogHeader>
               {workflow ? (
                 <CodeMirrorExpressionEditor
@@ -1429,6 +1685,40 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {extraConfigPopoutWindow && (
+            <PopoutWindow popupWindow={extraConfigPopoutWindow} title="Edit Extra Config (JSON)" onClose={() => setExtraConfigPopoutWindow(null)}>
+              <div className="flex flex-col h-screen p-4 gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Edit Extra Config (JSON)</h2>
+                </div>
+                <div className="flex-1 min-h-0">
+                  {workflow ? (
+                    <CodeMirrorExpressionEditor
+                      value={extraConfigDraft}
+                      onChange={setExtraConfigDraft}
+                      slug={slug}
+                      nodeId={node.node_id}
+                      workflow={workflow}
+                      language="json"
+                      placeholder='{ "key": "value" }'
+                    />
+                  ) : (
+                    <Textarea
+                      className="h-full font-mono text-sm resize-none"
+                      value={extraConfigDraft}
+                      onChange={(e) => setExtraConfigDraft(e.target.value)}
+                      placeholder='{ "key": "value" }'
+                    />
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => closePopout(extraConfigPopoutWindow, setExtraConfigPopoutWindow)}>Cancel</Button>
+                  <Button onClick={() => { setExtraConfig(extraConfigDraft); saveOnNextRender.current = true; closePopout(extraConfigPopoutWindow, setExtraConfigPopoutWindow) }}>Save</Button>
+                </div>
+              </div>
+            </PopoutWindow>
+          )}
         </div>
         </>
       )}
