@@ -573,6 +573,56 @@ class TestMemoryRead:
 
     @patch("components.memory_read.SessionLocal")
     @patch("components.memory_read.MemoryService")
+    def test_recall_no_key_no_query_with_facts(self, mock_mem_cls, mock_session_cls):
+        from components.memory_read import memory_read_factory
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+        mock_mem = MagicMock()
+        mock_fact = MagicMock()
+        mock_fact.key = "drink"
+        mock_fact.value = "coffee"
+        mock_fact.confidence = 0.95
+        mock_mem.list_facts.return_value = [mock_fact]
+        mock_mem_cls.return_value = mock_mem
+
+        node = _make_node("memory_read", extra_config={})
+        tool = memory_read_factory(node)
+        result = tool.invoke({})
+        parsed = json.loads(result)
+        assert len(parsed) == 1
+        assert parsed[0]["key"] == "drink"
+        assert parsed[0]["value"] == "coffee"
+        assert parsed[0]["confidence"] == 0.95
+
+    @patch("components.memory_read.SessionLocal")
+    @patch("components.memory_read.MemoryService")
+    def test_recall_key_fallback_to_search(self, mock_mem_cls, mock_session_cls):
+        from components.memory_read import memory_read_factory
+
+        mock_db = MagicMock()
+        mock_session_cls.return_value = mock_db
+        mock_mem = MagicMock()
+        mock_mem.get_fact.return_value = None
+        mock_fact = MagicMock()
+        mock_fact.key = "local_time"
+        mock_fact.value = "12:00 PM"
+        mock_fact.confidence = 0.8
+        mock_mem.search_facts.return_value = [mock_fact]
+        mock_mem_cls.return_value = mock_mem
+
+        node = _make_node("memory_read", extra_config={"memory_type": "facts"})
+        tool = memory_read_factory(node)
+        result = tool.invoke({"key": "local time"})
+        parsed = json.loads(result)
+        assert len(parsed) == 1
+        assert parsed[0]["key"] == "local_time"
+        assert parsed[0]["value"] == "12:00 PM"
+        mock_mem.get_fact.assert_called_once_with(key="local time", agent_id="global")
+        mock_mem.search_facts.assert_called_once()
+
+    @patch("components.memory_read.SessionLocal")
+    @patch("components.memory_read.MemoryService")
     def test_recall_error(self, mock_mem_cls, mock_session_cls):
         from components.memory_read import memory_read_factory
 

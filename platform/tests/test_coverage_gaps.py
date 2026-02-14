@@ -578,6 +578,27 @@ class TestChatHistoryAPI:
         assert len(data["messages"]) == 1
         assert data["messages"][0]["timestamp"] is not None
 
+    def test_chat_history_with_content_blocks(self, auth_client, workflow):
+        msg = SimpleNamespace(
+            type="human",
+            content=[{"type": "text", "text": "Hello "}, {"type": "text", "text": "world"}],
+            id="1",
+            additional_kwargs={},
+            response_metadata={},
+        )
+
+        mock_tuple = MagicMock()
+        mock_tuple.checkpoint = {"channel_values": {"messages": [msg]}}
+        mock_checkpointer = MagicMock()
+        mock_checkpointer.get_tuple.return_value = mock_tuple
+
+        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
+            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["messages"]) == 1
+        assert data["messages"][0]["text"] == "Hello world"
+
     def test_delete_chat_history_not_found(self, auth_client):
         resp = auth_client.delete("/api/v1/workflows/nonexistent/chat/history")
         assert resp.status_code == 404
