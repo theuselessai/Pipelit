@@ -569,7 +569,7 @@ class TestMemoryRead:
         tool = memory_read_factory(node)
         result = tool.invoke({})
         # With no args, recall now lists all memories (or reports empty)
-        assert "empty" in result.lower() or "[" in result
+        assert "empty" in result.lower() or ("[" in result and "]" in result)
 
     @patch("components.memory_read.SessionLocal")
     @patch("components.memory_read.MemoryService")

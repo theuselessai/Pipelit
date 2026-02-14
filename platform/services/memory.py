@@ -173,7 +173,9 @@ class MemoryService:
 
         # Normalize query: treat spaces, underscores, hyphens as equivalent
         # so "local time" matches keys like "lesson_local_time_command"
-        normalized = re.sub(r"[\s_\-]+", "%", query.strip())
+        # Escape literal % to prevent SQL wildcard injection
+        sanitized = query.strip().replace("%", r"\%")
+        normalized = re.sub(r"[\s_\-]+", "%", sanitized)
         pattern = f"%{normalized}%"
 
         stmt = (

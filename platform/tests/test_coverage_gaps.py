@@ -202,7 +202,7 @@ class TestMemoryReadComponent:
         recall_tool = memory_read_factory(node)
         result = recall_tool.invoke({})
         # With no args, recall now lists all memories (or reports empty)
-        assert "empty" in result.lower() or "[" in result
+        assert "empty" in result.lower() or ("[" in result and "]" in result)
 
 
 # ── delivery service ─────────────────────────────────────────────────────────
