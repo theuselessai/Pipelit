@@ -173,8 +173,8 @@ class MemoryService:
 
         # Normalize query: treat spaces, underscores, hyphens as equivalent
         # so "local time" matches keys like "lesson_local_time_command"
-        # Escape literal % to prevent SQL wildcard injection
-        sanitized = query.strip().replace("%", r"\%")
+        # Escape SQL wildcards using '!' as escape char
+        sanitized = query.strip().replace("!", "!!").replace("%", "!%")
         normalized = re.sub(r"[\s_\-]+", "%", sanitized)
         pattern = f"%{normalized}%"
 
@@ -184,8 +184,8 @@ class MemoryService:
                 MemoryFact.confidence >= min_confidence,
                 or_(*scope_conditions),
                 or_(
-                    MemoryFact.key.ilike(pattern),
-                    cast(MemoryFact.value, String).ilike(pattern),
+                    MemoryFact.key.ilike(pattern, escape="!"),
+                    cast(MemoryFact.value, String).ilike(pattern, escape="!"),
                 ),
             )
             .order_by(MemoryFact.confidence.desc())
