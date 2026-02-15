@@ -7,18 +7,18 @@ repo_name: theuselessai/Pipelit
 theme:
   name: material
   palette:
-    - scheme: default
-      primary: deep purple
-      accent: amber
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
     - scheme: slate
-      primary: deep purple
+      primary: amber
       accent: amber
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+    - scheme: default
+      primary: amber
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
   font:
     text: Inter
     code: JetBrains Mono
@@ -177,34 +177,6 @@ nav:
     - Tasks: api/tasks.md
     - Users: api/users.md
     - WebSocket: api/websocket.md
-  - Frontend Guide:
-    - frontend/index.md
-    - Dashboard: frontend/dashboard.md
-    - Workflow Editor: frontend/editor.md
-    - Executions: frontend/executions-ui.md
-    - Credentials: frontend/credentials-ui.md
-    - Memories: frontend/memories-ui.md
-    - Epics: frontend/epics-ui.md
-    - Settings: frontend/settings-ui.md
-  - Architecture:
-    - architecture/index.md
-    - System Overview: architecture/system-overview.md
-    - Backend: architecture/backend.md
-    - Execution Engine: architecture/execution-engine.md
-    - Node I/O: architecture/node-io.md
-    - WebSocket System: architecture/websocket-system.md
-    - Context Management: architecture/context-management.md
-    - Multi-Agent: architecture/multi-agent.md
-    - Workflow DSL: architecture/workflow-dsl.md
-    - Self-Improving: architecture/self-improving.md
-  - Deployment:
-    - deployment/index.md
-    - Docker: deployment/docker.md
-    - Production: deployment/production.md
-    - Redis: deployment/redis.md
-    - Reverse Proxy: deployment/reverse-proxy.md
-    - Environment Variables: deployment/environment.md
-    - Database: deployment/database.md
   - Contributing:
     - contributing/index.md
     - Development Setup: contributing/development-setup.md
@@ -212,6 +184,35 @@ nav:
     - Adding Components: contributing/adding-components.md
     - Migrations: contributing/migrations.md
     - Code Style: contributing/code-style.md
-  - FAQ: faq.md
-  - Troubleshooting: troubleshooting.md
-  - Changelog: changelog.md
+    - Frontend Guide:
+      - frontend/index.md
+      - Dashboard: frontend/dashboard.md
+      - Workflow Editor: frontend/editor.md
+      - Executions: frontend/executions-ui.md
+      - Credentials: frontend/credentials-ui.md
+      - Memories: frontend/memories-ui.md
+      - Epics: frontend/epics-ui.md
+      - Settings: frontend/settings-ui.md
+    - Architecture:
+      - architecture/index.md
+      - System Overview: architecture/system-overview.md
+      - Backend: architecture/backend.md
+      - Execution Engine: architecture/execution-engine.md
+      - Node I/O: architecture/node-io.md
+      - WebSocket System: architecture/websocket-system.md
+      - Context Management: architecture/context-management.md
+      - Multi-Agent: architecture/multi-agent.md
+      - Workflow DSL: architecture/workflow-dsl.md
+      - Self-Improving: architecture/self-improving.md
+    - Deployment:
+      - deployment/index.md
+      - Docker: deployment/docker.md
+      - Production: deployment/production.md
+      - Redis: deployment/redis.md
+      - Reverse Proxy: deployment/reverse-proxy.md
+      - Environment Variables: deployment/environment.md
+      - Database: deployment/database.md
+    - Changelog: changelog.md
+  - FAQ:
+    - faq.md
+    - Troubleshooting: troubleshooting.md

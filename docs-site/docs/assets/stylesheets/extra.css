@@ -20,9 +20,19 @@
 /* Feature grid on landing page */
 .md-typeset .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: 1fr;
   gap: 1.5rem;
   margin: 2rem 0;
+}
+
+.md-typeset .grid-features {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 768px) {
+  .md-typeset .grid-features {
+    grid-template-columns: 1fr;
+  }
 }
 
 .md-typeset .grid .card {
