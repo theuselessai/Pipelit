@@ -34,7 +34,11 @@ jobs:
         run: pip install -r docs-site/requirements.txt
 
       - name: Copy shared assets
-        run: cp -r docs/assets/* docs-site/docs/assets/images/
+        run: |
+          mkdir -p docs-site/docs/assets/images/
+          if [ -d "docs/assets" ] && [ "$(ls -A docs/assets)" ]; then
+            cp -r docs/assets/* docs-site/docs/assets/images/
+          fi
 
       - name: Build documentation
         run: cd docs-site && mkdocs build --strict
