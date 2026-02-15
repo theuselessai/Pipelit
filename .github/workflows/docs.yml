@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - 'docs-site/**'
+      - 'docs/assets/**'
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,13 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r docs-site/requirements.txt
+
+      - name: Copy shared assets
+        run: |
+          mkdir -p docs-site/docs/assets/images/ || exit 1
+          if [ -d "docs/assets" ] && [ "$(ls -A docs/assets)" ]; then
+            cp -r docs/assets/. docs-site/docs/assets/images/ || exit 1
+          fi
 
       - name: Build documentation
         run: cd docs-site && mkdocs build --strict

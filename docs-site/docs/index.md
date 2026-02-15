@@ -3,7 +3,7 @@ hide:
   - navigation
 ---
 
-# Pipelit
+![Pipelit](assets/images/banner.png)
 
 <div class="hero" markdown>
 
