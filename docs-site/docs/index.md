@@ -18,7 +18,25 @@ Pipelit is a self-hosted workflow automation platform for designing LLM agent pi
 
 ---
 
-<div class="grid" markdown>
+## Quick Start
+
+```bash
+git clone git@github.com:theuselessai/Pipelit.git
+cd Pipelit
+
+# Backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r platform/requirements.txt
+
+# Frontend
+cd platform/frontend && npm install
+```
+
+Then follow the full [Getting Started](getting-started/index.md) guide to configure and launch Pipelit.
+
+---
+
+<div class="grid grid-features" markdown>
 
 <div class="card" markdown>
 
@@ -104,22 +122,6 @@ Agents can read epics/tasks, spawn child workflows, modify their own graphs, and
 | **Frontend** | React, Vite, TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query |
 | **Execution** | LangGraph, LangChain, Redis pub/sub, WebSocket |
 | **Auth** | Bearer token API keys, TOTP-based MFA |
-
-## Quick Start
-
-```bash
-git clone git@github.com:theuselessai/Pipelit.git
-cd Pipelit
-
-# Backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r platform/requirements.txt
-
-# Frontend
-cd platform/frontend && npm install
-```
-
-Then follow the full [Getting Started](getting-started/index.md) guide to configure and launch Pipelit.
 
 ## License
 
