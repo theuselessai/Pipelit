@@ -273,6 +273,7 @@ def get_chat_history(
 
     # Convert to frontend format with timestamps
     all_messages = []
+    last_timestamp = None
     for msg in messages:
         if hasattr(msg, "type") and hasattr(msg, "content"):
             # Skip system prompt fallback message
@@ -289,8 +290,17 @@ def get_chat_history(
             if not timestamp and hasattr(msg, "response_metadata"):
                 created = msg.response_metadata.get("created")
                 if created:
-                    # Convert Unix timestamp to ISO
-                    timestamp = datetime.fromtimestamp(created).isoformat()
+                    # Convert Unix timestamp to ISO (UTC with Z suffix for JS compatibility)
+                    from datetime import timezone as _tz
+                    timestamp = datetime.fromtimestamp(created, tz=_tz.utc).isoformat().replace("+00:00", "Z")
+            # Fallback: inherit from the preceding message (AI replies follow human messages)
+            if not timestamp and last_timestamp:
+                timestamp = last_timestamp
+            # Normalize: Python's isoformat()+Z produces "+00:00Z" — ensure clean Z suffix
+            if timestamp and isinstance(timestamp, str):
+                timestamp = timestamp.replace("+00:00Z", "Z").replace("+00:00", "Z")
+            if timestamp:
+                last_timestamp = timestamp
 
             # msg.content can be a string or a list of content blocks
             content = msg.content

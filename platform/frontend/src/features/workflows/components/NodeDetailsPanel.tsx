@@ -96,6 +96,7 @@ function formatTimestamp(ts: string | undefined): string {
   if (!ts) return ""
   try {
     const date = new Date(ts)
+    if (isNaN(date.getTime())) return ""
     return date.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
