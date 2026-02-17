@@ -15,13 +15,13 @@ import logging
 
 from auth import get_current_user
 from database import get_db
-
-logger = logging.getLogger(__name__)
 from models.execution import ExecutionLog, WorkflowExecution
 from models.node import WorkflowNode
 from models.user import UserProfile
 from models.workflow import Workflow
 from schemas.execution import ChatMessageIn, ChatMessageOut, ExecutionDetailOut, ExecutionOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

@@ -168,10 +168,8 @@ def test_setup_logging_file_handler(monkeypatch, tmp_path):
     root = logging.getLogger()
     root.handlers = [h for h in root.handlers if getattr(h, "name", None) not in ("_pipelit_stream", "_pipelit_file")]
 
-    # Force settings reload to pick up env var
+    # Patch settings directly to pick up env var
     from config import Settings
-    monkeypatch.setattr("logging_config.setup_logging.__module__", "logging_config")
-    # Patch settings directly
     import config
     original_settings = config.settings
     config.settings = Settings()
