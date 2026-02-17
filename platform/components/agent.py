@@ -85,7 +85,11 @@ def agent_factory(node):
         node_id, system_prompt[:80] if system_prompt else None, conversation_memory, extra,
     )
 
-    tools = _resolve_tools(node)
+    # Shared mutable ref so tool wrappers (which may run in executor threads)
+    # can read the execution_id set by agent_node at invocation time.
+    _exec_id_ref: list[str | None] = [None]
+
+    tools = _resolve_tools(node, _exec_id_ref)
 
     # Detect spawn_and_await tool
     has_spawn_tool = any(
@@ -127,6 +131,9 @@ def agent_factory(node):
     def agent_node(state: dict) -> dict:
         from datetime import datetime, timezone
         from langgraph.types import Command
+
+        # Expose execution_id to tool wrappers (may run in executor threads)
+        _exec_id_ref[0] = state.get("execution_id")
 
         messages = list(state.get("messages", []))
 
@@ -347,7 +354,7 @@ def _create_child_from_interrupt(
         db.close()
 
 
-def _resolve_tools(node) -> list:
+def _resolve_tools(node, exec_id_ref: list[str | None] | None = None) -> list:
     """Resolve LangChain tools from edge_label='tool' or 'memory' edges connected to this agent."""
     tools = []
     try:
@@ -357,6 +364,11 @@ def _resolve_tools(node) -> list:
 
         db = SessionLocal()
         try:
+            # Resolve workflow slug once for all tools (avoids per-invocation DB queries)
+            workflow_slug = ""
+            if node.workflow:
+                workflow_slug = node.workflow.slug
+
             tool_edges = (
                 db.query(WorkflowEdge)
                 .filter(
@@ -379,14 +391,15 @@ def _resolve_tools(node) -> list:
                 if tool_db_node:
                     factory = get_component_factory(tool_db_node.component_type)
                     result = factory(tool_db_node)
+                    tool_component_type = tool_db_node.component_type
                     if isinstance(result, list):
                         for lc_tool in result:
                             tool_name = getattr(lc_tool, 'name', lc_tool.__class__.__name__)
-                            logger.info("Agent %s: wrapping tool %s from %s (%s)", node.node_id, tool_name, tool_db_node.node_id, tool_db_node.component_type)
-                            tools.append(_wrap_tool_with_events(lc_tool, tool_db_node.node_id, node))
+                            logger.info("Agent %s: wrapping tool %s from %s (%s)", node.node_id, tool_name, tool_db_node.node_id, tool_component_type)
+                            tools.append(_wrap_tool_with_events(lc_tool, tool_db_node.node_id, node, tool_component_type, workflow_slug, exec_id_ref))
                     else:
-                        logger.info("Agent %s: wrapping tool %s (%s)", node.node_id, tool_db_node.node_id, tool_db_node.component_type)
-                        tools.append(_wrap_tool_with_events(result, tool_db_node.node_id, node))
+                        logger.info("Agent %s: wrapping tool %s (%s)", node.node_id, tool_db_node.node_id, tool_component_type)
+                        tools.append(_wrap_tool_with_events(result, tool_db_node.node_id, node, tool_component_type, workflow_slug, exec_id_ref))
         finally:
             db.close()
     except Exception:
@@ -395,55 +408,88 @@ def _resolve_tools(node) -> list:
     return tools
 
 
-def _wrap_tool_with_events(lc_tool, tool_node_id, agent_node):
+def _wrap_tool_with_events(lc_tool, tool_node_id, agent_node, tool_component_type="", workflow_slug="", exec_id_ref=None):
     """Wrap a LangChain tool to publish node_status WS events."""
     from functools import wraps
 
     original_fn = lc_tool.func
-    # Cache workflow_id for use when tool is invoked later
-    workflow_id = agent_node.workflow_id
     agent_node_id = agent_node.node_id
-
+    tool_name = getattr(lc_tool, "name", lc_tool.__class__.__name__)
     @wraps(original_fn)
     def wrapped(*args, **kwargs):
-        logger.info("Tool %s invoked, publishing running status", tool_node_id)
-        _publish_tool_status(tool_node_id, "running", workflow_id, agent_node_id)
+        # Read execution_id from shared ref (set by agent_node before invoke).
+        # This works across executor threads because it's a mutable list, not thread-local.
+        exec_id = exec_id_ref[0] if exec_id_ref else None
+        logger.info("Tool %s invoked, publishing running status (exec=%s)", tool_node_id, exec_id)
+        _publish_tool_status(
+            tool_node_id=tool_node_id, status="running", workflow_slug=workflow_slug,
+            agent_node_id=agent_node_id, tool_name=tool_name,
+            tool_component_type=tool_component_type, execution_id=exec_id,
+        )
         try:
             result = original_fn(*args, **kwargs)
             logger.info("Tool %s completed successfully", tool_node_id)
-            _publish_tool_status(tool_node_id, "success", workflow_id, agent_node_id)
+            _publish_tool_status(
+                tool_node_id=tool_node_id, status="success", workflow_slug=workflow_slug,
+                agent_node_id=agent_node_id, tool_name=tool_name,
+                tool_component_type=tool_component_type, execution_id=exec_id,
+            )
             return result
         except Exception as e:
             logger.info("Tool %s failed: %s", tool_node_id, e)
-            _publish_tool_status(tool_node_id, "failed", workflow_id, agent_node_id)
+            _publish_tool_status(
+                tool_node_id=tool_node_id, status="failed", workflow_slug=workflow_slug,
+                agent_node_id=agent_node_id, tool_name=tool_name,
+                tool_component_type=tool_component_type, execution_id=exec_id,
+            )
             raise
 
     lc_tool.func = wrapped
     return lc_tool
 
 
-def _publish_tool_status(tool_node_id: str, status: str, workflow_id: int, agent_node_id: str):
-    """Publish node_status event for a tool node via Redis."""
+def _publish_tool_status(
+    tool_node_id: str,
+    status: str,
+    workflow_slug: str,
+    agent_node_id: str,
+    tool_name: str = "",
+    tool_component_type: str = "",
+    execution_id: str | None = None,
+):
+    """Publish node_status event for a tool node via Redis.
+
+    Uses the orchestrator's ``_publish_event`` when execution_id is available
+    so the event includes execution_id (required by the ChatPanel WS handler).
+    Falls back to ``broadcast`` for backward compatibility.
+    """
     try:
-        from ws.broadcast import broadcast
+        from schemas.node_types import get_node_type
 
-        # Get workflow slug
-        from models.node import WorkflowNode
-        from database import SessionLocal
+        spec = get_node_type(tool_component_type)
+        display_name = spec.display_name if spec else tool_component_type
 
-        db = SessionLocal()
-        try:
-            wf_node = db.query(WorkflowNode).filter_by(
-                workflow_id=workflow_id,
-                node_id=agent_node_id,
-            ).first()
-            if wf_node and wf_node.workflow:
-                slug = wf_node.workflow.slug
-                logger.info("Broadcasting tool status: node=%s status=%s workflow=%s", tool_node_id, status, slug)
-                broadcast(f"workflow:{slug}", "node_status", {"node_id": tool_node_id, "status": status})
-            else:
-                logger.warning("Could not find workflow for agent node %s", agent_node_id)
-        finally:
-            db.close()
+        data = {
+            "node_id": tool_node_id,
+            "status": status,
+            "tool_name": tool_name,
+            "parent_node_id": agent_node_id,
+            "is_tool_call": True,
+            "component_type": tool_component_type,
+            "display_name": display_name,
+            "node_label": tool_node_id,
+        }
+
+        if execution_id and workflow_slug:
+            # Use orchestrator's _publish_event so execution_id is included
+            from services.orchestrator import _publish_event
+            logger.info("Broadcasting tool status: node=%s status=%s workflow=%s exec=%s", tool_node_id, status, workflow_slug, execution_id)
+            _publish_event(execution_id, "node_status", data, workflow_slug=workflow_slug)
+        elif workflow_slug:
+            from ws.broadcast import broadcast
+            logger.info("Broadcasting tool status: node=%s status=%s workflow=%s", tool_node_id, status, workflow_slug)
+            broadcast(f"workflow:{workflow_slug}", "node_status", data)
+        else:
+            logger.warning("No workflow slug for tool node %s, cannot broadcast", tool_node_id)
     except Exception:
         logger.exception("Failed to publish tool status for node %s", tool_node_id)

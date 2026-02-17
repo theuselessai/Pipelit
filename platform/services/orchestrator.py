@@ -158,6 +158,23 @@ def _load_topology(execution_id: str) -> dict:
     return json.loads(raw)
 
 
+# ── Node metadata helper ──────────────────────────────────────────────────────
+
+
+def _get_node_meta(node_info: dict) -> dict:
+    """Extract display metadata from a topology node_info dict for WS events."""
+    from schemas.node_types import get_node_type
+
+    component_type = node_info.get("component_type", "")
+    spec = get_node_type(component_type)
+    display_name = spec.display_name if spec else component_type
+    return {
+        "component_type": component_type,
+        "display_name": display_name,
+        "node_label": node_info.get("node_id", ""),
+    }
+
+
 # ── Core orchestrator ──────────────────────────────────────────────────────────
 
 
@@ -302,7 +319,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             _cleanup_redis(execution_id)
             return
 
-        _publish_event(execution_id, "node_status", {"node_id": node_id, "status": NodeStatus.RUNNING.value}, workflow_slug=slug)
+        _node_meta = _get_node_meta(node_info)
+        _publish_event(execution_id, "node_status", {"node_id": node_id, "status": NodeStatus.RUNNING.value, **_node_meta}, workflow_slug=slug)
 
         # Load node from DB and get component factory
         db_node = db.get(WorkflowNode, node_info["db_id"])
@@ -360,6 +378,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.FAILED.value,
                 "error": str(exc)[:500], "error_code": exc_type,
+                **_node_meta,
             }, workflow_slug=slug)
 
             # Retry logic
@@ -518,6 +537,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             "node_id": node_id, "status": NodeStatus.SUCCESS.value,
             "duration_ms": duration_ms,
             "output": _truncate_output(node_output),
+            **_node_meta,
         }
         if token_usage:
             ws_data["token_usage"] = token_usage
@@ -567,6 +587,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.WAITING.value,
                 "child_execution_id": child_id,
+                **_node_meta,
             }, workflow_slug=slug)
             # Do NOT advance or decrement inflight — node stays inflight
             # until child completes and _resume_from_child is called.
@@ -982,7 +1003,27 @@ def _finalize(execution_id: str, db: Session) -> None:
 
         logger.info("Execution %s completed", execution_id)
         slug = _get_workflow_slug(execution_id, db)
-        _publish_event(execution_id, "execution_completed", {"output": execution.final_output}, workflow_slug=slug)
+
+        # Build activity summary from execution cost fields
+        exec_usage = state.get("_execution_token_usage", {})
+        duration_ms = 0
+        if execution.started_at and execution.completed_at:
+            sa = execution.started_at.replace(tzinfo=None) if execution.started_at.tzinfo else execution.started_at
+            ca = execution.completed_at.replace(tzinfo=None) if execution.completed_at.tzinfo else execution.completed_at
+            duration_ms = int((ca - sa).total_seconds() * 1000)
+        activity_summary = {
+            "total_steps": len(state.get("node_results", {})),
+            "total_duration_ms": duration_ms,
+            "total_tokens": execution.total_tokens or 0,
+            "total_cost_usd": float(execution.total_cost_usd or 0),
+            "llm_calls": execution.llm_calls or 0,
+            "tool_invocations": exec_usage.get("tool_invocations", 0),
+        }
+
+        _publish_event(execution_id, "execution_completed", {
+            "output": execution.final_output,
+            "activity_summary": activity_summary,
+        }, workflow_slug=slug)
 
         # Complete memory episode
         _complete_episode(

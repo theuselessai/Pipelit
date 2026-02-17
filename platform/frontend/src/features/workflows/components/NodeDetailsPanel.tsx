@@ -23,6 +23,8 @@ import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
 import PopoutWindow from "@/components/PopoutWindow"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
 import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule, ScheduleJobInfo } from "@/types/models"
+import type { ActivityStep, ActivityToolStep, ActivitySummary } from "@/types/activity"
+import ActivityIndicator from "./ActivityIndicator"
 
 interface Props {
   slug: string
@@ -94,6 +96,7 @@ function formatTimestamp(ts: string | undefined): string {
   if (!ts) return ""
   try {
     const date = new Date(ts)
+    if (isNaN(date.getTime())) return ""
     return date.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
@@ -139,6 +142,11 @@ function ChatPanel({ slug, node, onClose }: Props) {
   const [waiting, setWaiting] = useState(false)
   const pendingExecRef = useRef<string | null>(null)
 
+  // Activity indicator state
+  const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
+  const [activitySummary, setActivitySummary] = useState<ActivitySummary | null>(null)
+  const [activityExpanded, setActivityExpanded] = useState(true)
+
   // Register a global WS handler to listen for execution completion
   useEffect(() => {
     const handlerId = `chat-panel-${node.node_id}`
@@ -146,9 +154,76 @@ function ChatPanel({ slug, node, onClose }: Props) {
       if (!pendingExecRef.current) return
       if (msg.execution_id !== pendingExecRef.current) return
 
+      // Handle node_status events for activity tracking
+      if (msg.type === "node_status" && msg.data) {
+        const d = msg.data
+        const nodeId = d.node_id as string
+        if (!nodeId) return
+        const status = d.status as string
+        const isToolCall = d.is_tool_call === true
+
+        if (isToolCall) {
+          const parentId = d.parent_node_id as string
+          if (!parentId) return
+          // Upsert into parent step's tool_steps
+          const toolStep: ActivityToolStep = {
+            tool_name: (d.tool_name as string) || "",
+            tool_node_id: nodeId,
+            status: status as ActivityToolStep["status"],
+            started_at: Date.now(),
+            duration_ms: d.duration_ms as number | undefined,
+            error: d.error as string | undefined,
+          }
+          setActivitySteps((prev) => {
+            return prev.map((step) => {
+              if (step.node_id !== parentId) return step
+              const existing = step.tool_steps.findIndex((ts) => ts.tool_node_id === nodeId)
+              if (existing >= 0) {
+                const updated = [...step.tool_steps]
+                updated[existing] = { ...updated[existing], status: toolStep.status, duration_ms: toolStep.duration_ms, error: toolStep.error }
+                return { ...step, tool_steps: updated }
+              }
+              return { ...step, tool_steps: [...step.tool_steps, toolStep] }
+            })
+          })
+        } else {
+          // Upsert into activitySteps
+          setActivitySteps((prev) => {
+            const idx = prev.findIndex((s) => s.node_id === nodeId)
+            if (idx >= 0) {
+              const updated = [...prev]
+              updated[idx] = {
+                ...updated[idx],
+                status: status as ActivityStep["status"],
+                duration_ms: d.duration_ms as number | undefined,
+                error: d.error as string | undefined,
+              }
+              return updated
+            }
+            // New step
+            return [...prev, {
+              node_id: nodeId,
+              component_type: (d.component_type as string) || "",
+              display_name: (d.display_name as string) || nodeId,
+              node_label: (d.node_label as string) || nodeId,
+              status: status as ActivityStep["status"],
+              started_at: Date.now(),
+              duration_ms: d.duration_ms as number | undefined,
+              error: d.error as string | undefined,
+              tool_steps: [],
+            }]
+          })
+        }
+      }
+
       if (msg.type === "execution_completed") {
         pendingExecRef.current = null
         setWaiting(false)
+        // Set activity summary and auto-collapse
+        if (msg.data?.activity_summary) {
+          setActivitySummary(msg.data.activity_summary as ActivitySummary)
+        }
+        setActivityExpanded(false)
         const output = msg.data?.output as Record<string, unknown> | undefined
         if (output) {
           const text =
@@ -163,6 +238,9 @@ function ChatPanel({ slug, node, onClose }: Props) {
       } else if (msg.type === "execution_failed") {
         pendingExecRef.current = null
         setWaiting(false)
+        setActivityExpanded(false)
+        setActivitySteps([])
+        setActivitySummary(null)
         setLocalMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}`, timestamp: new Date().toISOString() }])
       }
     })
@@ -173,6 +251,10 @@ function ChatPanel({ slug, node, onClose }: Props) {
     const text = input.trim()
     if (!text || sendMessage.isPending || waiting) return
     setInput("")
+    // Reset activity state for new execution
+    setActivitySteps([])
+    setActivitySummary(null)
+    setActivityExpanded(true)
     setLocalMessages((prev) => [...prev, { role: "user", text, timestamp: new Date().toISOString() }])
     sendMessage.mutate(text, {
       onSuccess: (data) => {
@@ -272,7 +354,15 @@ function ChatPanel({ slug, node, onClose }: Props) {
             )}
           </div>
         ))}
-        {(sendMessage.isPending || waiting) && (
+        {activitySteps.length > 0 && (
+          <ActivityIndicator
+            steps={activitySteps}
+            summary={activitySummary}
+            expanded={activityExpanded}
+            onToggle={() => setActivityExpanded((prev) => !prev)}
+          />
+        )}
+        {(sendMessage.isPending || waiting) && activitySteps.length === 0 && (
           <div className="flex justify-start">
             <div className="bg-muted rounded-lg px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
           </div>
