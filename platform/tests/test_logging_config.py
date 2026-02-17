@@ -233,3 +233,68 @@ def test_task_wrappers_set_and_reset_context():
     assert execution_id_var.get() == "test-exec-id"
     execution_id_var.reset(token)
     assert execution_id_var.get("") == ""
+
+
+# ── PipelitWorker tests ──────────────────────────────────────────────────
+
+
+def test_pipelit_worker_calls_setup_logging(monkeypatch):
+    """PipelitWorker.__init__ calls setup_logging with Worker-{pid}."""
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.setenv("LOG_FILE", "")
+
+    with patch("worker_class.setup_logging") as mock_setup, \
+         patch("worker_class.SimpleWorker.__init__", return_value=None):
+        from worker_class import PipelitWorker
+        worker = PipelitWorker()
+        mock_setup.assert_called_once()
+        call_arg = mock_setup.call_args[0][0]
+        assert call_arg.startswith("Worker-")
+
+
+# ── Task wrapper tests ───────────────────────────────────────────────────
+
+
+def test_cleanup_stuck_child_waits_job():
+    """cleanup_stuck_child_waits_job calls the cleanup function."""
+    from unittest.mock import patch, MagicMock
+
+    mock_fn = MagicMock(return_value=5)
+    with patch("tasks.cleanup_stuck_child_waits", mock_fn, create=True):
+        # Re-import to pick up the mock
+        import importlib
+        import tasks
+        # Directly call the wrapper to test its body
+        with patch("services.cleanup.cleanup_stuck_child_waits", mock_fn):
+            result = tasks.cleanup_stuck_child_waits_job()
+    assert result == 5
+
+
+def test_execute_scheduled_job_task_sets_context():
+    """execute_scheduled_job_task sets execution_id_var and calls scheduler."""
+    from unittest.mock import patch, MagicMock
+    from logging_config import execution_id_var
+
+    captured_ctx = {}
+    def fake_execute(job_id, repeat, retry):
+        captured_ctx["exec_id"] = execution_id_var.get("")
+
+    with patch("services.scheduler.execute_scheduled_job", fake_execute):
+        from tasks import execute_scheduled_job_task
+        execute_scheduled_job_task("job-42", 1, 0)
+
+    assert captured_ctx["exec_id"] == "sched-job-42"
+    # Context var should be reset after
+    assert execution_id_var.get("") == ""
+
+
+def test_recover_zombie_executions_job():
+    """recover_zombie_executions_job calls the recovery function."""
+    from unittest.mock import patch, MagicMock
+
+    mock_fn = MagicMock(return_value=3)
+    with patch("services.execution_recovery.recover_zombie_executions", mock_fn):
+        from tasks import recover_zombie_executions_job
+        result = recover_zombie_executions_job()
+    assert result == 3

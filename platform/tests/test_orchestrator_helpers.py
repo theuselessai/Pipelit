@@ -626,3 +626,91 @@ class TestEpisodeHelpers:
         with patch("database.SessionLocal", side_effect=RuntimeError("db fail")):
             # Should not raise
             _complete_episode("exec-1", False, None, error_code="ERR", error_message="boom")
+
+
+# ── _queue ───────────────────────────────────────────────────────────────────
+
+class TestQueueHelper:
+    @patch("services.orchestrator.redis_lib.from_url")
+    def test_queue_returns_queue(self, mock_from_url):
+        from services.orchestrator import _queue
+
+        mock_conn = MagicMock()
+        mock_from_url.return_value = mock_conn
+
+        q = _queue()
+        assert q is not None
+        mock_from_url.assert_called_once()
+
+
+# ── _get_node_meta ───────────────────────────────────────────────────────────
+
+class TestGetNodeMeta:
+    def test_known_component_type(self):
+        from services.orchestrator import _get_node_meta
+
+        result = _get_node_meta({
+            "component_type": "trigger_manual",
+            "node_id": "manual_1",
+        })
+        assert result["component_type"] == "trigger_manual"
+        assert result["node_label"] == "manual_1"
+        assert "display_name" in result
+
+    def test_unknown_component_type(self):
+        from services.orchestrator import _get_node_meta
+
+        result = _get_node_meta({
+            "component_type": "nonexistent_type",
+            "node_id": "n1",
+        })
+        assert result["component_type"] == "nonexistent_type"
+        # Falls back to component_type as display name
+        assert result["display_name"] == "nonexistent_type"
+
+    def test_empty_node_info(self):
+        from services.orchestrator import _get_node_meta
+
+        result = _get_node_meta({})
+        assert result["component_type"] == ""
+        assert result["node_label"] == ""
+
+
+
+# ── start_execution error paths ──────────────────────────────────────────────
+
+class TestStartExecutionErrorPaths:
+    @patch("services.orchestrator._redis")
+    def test_start_execution_own_session_error_path(self, mock_redis_fn, db, workflow, user_profile):
+        """start_execution(db=None) creates its own session and closes it on error."""
+        from services.orchestrator import start_execution
+        from models.execution import WorkflowExecution
+
+        ex = WorkflowExecution(
+            workflow_id=workflow.id, user_profile_id=user_profile.id,
+            thread_id="t1", trigger_payload={},
+        )
+        db.add(ex)
+        db.commit()
+        execution_id = str(ex.execution_id)
+
+        mock_r = MagicMock()
+        mock_redis_fn.return_value = mock_r
+
+        mock_session = MagicMock()
+        mock_ex = MagicMock()
+        mock_ex.execution_id = execution_id
+        mock_ex.trigger_node_id = None
+        mock_ex.workflow_id = workflow.id
+        mock_session.query.return_value.filter.return_value.first.return_value = mock_ex
+
+        mock_wf = MagicMock()
+        mock_wf.slug = "test"
+
+        # Make build_topology fail
+        with patch("database.SessionLocal", return_value=mock_session), \
+             patch("services.orchestrator.build_topology", side_effect=ValueError("no nodes")):
+            start_execution(execution_id, db=None)
+
+        # Should close the session it created
+        mock_session.close.assert_called_once()

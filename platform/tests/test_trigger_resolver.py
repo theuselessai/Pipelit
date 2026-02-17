@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from triggers.resolver import TriggerResolver, EVENT_TYPE_TO_COMPONENT
@@ -160,3 +162,67 @@ class TestTelegramMatching:
         assert resolver._match_telegram(config, {"user_id": 123, "text": "hello"})
         assert not resolver._match_telegram(config, {"user_id": 999, "text": "hello"})
         assert not resolver._match_telegram(config, {"user_id": 123, "text": "goodbye"})
+
+
+class TestScheduleMatching:
+    def test_schedule_no_filter(self, resolver):
+        """No scheduled_job_id filter → always matches."""
+        assert resolver._match_schedule({}, {"scheduled_job_id": "any"})
+
+    def test_schedule_filter_match(self, resolver):
+        config = {"scheduled_job_id": "job-42"}
+        assert resolver._match_schedule(config, {"scheduled_job_id": "job-42"})
+
+    def test_schedule_filter_mismatch(self, resolver):
+        config = {"scheduled_job_id": "job-42"}
+        assert not resolver._match_schedule(config, {"scheduled_job_id": "job-99"})
+
+    def test_schedule_none_config(self, resolver):
+        assert resolver._match_schedule(None, {"scheduled_job_id": "any"})
+
+
+class TestWorkflowMatching:
+    def test_workflow_event_no_source_filter(self, resolver):
+        """No source_workflow in config → always matches."""
+        config_obj = MagicMock()
+        config_obj.trigger_config = {}
+        assert resolver._matches(config_obj, "workflow", {"source_workflow": "wf1"})
+
+    def test_workflow_event_source_match(self, resolver):
+        config_obj = MagicMock()
+        config_obj.trigger_config = {"source_workflow": "wf1"}
+        assert resolver._matches(config_obj, "workflow", {"source_workflow": "wf1"})
+
+    def test_workflow_event_source_mismatch(self, resolver):
+        config_obj = MagicMock()
+        config_obj.trigger_config = {"source_workflow": "wf1"}
+        assert not resolver._matches(config_obj, "workflow", {"source_workflow": "wf2"})
+
+
+class TestDefaultWorkflowFallback:
+    def test_no_default_workflow_returns_none(self, resolver, db, user_profile):
+        """No default workflow → returns None."""
+        result = resolver.resolve("manual", {}, db)
+        assert result is None
+
+    def test_default_workflow_without_matching_trigger_returns_none(self, resolver, db, user_profile):
+        """Default workflow exists but has no matching trigger type → None."""
+        from models.workflow import Workflow
+
+        default_wf = Workflow(
+            name="Default", slug="default-no-trigger",
+            owner_id=user_profile.id, is_active=True, is_default=True,
+        )
+        db.add(default_wf)
+        db.commit()
+
+        # No trigger_manual node on this workflow
+        result = resolver.resolve("manual", {}, db)
+        assert result is None
+
+
+class TestErrorMatching:
+    def test_error_event_always_matches(self, resolver):
+        config_obj = MagicMock()
+        config_obj.trigger_config = {}
+        assert resolver._matches(config_obj, "error", {})
