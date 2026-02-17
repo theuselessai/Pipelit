@@ -551,7 +551,7 @@ class TestScheduledJobUpdateValidators:
 class TestSchedulerDispatch:
     @patch("services.scheduler._enqueue_next")
     @patch("services.scheduler.SessionLocal")
-    def test_dispatch_happy_path(self, mock_session_cls, mock_enqueue, db, scheduled_job):
+    def test_dispatch_happy_path(self, mock_session_cls, mock_enqueue, scheduled_job):
         """_dispatch_scheduled_trigger fires the workflow trigger."""
         mock_session = MagicMock()
         mock_session.get.return_value = scheduled_job

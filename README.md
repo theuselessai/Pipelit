@@ -51,7 +51,6 @@ cd Pipelit
 # Backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r platform/requirements.txt
-pip install honcho  # Process manager for multi-service startup
 
 # Frontend
 cd platform/frontend && npm install
