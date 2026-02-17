@@ -1,3 +1,4 @@
 server: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 frontend: npm --prefix frontend run dev
-worker: rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler
+worker: rq worker-pool workflows -w worker_class.PipelitWorker -n 2
+scheduler: rq scheduler --queue workflows
