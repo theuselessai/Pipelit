@@ -415,24 +415,33 @@ def _wrap_tool_with_events(lc_tool, tool_node_id, agent_node, tool_component_typ
     original_fn = lc_tool.func
     agent_node_id = agent_node.node_id
     tool_name = getattr(lc_tool, "name", lc_tool.__class__.__name__)
-    # Capture slug in closure — no DB query needed at invocation time
-    _slug = workflow_slug
-
     @wraps(original_fn)
     def wrapped(*args, **kwargs):
         # Read execution_id from shared ref (set by agent_node before invoke).
         # This works across executor threads because it's a mutable list, not thread-local.
         exec_id = exec_id_ref[0] if exec_id_ref else None
         logger.info("Tool %s invoked, publishing running status (exec=%s)", tool_node_id, exec_id)
-        _publish_tool_status(tool_node_id, "running", _slug, agent_node_id, tool_name, tool_component_type, exec_id)
+        _publish_tool_status(
+            tool_node_id=tool_node_id, status="running", workflow_slug=workflow_slug,
+            agent_node_id=agent_node_id, tool_name=tool_name,
+            tool_component_type=tool_component_type, execution_id=exec_id,
+        )
         try:
             result = original_fn(*args, **kwargs)
             logger.info("Tool %s completed successfully", tool_node_id)
-            _publish_tool_status(tool_node_id, "success", _slug, agent_node_id, tool_name, tool_component_type, exec_id)
+            _publish_tool_status(
+                tool_node_id=tool_node_id, status="success", workflow_slug=workflow_slug,
+                agent_node_id=agent_node_id, tool_name=tool_name,
+                tool_component_type=tool_component_type, execution_id=exec_id,
+            )
             return result
         except Exception as e:
             logger.info("Tool %s failed: %s", tool_node_id, e)
-            _publish_tool_status(tool_node_id, "failed", _slug, agent_node_id, tool_name, tool_component_type, exec_id)
+            _publish_tool_status(
+                tool_node_id=tool_node_id, status="failed", workflow_slug=workflow_slug,
+                agent_node_id=agent_node_id, tool_name=tool_name,
+                tool_component_type=tool_component_type, execution_id=exec_id,
+            )
             raise
 
     lc_tool.func = wrapped

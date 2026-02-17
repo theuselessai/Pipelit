@@ -185,9 +185,9 @@ class TestWrapToolWithEvents:
             # Verify _publish_tool_status was called with the exec_id
             assert mock_publish.call_count == 2  # running + success
             running_call = mock_publish.call_args_list[0]
-            assert running_call[0][6] == "exec-99"  # execution_id positional arg
+            assert running_call.kwargs["execution_id"] == "exec-99"
             success_call = mock_publish.call_args_list[1]
-            assert success_call[0][6] == "exec-99"
+            assert success_call.kwargs["execution_id"] == "exec-99"
 
     def test_tool_failure_publishes_failed_status(self):
         from components.agent import _wrap_tool_with_events
@@ -210,4 +210,4 @@ class TestWrapToolWithEvents:
                 wrapped.func()
 
             assert mock_publish.call_count == 2  # running + failed
-            assert mock_publish.call_args_list[1][0][1] == "failed"
+            assert mock_publish.call_args_list[1].kwargs["status"] == "failed"

@@ -235,8 +235,6 @@ def get_chat_history(
         limit: Max messages to return (default 10)
         before: ISO datetime string - only return messages before this time
     """
-    from datetime import datetime
-
     workflow = db.query(Workflow).filter(Workflow.slug == slug, Workflow.deleted_at.is_(None)).first()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found.")
@@ -295,7 +293,7 @@ def get_chat_history(
             # Fallback: inherit from the preceding message (AI replies follow human messages)
             if not timestamp and last_timestamp:
                 timestamp = last_timestamp
-            # Normalize: Python's isoformat()+Z produces "+00:00Z" — ensure clean Z suffix
+            # Normalize: ensure clean Z suffix for UTC timestamps
             if timestamp and isinstance(timestamp, str):
                 timestamp = timestamp.replace("+00:00Z", "Z").replace("+00:00", "Z")
             if timestamp:
