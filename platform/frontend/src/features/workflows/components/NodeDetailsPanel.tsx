@@ -239,6 +239,8 @@ function ChatPanel({ slug, node, onClose }: Props) {
         pendingExecRef.current = null
         setWaiting(false)
         setActivityExpanded(false)
+        setActivitySteps([])
+        setActivitySummary(null)
         setLocalMessages((prev) => [...prev, { role: "assistant", text: `Error: ${(msg.data?.error as string) || "Execution failed"}`, timestamp: new Date().toISOString() }])
       }
     })

@@ -149,6 +149,8 @@ class TestPublishToolStatus:
                 status="running",
                 workflow_slug="",
                 agent_node_id="agent_abc",
+                tool_name="",
+                tool_component_type="",
                 execution_id=None,
             )
             mock_logger.warning.assert_called()
@@ -200,6 +202,8 @@ class TestWrapToolWithEvents:
         with patch("components.agent._publish_tool_status") as mock_publish:
             wrapped = _wrap_tool_with_events(
                 mock_tool, "tool_1", mock_agent_node,
+                tool_component_type="",
+                workflow_slug="",
                 exec_id_ref=[None],
             )
             with pytest.raises(ValueError, match="boom"):
