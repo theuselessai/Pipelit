@@ -107,8 +107,11 @@ def cancel_execution(
 
         # Clear stale LangGraph checkpoints to prevent INVALID_CHAT_HISTORY
         # on the next conversation turn (agent mid-tool-call leaves orphaned tool_calls)
-        from services.orchestrator import _clear_stale_checkpoints
-        _clear_stale_checkpoints(execution.execution_id, db)
+        try:
+            from services.orchestrator import _clear_stale_checkpoints
+            _clear_stale_checkpoints(execution.execution_id, db)
+        except Exception:
+            pass
 
         # Notify frontend via WebSocket (best-effort)
         try:

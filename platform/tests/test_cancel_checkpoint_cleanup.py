@@ -73,8 +73,9 @@ def test_cancel_calls_clear_stale_checkpoints(
 
 @patch("services.orchestrator._clear_stale_checkpoints")
 @patch("services.execution_recovery._cleanup_redis")
+@patch("ws.broadcast.broadcast")
 def test_cancel_completed_does_not_clear_checkpoints(
-    _mock_redis, mock_clear_cp, auth_client, running_execution, db
+    _mock_broadcast, _mock_redis, mock_clear_cp, auth_client, running_execution, db
 ):
     running_execution.status = "completed"
     db.commit()
