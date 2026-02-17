@@ -25,6 +25,13 @@ from ws import ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Configure unified logging before anything else
+    from logging_config import setup_logging
+    setup_logging("Server")
+
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
     Base.metadata.create_all(bind=engine)
 
@@ -33,26 +40,18 @@ async def lifespan(app: FastAPI):
         from services.scheduler import recover_scheduled_jobs
         recovered = recover_scheduled_jobs()
         if recovered:
-            import logging
-            logging.getLogger(__name__).info("Recovered %d stale scheduled jobs", recovered)
+            logger.info("Recovered %d stale scheduled jobs", recovered)
     except Exception:
-        import logging
-        logging.getLogger(__name__).exception("Failed to recover scheduled jobs on startup")
+        logger.exception("Failed to recover scheduled jobs on startup")
 
     # Recover any executions stuck in "running" from a previous crash
     try:
         from services.execution_recovery import recover_zombie_executions
         recovered_executions = recover_zombie_executions()
         if recovered_executions:
-            import logging
-            logging.getLogger(__name__).info(
-                "Recovered %d zombie executions", recovered_executions
-            )
+            logger.info("Recovered %d zombie executions", recovered_executions)
     except Exception:
-        import logging
-        logging.getLogger(__name__).exception(
-            "Failed to recover zombie executions on startup"
-        )
+        logger.exception("Failed to recover zombie executions on startup")
 
     yield
 
@@ -88,4 +87,4 @@ if frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_config=None)

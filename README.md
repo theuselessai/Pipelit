@@ -72,23 +72,42 @@ REDIS_URL=redis://localhost:6379/0
 
 ### 3. Start Services
 
-Start Redis, then open three terminals:
+Start Redis, then launch everything with a single command:
+
+```bash
+cd platform && source ../.venv/bin/activate
+honcho start
+```
+
+This starts four processes via the `Procfile`:
+
+| Process | Command | Description |
+|---------|---------|-------------|
+| **server** | `uvicorn main:app --reload` | FastAPI backend on `:8000` |
+| **frontend** | `npm run dev` | Vite dev server on `:5173`, proxies `/api` to `:8000` |
+| **scheduler** | `rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler` | 1 worker with job scheduler (handles `enqueue_in` delayed jobs) |
+| **worker** | `rq worker-pool workflows -w worker_class.PipelitWorker -n 2` | 2 additional workers for parallel job processing |
+
+The backend auto-creates the database on first startup.
+
+<details>
+<summary><strong>Manual startup (without honcho)</strong></summary>
 
 ```bash
 # Terminal 1 — Backend
 cd platform && source ../.venv/bin/activate
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-# Terminal 2 — RQ Worker (executes workflows and scheduled jobs)
+# Terminal 2 — RQ Worker with scheduler
 cd platform && source ../.venv/bin/activate
-rq worker workflows --with-scheduler
+rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler
 
 # Terminal 3 — Frontend (dev)
 cd platform/frontend
 npm run dev    # http://localhost:5173, proxies /api to :8000
 ```
 
-The backend auto-creates the database on first startup.
+</details>
 
 ### 4. First Login
 

@@ -458,3 +458,84 @@ class TestOnExecutionJobFailure:
         with patch("database.SessionLocal", side_effect=Exception("DB connection pool exhausted")):
             # Should not raise
             on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_no_args_logs_error(self, mock_pub, mock_redis):
+        """Callback with no args → logs error and returns."""
+        job = MagicMock()
+        job.args = ()
+
+        on_execution_job_failure(job, None, RuntimeError, RuntimeError("err"), None)
+
+        mock_pub.assert_not_called()
+
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_none_exc_type(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """exc_type=None → error message says 'unknown error'."""
+        ex = _make_execution(
+            db, workflow, user_profile,
+            status="running",
+            started_at=_utcnow_naive() - timedelta(seconds=30),
+        )
+        job = _make_mock_job(ex.execution_id)
+
+        with _patch_session(db):
+            on_execution_job_failure(job, None, None, None, None)
+
+        db.refresh(ex)
+        assert ex.status == "failed"
+        assert "unknown error" in ex.error_message.lower()
+
+
+# ---------------------------------------------------------------------------
+# Slug lookup failure in _recover_one
+# ---------------------------------------------------------------------------
+
+class TestRecoverOneSlugLookup:
+    @patch("services.execution_recovery._cleanup_redis")
+    @patch("services.execution_recovery._publish_zombie_event")
+    def test_slug_lookup_failure_graceful(self, mock_pub, mock_redis, db, workflow, user_profile):
+        """If workflow slug lookup raises, recovery still succeeds."""
+        ex = _make_execution(
+            db, workflow, user_profile,
+            status="running",
+            started_at=_utcnow_naive() - timedelta(seconds=2000),
+        )
+
+        original_query = db.query
+
+        call_count = 0
+        def flaky_query(*args, **kwargs):
+            nonlocal call_count
+            from models.workflow import Workflow
+            result = original_query(*args, **kwargs)
+            # Only fail on the Workflow query (second call in _recover_one)
+            if args and args[0] is Workflow:
+                call_count += 1
+                if call_count == 1:
+                    raise RuntimeError("DB error during slug lookup")
+            return result
+
+        with patch.object(db, 'query', side_effect=flaky_query):
+            _recover_one(ex, db)
+
+        # Event still published (with slug=None)
+        mock_pub.assert_called_once_with(ex.execution_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Top-level exception in recover_zombie_executions
+# ---------------------------------------------------------------------------
+
+class TestRecoverZombieTopLevelError:
+    def test_outer_exception_returns_zero(self):
+        """Top-level exception in recover_zombie_executions → returns 0."""
+        mock_session = MagicMock()
+        mock_session.query.side_effect = RuntimeError("query failed")
+
+        with patch("database.SessionLocal", return_value=mock_session):
+            result = recover_zombie_executions(threshold_seconds=900)
+
+        assert result == 0

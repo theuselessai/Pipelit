@@ -7,25 +7,47 @@ We define thin wrappers here so that __module__ is 'tasks',
 which is what RQ serializes for job lookup.
 """
 
+from logging_config import execution_id_var, node_id_var
+
 
 def execute_workflow_job(execution_id: str) -> None:
-    from services.orchestrator import start_execution_job
-    start_execution_job(execution_id)
+    token = execution_id_var.set(execution_id)
+    try:
+        from services.orchestrator import start_execution_job
+        start_execution_job(execution_id)
+    finally:
+        execution_id_var.reset(token)
 
 
 def resume_workflow_job(execution_id: str, user_input: str) -> None:
-    from services.orchestrator import resume_node_job
-    resume_node_job(execution_id, user_input)
+    token = execution_id_var.set(execution_id)
+    try:
+        from services.orchestrator import resume_node_job
+        resume_node_job(execution_id, user_input)
+    finally:
+        execution_id_var.reset(token)
 
 
 def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> None:
-    from services.orchestrator import execute_node_job as _run
-    _run(execution_id, node_id, retry_count)
+    exec_token = execution_id_var.set(execution_id)
+    try:
+        node_token = node_id_var.set(node_id)
+        try:
+            from services.orchestrator import execute_node_job as _run
+            _run(execution_id, node_id, retry_count)
+        finally:
+            node_id_var.reset(node_token)
+    finally:
+        execution_id_var.reset(exec_token)
 
 
 def start_execution_job(execution_id: str) -> None:
-    from services.orchestrator import start_execution
-    start_execution(execution_id)
+    token = execution_id_var.set(execution_id)
+    try:
+        from services.orchestrator import start_execution
+        start_execution(execution_id)
+    finally:
+        execution_id_var.reset(token)
 
 
 def cleanup_stuck_child_waits_job() -> int:
@@ -34,8 +56,12 @@ def cleanup_stuck_child_waits_job() -> int:
 
 
 def execute_scheduled_job_task(job_id: str, current_repeat: int = 0, current_retry: int = 0) -> None:
-    from services.scheduler import execute_scheduled_job
-    execute_scheduled_job(job_id, current_repeat, current_retry)
+    token = execution_id_var.set(f"sched-{job_id}")
+    try:
+        from services.scheduler import execute_scheduled_job
+        execute_scheduled_job(job_id, current_repeat, current_retry)
+    finally:
+        execution_id_var.reset(token)
 
 
 def recover_zombie_executions_job() -> int:

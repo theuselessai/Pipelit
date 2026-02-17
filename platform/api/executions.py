@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import logging
+
 from auth import get_current_user
 from database import get_db
 from models.execution import ExecutionLog, WorkflowExecution
@@ -18,6 +20,8 @@ from models.node import WorkflowNode
 from models.user import UserProfile
 from models.workflow import Workflow
 from schemas.execution import ChatMessageIn, ChatMessageOut, ExecutionDetailOut, ExecutionOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -111,7 +115,7 @@ def cancel_execution(
             from services.orchestrator import _clear_stale_checkpoints
             _clear_stale_checkpoints(execution.execution_id, db)
         except Exception:
-            pass
+            logger.exception("Failed to clear stale checkpoints for %s", execution.execution_id)
 
         # Notify frontend via WebSocket (best-effort)
         try:
@@ -121,7 +125,7 @@ def cancel_execution(
                 broadcast(f"workflow:{wf.slug}", "execution_cancelled",
                           {"execution_id": execution.execution_id})
         except Exception:
-            pass
+            logger.exception("Failed to broadcast execution_cancelled for %s", execution.execution_id)
 
     return _serialize_execution(execution, db)
 
@@ -260,6 +264,7 @@ def get_chat_history(
     try:
         checkpoint_tuple = checkpointer.get_tuple(config)
     except Exception:
+        logger.exception("Failed to read checkpoint for thread %s", thread_id)
         return ChatHistoryOut(messages=[], thread_id=thread_id, has_more=False)
 
     if not checkpoint_tuple or not checkpoint_tuple.checkpoint:

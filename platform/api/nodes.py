@@ -237,7 +237,7 @@ def _get_schedule_node(slug: str, node_id: str, db: Session, profile: UserProfil
     return wf, node
 
 
-@router.post("/{slug}/nodes/{node_id}/schedule/start", response_model=NodeOut)
+@router.post("/{slug}/nodes/{node_id}/schedule/start/", response_model=NodeOut)
 def schedule_start(
     slug: str,
     node_id: str,
@@ -314,7 +314,7 @@ def schedule_start(
     return result
 
 
-@router.post("/{slug}/nodes/{node_id}/schedule/pause", response_model=NodeOut)
+@router.post("/{slug}/nodes/{node_id}/schedule/pause/", response_model=NodeOut)
 def schedule_pause(
     slug: str,
     node_id: str,
@@ -340,7 +340,7 @@ def schedule_pause(
     return result
 
 
-@router.post("/{slug}/nodes/{node_id}/schedule/stop", response_model=NodeOut)
+@router.post("/{slug}/nodes/{node_id}/schedule/stop/", response_model=NodeOut)
 def schedule_stop(
     slug: str,
     node_id: str,
