@@ -30,6 +30,11 @@ class Settings(BaseSettings):
 
     ZOMBIE_EXECUTION_THRESHOLD_SECONDS: int = 900  # 15 min
 
+    LOG_LEVEL: str = "INFO"
+    LOG_FILE: str = ""                    # empty = console only; set to e.g. "logs/pipelit.log"
+    LOG_MAX_BYTES: int = 10_485_760       # 10 MB
+    LOG_BACKUP_COUNT: int = 5
+
     model_config = ConfigDict(
         env_file=str(BASE_DIR.parent / ".env"),
         env_file_encoding="utf-8",

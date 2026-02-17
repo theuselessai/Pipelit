@@ -25,6 +25,10 @@ from ws import ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Configure unified logging before anything else
+    from logging_config import setup_logging
+    setup_logging("Server")
+
     # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
     Base.metadata.create_all(bind=engine)
 
@@ -88,4 +92,4 @@ if frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_config=None)

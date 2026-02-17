@@ -97,7 +97,7 @@ def _recover_one(execution, db: Session) -> None:
         if wf:
             workflow_slug = wf.slug
     except Exception:
-        pass
+        logger.debug("Could not look up workflow slug for %s", execution_id, exc_info=True)
 
     _publish_zombie_event(execution_id, workflow_slug)
     _cleanup_redis(execution_id)

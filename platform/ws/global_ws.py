@@ -105,6 +105,7 @@ async def global_ws(websocket: WebSocket, token: str = ""):
                     ignore_subscribe_messages=True, timeout=0.5,
                 )
             except Exception:
+                logger.warning("Redis pub/sub get_message failed, retrying", exc_info=True)
                 await asyncio.sleep(1)
                 continue
             if msg and msg["type"] == "message":

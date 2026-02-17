@@ -1273,7 +1273,7 @@ def _get_workflow_slug(execution_id: str, db: Session | None = None) -> str | No
         if slug:
             return slug
     except Exception:
-        pass
+        logger.debug("Topology lookup failed for %s", execution_id, exc_info=True)
     if db:
         from models.execution import WorkflowExecution
         from models.workflow import Workflow
