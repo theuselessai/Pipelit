@@ -30,12 +30,14 @@ def resume_workflow_job(execution_id: str, user_input: str) -> None:
 
 def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> None:
     exec_token = execution_id_var.set(execution_id)
-    node_token = node_id_var.set(node_id)
     try:
-        from services.orchestrator import execute_node_job as _run
-        _run(execution_id, node_id, retry_count)
+        node_token = node_id_var.set(node_id)
+        try:
+            from services.orchestrator import execute_node_job as _run
+            _run(execution_id, node_id, retry_count)
+        finally:
+            node_id_var.reset(node_token)
     finally:
-        node_id_var.reset(node_token)
         execution_id_var.reset(exec_token)
 
 

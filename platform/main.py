@@ -29,11 +29,11 @@ async def lifespan(app: FastAPI):
     from logging_config import setup_logging
     setup_logging("Server")
 
-    # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
-    Base.metadata.create_all(bind=engine)
-
     import logging
     logger = logging.getLogger(__name__)
+
+    # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
+    Base.metadata.create_all(bind=engine)
 
     # Recover any scheduled jobs that missed their next_run_at while the server was down
     try:

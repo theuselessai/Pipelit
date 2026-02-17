@@ -125,7 +125,7 @@ def cancel_execution(
                 broadcast(f"workflow:{wf.slug}", "execution_cancelled",
                           {"execution_id": execution.execution_id})
         except Exception:
-            logger.warning("Failed to broadcast execution_cancelled for %s", execution.execution_id)
+            logger.exception("Failed to broadcast execution_cancelled for %s", execution.execution_id)
 
     return _serialize_execution(execution, db)
 

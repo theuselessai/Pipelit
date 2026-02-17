@@ -51,6 +51,7 @@ cd Pipelit
 # Backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r platform/requirements.txt
+pip install honcho  # Process manager for multi-service startup
 
 # Frontend
 cd platform/frontend && npm install
@@ -85,8 +86,8 @@ This starts four processes via the `Procfile`:
 |---------|---------|-------------|
 | **server** | `uvicorn main:app --reload` | FastAPI backend on `:8000` |
 | **frontend** | `npm run dev` | Vite dev server on `:5173`, proxies `/api` to `:8000` |
-| **scheduler** | `rq worker --with-scheduler` | 1 worker with job scheduler (handles `enqueue_in` delayed jobs) |
-| **worker** | `rq worker-pool -n 2` | 2 additional workers for parallel job processing |
+| **scheduler** | `rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler` | 1 worker with job scheduler (handles `enqueue_in` delayed jobs) |
+| **worker** | `rq worker-pool workflows -w worker_class.PipelitWorker -n 2` | 2 additional workers for parallel job processing |
 
 The backend auto-creates the database on first startup.
 

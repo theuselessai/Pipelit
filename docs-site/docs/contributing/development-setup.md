@@ -78,8 +78,8 @@ This reads the `Procfile` and starts:
 |---------|---------|-------------|
 | **server** | `uvicorn main:app --reload` | FastAPI backend on `:8000` with auto-reload |
 | **frontend** | `npm run dev` | Vite dev server on `:5173`, proxies `/api` to `:8000` |
-| **scheduler** | `rq worker --with-scheduler` | 1 worker with job scheduler for delayed/recurring jobs |
-| **worker** | `rq worker-pool -n 2` | 2 additional workers for parallel job processing |
+| **scheduler** | `rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler` | 1 worker with job scheduler for delayed/recurring jobs |
+| **worker** | `rq worker-pool workflows -w worker_class.PipelitWorker -n 2` | 2 additional workers for parallel job processing |
 
 All processes use unified logging with context-aware formatting — server logs as `[Server]`, workers as `[Worker-{pid}]`. Execution and node IDs are injected automatically.
 
@@ -129,7 +129,7 @@ Pipelit/
 │   ├── triggers/           # Trigger resolver
 │   ├── logging_config.py   # Unified logging (context-aware formatter)
 │   ├── worker_class.py     # Custom RQ worker with unified logging
-│   ├── Procfile             # honcho process definitions
+│   ├── Procfile            # honcho process definitions
 │   ├── alembic/            # Database migrations
 │   ├── tests/              # Test suite
 │   ├── conftest.py         # Shared test fixtures
