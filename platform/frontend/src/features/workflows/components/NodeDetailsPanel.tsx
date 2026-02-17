@@ -158,10 +158,13 @@ function ChatPanel({ slug, node, onClose }: Props) {
       if (msg.type === "node_status" && msg.data) {
         const d = msg.data
         const nodeId = d.node_id as string
+        if (!nodeId) return
         const status = d.status as string
         const isToolCall = d.is_tool_call === true
 
         if (isToolCall) {
+          const parentId = d.parent_node_id as string
+          if (!parentId) return
           // Upsert into parent step's tool_steps
           const toolStep: ActivityToolStep = {
             tool_name: (d.tool_name as string) || "",
@@ -172,7 +175,6 @@ function ChatPanel({ slug, node, onClose }: Props) {
             error: d.error as string | undefined,
           }
           setActivitySteps((prev) => {
-            const parentId = d.parent_node_id as string
             return prev.map((step) => {
               if (step.node_id !== parentId) return step
               const existing = step.tool_steps.findIndex((ts) => ts.tool_node_id === nodeId)

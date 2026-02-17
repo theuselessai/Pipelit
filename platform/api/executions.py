@@ -291,8 +291,7 @@ def get_chat_history(
                 created = msg.response_metadata.get("created")
                 if created:
                     # Convert Unix timestamp to ISO (UTC with Z suffix for JS compatibility)
-                    from datetime import timezone as _tz
-                    timestamp = datetime.fromtimestamp(created, tz=_tz.utc).isoformat().replace("+00:00", "Z")
+                    timestamp = datetime.fromtimestamp(created, tz=timezone.utc).isoformat().replace("+00:00", "Z")
             # Fallback: inherit from the preceding message (AI replies follow human messages)
             if not timestamp and last_timestamp:
                 timestamp = last_timestamp
