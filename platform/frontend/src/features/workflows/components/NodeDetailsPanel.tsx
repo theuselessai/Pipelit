@@ -1039,7 +1039,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setPromptModalOpen(false)}>Cancel</Button>
-                <Button onClick={() => { setSystemPrompt(promptDraft); setPromptModalOpen(false) }}>Save</Button>
+                <Button onClick={() => { setSystemPrompt(promptDraft); saveOnNextRender.current = true; setPromptModalOpen(false) }}>Save</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1272,7 +1272,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCodeModalOpen(false)}>Cancel</Button>
-                <Button onClick={() => { setCodeSnippet(codeDraft); setCodeModalOpen(false) }}>Save</Button>
+                <Button onClick={() => { setCodeSnippet(codeDraft); saveOnNextRender.current = true; setCodeModalOpen(false) }}>Save</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1771,7 +1771,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setExtraConfigModalOpen(false)}>Cancel</Button>
-                <Button onClick={() => { setExtraConfig(extraConfigDraft); setExtraConfigModalOpen(false) }}>Save</Button>
+                <Button onClick={() => { setExtraConfig(extraConfigDraft); saveOnNextRender.current = true; setExtraConfigModalOpen(false) }}>Save</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

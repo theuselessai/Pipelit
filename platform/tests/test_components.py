@@ -150,13 +150,15 @@ class TestTrigger:
         for ct in expected:
             assert ct in COMPONENT_REGISTRY, f"{ct} not registered"
 
-    def test_passthrough_returns_state(self):
+    def test_passthrough_returns_trigger_payload(self):
         from components import COMPONENT_REGISTRY
         factory = COMPONENT_REGISTRY["trigger_manual"]
         run_fn = factory(None)
-        state = {"messages": [], "trigger": {"text": "hello"}}
+        state = {"messages": [], "trigger": {"text": "hello", "payload": {"k": "v"}}}
         result = run_fn(state)
-        assert result is state
+        assert result == {"text": "hello", "payload": {"k": "v"}}
+        # Must be a copy, not the original trigger dict
+        assert result is not state["trigger"]
 
 
 # ── Subworkflow ───────────────────────────────────────────────────────────────

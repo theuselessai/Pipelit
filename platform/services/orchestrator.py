@@ -229,6 +229,14 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
         _save_topology(execution_id, topo)
 
         initial_state = _build_initial_state(execution)
+
+        # Pre-populate node_outputs for the trigger node so downstream
+        # Jinja2 expressions like {{ trigger_schedule_xxx.timestamp }} resolve.
+        if execution.trigger_node_id and trigger_node:
+            initial_state["node_outputs"][trigger_node.node_id] = dict(
+                initial_state.get("trigger", {})
+            )
+
         save_state(execution_id, initial_state)
 
         # Initialize completed-nodes set and inflight counter

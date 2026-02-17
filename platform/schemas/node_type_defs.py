@@ -28,7 +28,10 @@ register_node_type(NodeTypeSpec(
     component_type="trigger_schedule",
     display_name="Schedule Trigger",
     category="trigger",
-    outputs=[PortDefinition(name="timestamp", data_type=DataType.STRING)],
+    outputs=[
+        PortDefinition(name="timestamp", data_type=DataType.STRING, description="ISO 8601 timestamp of when the job fired"),
+        PortDefinition(name="payload", data_type=DataType.OBJECT, description="Scheduled job payload"),
+    ],
 ))
 
 register_node_type(NodeTypeSpec(

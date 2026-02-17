@@ -126,6 +126,7 @@ def _dispatch_scheduled_trigger(job: ScheduledJob, db) -> None:
         "scheduled_job_id": job.id,
         "scheduled_job_name": job.name,
         "repeat_number": job.current_repeat,
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "payload": job.trigger_payload or {},
     }
     result = dispatch_event(
