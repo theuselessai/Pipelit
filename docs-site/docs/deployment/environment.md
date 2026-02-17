@@ -14,6 +14,8 @@ Pipelit is configured through environment variables, loaded from a `.env` file i
 | `ALLOWED_HOSTS` | `localhost` | No | Comma-separated list of allowed hostnames. Set to your domain name in production (e.g., `pipelit.example.com`). |
 | `CORS_ALLOW_ALL_ORIGINS` | `true` | No | Allow cross-origin requests from any domain. Set to `false` in production and configure specific allowed origins through your reverse proxy. |
 | `ZOMBIE_EXECUTION_THRESHOLD_SECONDS` | `900` (15 min) | No | Time in seconds after which a running execution is considered a zombie and eligible for cleanup. The system marks stale executions as failed and releases their resources. |
+| `LOG_LEVEL` | `INFO` | No | Logging level. Supported values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
+| `LOG_FILE` | `""` (empty) | No | Path to a log file. When set, logs are written to this file in addition to the console. Example: `logs/pipelit.log`. The parent directory must exist. |
 
 ## `.env` File Location
 
@@ -49,6 +51,8 @@ CORS_ALLOW_ALL_ORIGINS=false
 REDIS_URL=redis://localhost:6379/0
 DATABASE_URL=sqlite:///opt/pipelit/platform/db.sqlite3
 ZOMBIE_EXECUTION_THRESHOLD_SECONDS=900
+LOG_FILE=logs/pipelit.log
+LOG_LEVEL=INFO
 ```
 
 ## Generating the Encryption Key

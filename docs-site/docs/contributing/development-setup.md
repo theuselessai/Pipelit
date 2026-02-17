@@ -64,43 +64,48 @@ See [Environment Variables](../deployment/environment.md) for the full list of c
 
 ## Running in Development
 
-You need three terminals running simultaneously:
-
-### Terminal 1: Backend (FastAPI)
+Start all services with a single command:
 
 ```bash
 cd platform
 source ../.venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+honcho start
 ```
 
-The `--reload` flag enables auto-restart on file changes. The backend auto-creates the SQLite database on first startup.
+This reads the `Procfile` and starts:
 
-### Terminal 2: RQ Worker
+| Process | Command | Description |
+|---------|---------|-------------|
+| **server** | `uvicorn main:app --reload` | FastAPI backend on `:8000` with auto-reload |
+| **frontend** | `npm run dev` | Vite dev server on `:5173`, proxies `/api` to `:8000` |
+| **scheduler** | `rq worker --with-scheduler` | 1 worker with job scheduler for delayed/recurring jobs |
+| **worker** | `rq worker-pool -n 2` | 2 additional workers for parallel job processing |
 
-```bash
-cd platform
-source ../.venv/bin/activate
-rq worker workflows --with-scheduler
-```
-
-The worker processes background jobs (workflow executions, scheduled tasks). The `--with-scheduler` flag enables the RQ scheduler for delayed job execution.
+All processes use unified logging with context-aware formatting — server logs as `[Server]`, workers as `[Worker-{pid}]`. Execution and node IDs are injected automatically.
 
 !!! note
-    The worker does **not** auto-reload on file changes. Restart it manually after backend code changes that affect execution logic.
-
-### Terminal 3: Frontend (Vite Dev Server)
-
-```bash
-cd platform/frontend
-npm run dev
-```
-
-The Vite dev server runs at `http://localhost:5173` and proxies all `/api` requests to the FastAPI backend at port 8000.
+    Workers do **not** auto-reload on file changes. Restart honcho (++ctrl+c++ then `honcho start`) after backend code changes that affect execution logic.
 
 ### First Login
 
 Open `http://localhost:5173` in your browser. The setup wizard prompts you to create an admin account on first visit.
+
+??? note "Manual startup (without honcho)"
+    If you prefer separate terminals:
+
+    ```bash
+    # Terminal 1 — Backend
+    cd platform && source ../.venv/bin/activate
+    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+    # Terminal 2 — RQ Worker with scheduler
+    cd platform && source ../.venv/bin/activate
+    rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler
+
+    # Terminal 3 — Frontend (dev)
+    cd platform/frontend
+    npm run dev
+    ```
 
 ## Project Structure
 
@@ -122,6 +127,9 @@ Pipelit/
 │   ├── ws/                 # WebSocket endpoints + broadcast
 │   ├── tasks/              # RQ job wrappers
 │   ├── triggers/           # Trigger resolver
+│   ├── logging_config.py   # Unified logging (context-aware formatter)
+│   ├── worker_class.py     # Custom RQ worker with unified logging
+│   ├── Procfile             # honcho process definitions
 │   ├── alembic/            # Database migrations
 │   ├── tests/              # Test suite
 │   ├── conftest.py         # Shared test fixtures
