@@ -212,6 +212,7 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
 
         # Start memory episode for this execution
         trigger_type = "manual"
+        trigger_node = None
         if execution.trigger_node_id:
             from models.node import WorkflowNode
             trigger_node = db.get(WorkflowNode, execution.trigger_node_id)
