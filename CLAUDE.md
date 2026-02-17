@@ -98,6 +98,9 @@ platform/
 ├── triggers/            # Trigger resolver
 ├── validation/          # EdgeValidator (type compatibility checks)
 ├── ws/                  # WebSocket endpoints + broadcast helper
+├── logging_config.py    # Unified logging setup (context-aware formatter)
+├── worker_class.py      # Custom RQ worker with unified logging
+├── Procfile             # honcho process definitions
 ├── alembic/             # Database migrations
 └── frontend/            # React SPA
 ```
@@ -107,8 +110,36 @@ platform/
 ```bash
 cd platform
 source ../.venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+honcho start   # starts server, frontend, scheduler worker, and worker pool
 ```
+
+Or start individual processes manually — see the `Procfile` for commands.
+
+### Process Management (honcho)
+
+The `platform/Procfile` defines four processes managed by honcho:
+
+- **server** — FastAPI backend with auto-reload
+- **frontend** — Vite dev server (proxies `/api` to `:8000`)
+- **scheduler** — Single RQ worker with `--with-scheduler` for delayed job scheduling (`enqueue_in`)
+- **worker** — RQ worker pool (`-n 2`) for parallel job processing
+
+Only one scheduler runs per queue (RQ uses Redis locks). The scheduler worker also processes jobs. Total: 3 workers.
+
+### Unified Logging
+
+Centralised logging via `platform/logging_config.py`. All processes use the same log format:
+
+```
+2026-02-17 23:18:00 [Server][INFO] module:line - message
+2026-02-17 23:18:00 [Worker-12345][INFO][exec:abc][node:xyz] module:line - message
+```
+
+- **Server** logs as `[Server]`, workers as `[Worker-{pid}]`
+- Execution ID and node ID are injected automatically via `contextvars` — no changes needed to existing `logger.*()` calls
+- `PipelitWorker` (`platform/worker_class.py`) extends `SimpleWorker` to call `setup_logging()` on init
+- Optional file logging via `LOG_FILE` env var (empty = console only)
+- Log level configurable via `LOG_LEVEL` (default: `INFO`)
 
 ### API Endpoints
 
