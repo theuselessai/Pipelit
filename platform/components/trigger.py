@@ -9,7 +9,8 @@ def _make_trigger_passthrough(component_type: str):
     @register(component_type)
     def factory(config):
         def run(state: dict) -> dict:
-            return state
+            payload = state.get("trigger", {})
+            return dict(payload)
         return run
 
     return factory
