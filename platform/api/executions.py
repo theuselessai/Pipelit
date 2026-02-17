@@ -105,6 +105,14 @@ def cancel_execution(
         from services.execution_recovery import _cleanup_redis
         _cleanup_redis(execution.execution_id)
 
+        # Clear stale LangGraph checkpoints to prevent INVALID_CHAT_HISTORY
+        # on the next conversation turn (agent mid-tool-call leaves orphaned tool_calls)
+        try:
+            from services.orchestrator import _clear_stale_checkpoints
+            _clear_stale_checkpoints(execution.execution_id, db)
+        except Exception:
+            pass
+
         # Notify frontend via WebSocket (best-effort)
         try:
             from ws.broadcast import broadcast
