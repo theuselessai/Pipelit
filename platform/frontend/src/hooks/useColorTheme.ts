@@ -77,14 +77,14 @@ export function useColorTheme() {
   // Re-apply when light/dark mode changes (watch for .dark class on <html>)
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      applyColorTheme(currentTheme)
+      applyColorTheme(colorTheme)
     })
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     })
     return () => observer.disconnect()
-  }, [])
+  }, [colorTheme])
 
   return { colorTheme, setColorTheme }
 }
