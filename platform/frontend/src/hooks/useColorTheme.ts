@@ -3,6 +3,9 @@ import { COLOR_THEMES, type ColorThemeKey } from "@/lib/colorThemes"
 
 const STORAGE_KEY = "colorTheme"
 
+// NOTE: This app is strictly CSR (Vite SPA) — no SSR. Module-level
+// localStorage/document access is safe and matches useEditorTheme.ts.
+
 // All CSS variable names we override — used for cleanup
 const OVERRIDE_VARS = [
   "primary",
