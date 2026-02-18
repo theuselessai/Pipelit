@@ -12,7 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useTheme } from "@/hooks/useTheme"
+import { useEditorTheme, EDITOR_THEMES, type EditorThemeKey } from "@/hooks/useEditorTheme"
+import CodeMirrorEditor from "@/components/CodeMirrorEditor"
 import { mfaSetup, mfaVerify, mfaDisable, mfaStatus, type MFASetupResult } from "@/api/auth"
 
 const themes = [
@@ -21,8 +30,19 @@ const themes = [
   { value: "dark" as const, label: "Dark" },
 ]
 
+const PREVIEW_SNIPPET = `def greet(name: str) -> str:
+    """Return a greeting message."""
+    message = f"Hello, {name}!"
+    return message
+
+# Call the function
+print(greet("world"))  # Hello, world!`
+
+const themeKeys = Object.keys(EDITOR_THEMES) as EditorThemeKey[]
+
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme()
+  const { editorTheme, setEditorTheme } = useEditorTheme()
 
   // MFA state
   const [mfaEnabled, setMfaEnabled] = useState(false)
@@ -110,6 +130,36 @@ export default function SettingsPage() {
                 {t.label}
               </button>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Editor Theme</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Theme</Label>
+            <Select value={editorTheme} onValueChange={(v) => setEditorTheme(v as EditorThemeKey)}>
+              <SelectTrigger className="w-[240px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {themeKeys.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {EDITOR_THEMES[key].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-muted-foreground text-xs">Preview</Label>
+            <CodeMirrorEditor
+              value={PREVIEW_SNIPPET}
+              language="python"
+              readOnly
+              className="h-[200px]"
+            />
           </div>
         </CardContent>
       </Card>

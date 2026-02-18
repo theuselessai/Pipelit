@@ -5,7 +5,7 @@ import { EditorView, keymap, placeholder as cmPlaceholder, ViewUpdate } from "@c
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from "@codemirror/language"
 import { lineNumbers, highlightActiveLineGutter, highlightActiveLine } from "@codemirror/view"
-import { oneDark } from "@codemirror/theme-one-dark"
+import { useEditorTheme } from "@/hooks/useEditorTheme"
 import { json } from "@codemirror/lang-json"
 import { python } from "@codemirror/lang-python"
 import { javascript } from "@codemirror/lang-javascript"
@@ -13,7 +13,6 @@ import { markdown } from "@codemirror/lang-markdown"
 import { StreamLanguage } from "@codemirror/language"
 import { shell } from "@codemirror/legacy-modes/mode/shell"
 import { toml } from "@codemirror/legacy-modes/mode/toml"
-import { useTheme } from "@/hooks/useTheme"
 import { jinja2Highlight } from "@/lib/jinja2Highlight"
 
 export type CodeMirrorLanguage = "json" | "python" | "javascript" | "bash" | "markdown" | "toml" | "text"
@@ -50,7 +49,7 @@ export default function CodeMirrorEditor({
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
-  const { resolvedTheme } = useTheme()
+  const { editorTheme, editorThemeExtension } = useEditorTheme()
   const [, setMounted] = useState(false)
 
   // Keep onChange ref current without recreating the editor
@@ -61,8 +60,6 @@ export default function CodeMirrorEditor({
   // Create editor
   useEffect(() => {
     if (!containerRef.current) return
-
-    const isDark = resolvedTheme === "dark"
 
     const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
       if (update.docChanged && onChangeRef.current) {
@@ -89,7 +86,7 @@ export default function CodeMirrorEditor({
       jinja2Highlight,
       EditorView.lineWrapping,
       fillHeightTheme,
-      ...(isDark ? [oneDark] : []),
+      ...(Array.isArray(editorThemeExtension) ? editorThemeExtension : [editorThemeExtension]),
       ...(placeholder ? [cmPlaceholder(placeholder)] : []),
       ...(readOnly ? [EditorState.readOnly.of(true)] : []),
     ].flat()
@@ -113,7 +110,7 @@ export default function CodeMirrorEditor({
     }
     // Recreate editor when language or theme changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, resolvedTheme, readOnly])
+  }, [language, editorTheme, readOnly])
 
   // Sync external value changes without recreating editor
   useEffect(() => {
