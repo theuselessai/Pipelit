@@ -70,6 +70,11 @@ export default function CodeMirrorEditor({
       }
     })
 
+    const fillHeightTheme = EditorView.theme({
+      "&": { height: "100%" },
+      ".cm-scroller": { overflow: "auto" },
+    })
+
     const extensions = [
       lineNumbers(),
       highlightActiveLineGutter(),
@@ -83,6 +88,7 @@ export default function CodeMirrorEditor({
       getLanguageExtension(language),
       jinja2Highlight,
       EditorView.lineWrapping,
+      fillHeightTheme,
       ...(isDark ? [oneDark] : []),
       ...(placeholder ? [cmPlaceholder(placeholder)] : []),
       ...(readOnly ? [EditorState.readOnly.of(true)] : []),

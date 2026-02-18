@@ -64,7 +64,7 @@ export default function CodeMirrorExpressionEditor({
         onChange={onChange}
         language={language}
         placeholder={placeholder}
-        className={`flex-1 min-h-0 [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto ${className}`}
+        className={`flex-1 min-h-0 h-0 ${className}`}
         readOnly={readOnly}
       />
     </div>

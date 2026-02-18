@@ -150,36 +150,39 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    scrollbar-width: thin;
-    scrollbar-color: oklch(0.7 0 0 / 40%) transparent;
-  }
-  .dark * {
-    scrollbar-color: oklch(0.5 0 0 / 50%) transparent;
-  }
-  /* Webkit (Chrome, Edge, Safari) */
-  *::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  *::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  *::-webkit-scrollbar-thumb {
-    background: oklch(0.7 0 0 / 40%);
-    border-radius: 3px;
-  }
-  *::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.6 0 0 / 60%);
-  }
-  .dark *::-webkit-scrollbar-thumb {
-    background: oklch(0.5 0 0 / 50%);
-  }
-  .dark *::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.6 0 0 / 70%);
   }
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Thin themed scrollbars — outside @layer for full specificity */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.7 0 0 / 40%) transparent;
+}
+.dark * {
+  scrollbar-color: oklch(0.5 0 0 / 50%) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: oklch(0.7 0 0 / 40%);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.6 0 0 / 60%);
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: oklch(0.5 0 0 / 50%);
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.6 0 0 / 70%);
 }
 
 /* Jinja2 template highlighting in CodeMirror — target self AND nested syntax spans */
