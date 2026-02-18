@@ -981,7 +981,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           )}
 
           <Dialog open={promptModalOpen} onOpenChange={setPromptModalOpen}>
-            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
+            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col" showCloseButton={false}>
               <DialogHeader>
                 <div className="flex items-center justify-between">
                   <DialogTitle>Edit System Prompt</DialogTitle>
@@ -1016,6 +1016,11 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                     >
                       <ExternalLink className="h-3 w-3" />
                     </Button>
+                    <DialogClose asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </DialogClose>
                   </div>
                 </div>
               </DialogHeader>
@@ -1031,7 +1036,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 />
               ) : (
                 <Textarea
-                  className="flex-1 font-mono text-sm resize-none"
+                  className="flex-1 min-h-0 font-mono text-sm resize-none"
                   value={promptDraft}
                   onChange={(e) => setPromptDraft(e.target.value)}
                   placeholder="Enter system prompt instructions..."
@@ -1068,7 +1073,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                     </Button>
                   </div>
                 </div>
-                <div className="flex-1 min-h-0">
+                <div className="flex-1 min-h-0 flex flex-col">
                   {workflow ? (
                     <CodeMirrorExpressionEditor
                       value={promptDraft}
@@ -1232,24 +1237,31 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           </div>
 
           <Dialog open={codeModalOpen} onOpenChange={setCodeModalOpen}>
-            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
+            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col" showCloseButton={false}>
               <DialogHeader>
                 <div className="flex items-center justify-between">
                   <DialogTitle>Edit Code — {codeLanguage}</DialogTitle>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    title="Pop out to window"
-                    onClick={() => {
-                      const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
-                      if (!popup) return
-                      setCodePopoutWindow(popup)
-                      setCodeModalOpen(false)
-                    }}
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      title="Pop out to window"
+                      onClick={() => {
+                        const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                        if (!popup) return
+                        setCodePopoutWindow(popup)
+                        setCodeModalOpen(false)
+                      }}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </Button>
+                    <DialogClose asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </DialogClose>
+                  </div>
                 </div>
               </DialogHeader>
               {workflow ? (
@@ -1264,7 +1276,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 />
               ) : (
                 <Textarea
-                  className="flex-1 font-mono text-sm resize-none"
+                  className="flex-1 min-h-0 font-mono text-sm resize-none"
                   value={codeDraft}
                   onChange={(e) => setCodeDraft(e.target.value)}
                   placeholder="# Write your code here..."
@@ -1283,7 +1295,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Edit Code — {codeLanguage}</h2>
                 </div>
-                <div className="flex-1 min-h-0">
+                <div className="flex-1 min-h-0 flex flex-col">
                   {workflow ? (
                     <CodeMirrorExpressionEditor
                       value={codeDraft}
@@ -1731,24 +1743,31 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           )}
 
           <Dialog open={extraConfigModalOpen} onOpenChange={setExtraConfigModalOpen}>
-            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col">
+            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] flex flex-col" showCloseButton={false}>
               <DialogHeader>
                 <div className="flex items-center justify-between">
                   <DialogTitle>Edit Extra Config (JSON)</DialogTitle>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    title="Pop out to window"
-                    onClick={() => {
-                      const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
-                      if (!popup) return
-                      setExtraConfigPopoutWindow(popup)
-                      setExtraConfigModalOpen(false)
-                    }}
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      title="Pop out to window"
+                      onClick={() => {
+                        const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
+                        if (!popup) return
+                        setExtraConfigPopoutWindow(popup)
+                        setExtraConfigModalOpen(false)
+                      }}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </Button>
+                    <DialogClose asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </DialogClose>
+                  </div>
                 </div>
               </DialogHeader>
               {workflow ? (
@@ -1763,7 +1782,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 />
               ) : (
                 <Textarea
-                  className="flex-1 font-mono text-sm resize-none"
+                  className="flex-1 min-h-0 font-mono text-sm resize-none"
                   value={extraConfigDraft}
                   onChange={(e) => setExtraConfigDraft(e.target.value)}
                   placeholder='{ "key": "value" }'
@@ -1782,7 +1801,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Edit Extra Config (JSON)</h2>
                 </div>
-                <div className="flex-1 min-h-0">
+                <div className="flex-1 min-h-0 flex flex-col">
                   {workflow ? (
                     <CodeMirrorExpressionEditor
                       value={extraConfigDraft}

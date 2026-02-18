@@ -50,7 +50,7 @@ export default function CodeMirrorExpressionEditor({
   )
 
   return (
-    <div ref={containerRef} className="relative flex flex-col flex-1">
+    <div ref={containerRef} className="relative flex flex-col flex-1 min-h-0">
       <div className="absolute top-1 right-1 z-10">
         <VariablePicker
           slug={slug}
@@ -64,7 +64,7 @@ export default function CodeMirrorExpressionEditor({
         onChange={onChange}
         language={language}
         placeholder={placeholder}
-        className={`flex-1 [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto ${className}`}
+        className={`flex-1 min-h-0 [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto ${className}`}
         readOnly={readOnly}
       />
     </div>
