@@ -20,6 +20,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useTheme } from "@/hooks/useTheme"
+import { useColorTheme } from "@/hooks/useColorTheme"
+import { COLOR_THEMES, COLOR_THEME_KEYS, type ColorThemeKey } from "@/lib/colorThemes"
 import { useEditorTheme, EDITOR_THEMES, type EditorThemeKey } from "@/hooks/useEditorTheme"
 import CodeMirrorEditor from "@/components/CodeMirrorEditor"
 import { mfaSetup, mfaVerify, mfaDisable, mfaStatus, type MFASetupResult } from "@/api/auth"
@@ -42,6 +44,7 @@ const themeKeys = Object.keys(EDITOR_THEMES) as EditorThemeKey[]
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme()
+  const { colorTheme, setColorTheme } = useColorTheme()
   const { editorTheme, setEditorTheme } = useEditorTheme()
 
   // MFA state
@@ -131,6 +134,24 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>System Theme</CardTitle></CardHeader>
+        <CardContent>
+          <Select value={colorTheme} onValueChange={(v) => setColorTheme(v as ColorThemeKey)}>
+            <SelectTrigger className="w-[240px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {COLOR_THEME_KEYS.map((key) => (
+                <SelectItem key={key} value={key}>
+                  {COLOR_THEMES[key].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
