@@ -394,6 +394,25 @@ class TestMcpTools:
             mock_delete.assert_called_once_with("/workflows/wf1/nodes/n1/")
 
     @pytest.mark.asyncio
+    async def test_create_node_without_node_id(self):
+        from mcp_server import create_node
+        with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = {"node_id": "agent_abc123"}
+            await create_node("wf1", "agent")
+            body = mock_post.call_args[0][1]
+            assert "node_id" not in body
+            assert body["component_type"] == "agent"
+
+    @pytest.mark.asyncio
+    async def test_update_node_with_label(self):
+        from mcp_server import update_node
+        with patch("mcp_server._patch", new_callable=AsyncMock) as mock_patch:
+            mock_patch.return_value = {}
+            await update_node("wf1", "n1", label="My Agent")
+            body = mock_patch.call_args[0][1]
+            assert body["label"] == "My Agent"
+
+    @pytest.mark.asyncio
     async def test_create_edge(self):
         from mcp_server import create_edge
         with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
