@@ -142,6 +142,9 @@ def create_node(
 
     # NOTE: config and node are created in the same transaction. If commit fails
     # (IntegrityError on node_id collision), rollback reverts BOTH inserts.
+    # The only uniqueness constraint that can fire here is (workflow_id, node_id).
+    # FK violations (workflow_id, subworkflow_id, code_block_id) are caught earlier
+    # by get_workflow() or would indicate a programming error, not user input.
     try:
         node = _create_and_commit(node_id)
     except IntegrityError:
