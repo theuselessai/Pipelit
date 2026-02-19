@@ -117,55 +117,38 @@ def create_node(
         kwargs["priority"] = config_data.get("priority", 0)
         kwargs["trigger_config"] = config_data.get("trigger_config", {})
 
-    # NOTE: cc and node are created in the same transaction. If commit fails
-    # (IntegrityError on node_id collision), rollback reverts BOTH the cc INSERT
-    # and node INSERT — no orphaned config records are left behind.
-    cc = BaseComponentConfig(**kwargs)
-    db.add(cc)
-    db.flush()
-
-    node = WorkflowNode(
-        workflow_id=wf.id,
-        node_id=node_id,
-        label=payload.label,
-        component_type=component_type,
-        component_config_id=cc.id,
-        is_entry_point=payload.is_entry_point,
-        interrupt_before=payload.interrupt_before,
-        interrupt_after=payload.interrupt_after,
-        position_x=payload.position_x,
-        position_y=payload.position_y,
-        subworkflow_id=payload.subworkflow_id,
-        code_block_id=payload.code_block_id,
-    )
-    db.add(node)
-    try:
+    def _create_and_commit(nid: str) -> WorkflowNode:
+        """Create config + node in one transaction."""
+        cfg = BaseComponentConfig(**kwargs)
+        db.add(cfg)
+        db.flush()
+        n = WorkflowNode(
+            workflow_id=wf.id,
+            node_id=nid,
+            label=payload.label,
+            component_type=component_type,
+            component_config_id=cfg.id,
+            is_entry_point=payload.is_entry_point,
+            interrupt_before=payload.interrupt_before,
+            interrupt_after=payload.interrupt_after,
+            position_x=payload.position_x,
+            position_y=payload.position_y,
+            subworkflow_id=payload.subworkflow_id,
+            code_block_id=payload.code_block_id,
+        )
+        db.add(n)
         db.commit()
+        return n
+
+    # NOTE: config and node are created in the same transaction. If commit fails
+    # (IntegrityError on node_id collision), rollback reverts BOTH inserts.
+    try:
+        node = _create_and_commit(node_id)
     except IntegrityError:
         db.rollback()
-        # Collision on auto-generated node_id — recreate objects after rollback
-        # (rollback expires all ORM objects, so we must create fresh instances)
         if not payload.node_id:
             node_id = f"{payload.component_type}_{secrets.token_hex(8)}"
-            cc = BaseComponentConfig(**kwargs)
-            db.add(cc)
-            db.flush()
-            node = WorkflowNode(
-                workflow_id=wf.id,
-                node_id=node_id,
-                label=payload.label,
-                component_type=component_type,
-                component_config_id=cc.id,
-                is_entry_point=payload.is_entry_point,
-                interrupt_before=payload.interrupt_before,
-                interrupt_after=payload.interrupt_after,
-                position_x=payload.position_x,
-                position_y=payload.position_y,
-                subworkflow_id=payload.subworkflow_id,
-                code_block_id=payload.code_block_id,
-            )
-            db.add(node)
-            db.commit()
+            node = _create_and_commit(node_id)
         else:
             raise HTTPException(status_code=409, detail=f"Node with id '{node_id}' already exists.")
     db.refresh(node)

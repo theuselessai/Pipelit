@@ -439,6 +439,8 @@ export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Prop
   if (node.component_type === "trigger_chat") {
     return <ChatPanel slug={slug} node={node} onClose={onClose} />
   }
+  // key={node.node_id} causes React to fully remount when switching nodes,
+  // so all useState initializers run fresh — no stale state across nodes.
   return <NodeConfigPanel key={node.node_id} slug={slug} node={node} workflow={workflow} onClose={onClose} />
 }
 
