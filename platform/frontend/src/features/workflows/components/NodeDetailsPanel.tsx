@@ -463,6 +463,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const allCredentials = credentials?.items ?? []
   const llmCredentials = allCredentials.filter((c) => c.credential_type === "llm")
 
+  const [labelValue, setLabelValue] = useState(node.label || node.node_id)
+
+  useEffect(() => {
+    setLabelValue(node.label || node.node_id)
+  }, [node.label, node.node_id])
+
   const [systemPrompt, setSystemPrompt] = useState(node.config.system_prompt)
   const [extraConfig, setExtraConfig] = useState(JSON.stringify(node.config.extra_config, null, 2))
   const [llmCredentialId, setLlmCredentialId] = useState<string>(node.config.llm_credential_id?.toString() ?? "")
@@ -687,13 +693,14 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       <div className="flex items-center justify-between">
         <Input
           className="font-semibold text-sm h-8 px-2 border-transparent hover:border-input focus:border-input"
-          defaultValue={node.label || node.node_id}
-          onBlur={(e) => {
-            const val = e.target.value.trim()
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
+          onBlur={() => {
+            const val = labelValue.trim()
             if (val && val !== (node.label || node.node_id)) {
               updateNode.mutate({ nodeId: node.node_id, data: { label: val } })
             } else if (!val) {
-              e.target.value = node.label || node.node_id
+              setLabelValue(node.label || node.node_id)
             }
           }}
           onKeyDown={(e) => {

@@ -117,6 +117,9 @@ def create_node(
         kwargs["priority"] = config_data.get("priority", 0)
         kwargs["trigger_config"] = config_data.get("trigger_config", {})
 
+    # NOTE: cc and node are created in the same transaction. If commit fails
+    # (IntegrityError on node_id collision), rollback reverts BOTH the cc INSERT
+    # and node INSERT — no orphaned config records are left behind.
     cc = BaseComponentConfig(**kwargs)
     db.add(cc)
     db.flush()
