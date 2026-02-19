@@ -348,7 +348,7 @@ class TestMcpTools:
         from mcp_server import create_node
         with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
             mock_post.return_value = {"node_id": "agent_1"}
-            result = json.loads(await create_node("wf1", "agent_1", "agent", 100, 200, {"system_prompt": "hi"}))
+            result = json.loads(await create_node("wf1", "agent", node_id="agent_1", position_x=100, position_y=200, config={"system_prompt": "hi"}))
             body = mock_post.call_args[0][1]
             assert body["node_id"] == "agent_1"
             assert body["component_type"] == "agent"
@@ -360,9 +360,10 @@ class TestMcpTools:
         from mcp_server import create_node
         with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
             mock_post.return_value = {}
-            await create_node("wf1", "n1", "agent")
+            await create_node("wf1", "agent", node_id="n1")
             body = mock_post.call_args[0][1]
             assert "config" not in body
+            assert body["node_id"] == "n1"
 
     @pytest.mark.asyncio
     async def test_update_node(self):

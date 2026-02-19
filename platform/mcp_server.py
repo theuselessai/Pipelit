@@ -223,8 +223,8 @@ async def get_chat_history(slug: str, limit: int = 10) -> str:
 @mcp.tool()
 async def create_node(
     slug: str,
-    node_id: str,
     component_type: str,
+    node_id: str | None = None,
     position_x: int = 0,
     position_y: int = 0,
     config: dict | None = None,
@@ -233,18 +233,19 @@ async def create_node(
 
     Args:
         slug: Workflow slug
-        node_id: Unique node identifier (e.g. "agent_abc123")
         component_type: Node type (agent, ai_model, trigger_chat, run_command, etc.)
+        node_id: Unique node identifier (optional — auto-generated as "{type}_{hex}" if omitted)
         position_x: Canvas X position
         position_y: Canvas Y position
         config: ComponentConfigData dict with system_prompt, extra_config, llm_credential_id, model_name, etc.
     """
     body: dict[str, Any] = {
-        "node_id": node_id,
         "component_type": component_type,
         "position_x": position_x,
         "position_y": position_y,
     }
+    if node_id:
+        body["node_id"] = node_id
     if config:
         body["config"] = config
     result = await _post(f"/workflows/{slug}/nodes/", body)
@@ -258,6 +259,7 @@ async def update_node(
     config: dict | None = None,
     position_x: int | None = None,
     position_y: int | None = None,
+    label: str | None = None,
 ) -> str:
     """Update an existing node's configuration.
 
@@ -267,6 +269,7 @@ async def update_node(
         config: ComponentConfigData fields to update (system_prompt, extra_config, model_name, etc.)
         position_x: New canvas X position (optional)
         position_y: New canvas Y position (optional)
+        label: Display label for the node (optional)
     """
     body: dict[str, Any] = {}
     if config:
@@ -275,6 +278,8 @@ async def update_node(
         body["position_x"] = position_x
     if position_y is not None:
         body["position_y"] = position_y
+    if label is not None:
+        body["label"] = label
     result = await _patch(f"/workflows/{slug}/nodes/{node_id}/", body)
     return json.dumps(result, default=str)
 
@@ -308,7 +313,7 @@ async def create_edge(
         source_node_id: Source node_id
         target_node_id: Target node_id
         edge_type: "direct" or "conditional"
-        edge_label: "" for data flow, "llm" for model connection, "tool" for tool connection, "memory" for memory, "output_parser" for parser
+        edge_label: "" for data flow, "llm" for model connection, "tool" for tool connection, "output_parser" for parser
         condition_mapping: For conditional edges, a dict mapping route values to target node_ids (e.g. {"chat": "agent_chat", "research": "agent_research"})
         condition_value: For conditional edges from switch nodes, the route value this edge matches (e.g. "chat", "research")
     """

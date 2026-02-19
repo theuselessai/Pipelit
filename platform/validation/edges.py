@@ -54,11 +54,10 @@ class EdgeValidator:
 
         # Sub-component edges (llm, tool, memory, output_parser) are always valid
         # if the target requires them
-        if target_handle in ("model", "tools", "memory", "output_parser"):
+        if target_handle in ("model", "tools", "output_parser"):
             handle_to_flag = {
                 "model": "requires_model",
                 "tools": "requires_tools",
-                "memory": "requires_memory",
                 "output_parser": "requires_output_parser",
             }
             flag = handle_to_flag.get(target_handle, "")
@@ -121,7 +120,7 @@ class EdgeValidator:
                 continue
 
             # Map edge_label to target handle
-            label_to_handle = {"llm": "model", "tool": "tools", "memory": "memory", "output_parser": "output_parser"}
+            label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser"}
             target_handle = label_to_handle.get(edge.edge_label) if edge.edge_label else None
 
             edge_errors = EdgeValidator.validate_edge(

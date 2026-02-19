@@ -84,8 +84,8 @@ class TestValidateEdge:
         errors = EdgeValidator.validate_edge("run_command", "agent", target_handle="tools")
         assert errors == []
 
-    def test_sub_component_memory_handle_valid(self):
-        errors = EdgeValidator.validate_edge("memory_read", "agent", target_handle="memory")
+    def test_sub_component_memory_as_tool_valid(self):
+        errors = EdgeValidator.validate_edge("memory_read", "agent", target_handle="tools")
         assert errors == []
 
     def test_sub_component_output_parser_valid(self):

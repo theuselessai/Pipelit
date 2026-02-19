@@ -685,10 +685,22 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{node.node_id}</h3>
+        <Input
+          className="font-semibold text-sm h-8 px-2 border-transparent hover:border-input focus:border-input"
+          defaultValue={node.label || node.node_id}
+          onBlur={(e) => {
+            const val = e.target.value.trim()
+            if (val && val !== (node.label || node.node_id)) {
+              updateNode.mutate({ nodeId: node.node_id, data: { label: val } })
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+          }}
+        />
         <Button variant="ghost" size="sm" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
-      <div className="text-xs text-muted-foreground">{node.component_type}</div>
+      <div className="text-xs text-muted-foreground">{node.component_type} &middot; {node.node_id}</div>
 
       <Separator />
 

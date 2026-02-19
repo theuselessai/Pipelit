@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -73,6 +75,19 @@ def create_node(
     profile: UserProfile = Depends(get_current_user),
 ):
     wf = get_workflow(slug, profile, db)
+
+    # Auto-generate node_id if not provided
+    node_id = payload.node_id
+    if not node_id:
+        for _ in range(10):
+            candidate = f"{payload.component_type}_{secrets.token_hex(4)}"
+            exists = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=candidate).first()
+            if not exists:
+                node_id = candidate
+                break
+        if not node_id:
+            node_id = f"{payload.component_type}_{secrets.token_hex(8)}"
+
     config_data = payload.config.model_dump()
     component_type = payload.component_type
 
@@ -107,7 +122,8 @@ def create_node(
 
     node = WorkflowNode(
         workflow_id=wf.id,
-        node_id=payload.node_id,
+        node_id=node_id,
+        label=payload.label,
         component_type=component_type,
         component_config_id=cc.id,
         is_entry_point=payload.is_entry_point,
@@ -405,7 +421,7 @@ def create_edge(
         tgt_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.target_node_id).first()
         if src_node and tgt_node:
             from validation.edges import EdgeValidator
-            label_to_handle = {"llm": "model", "tool": "tools", "memory": "memory", "output_parser": "output_parser"}
+            label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser"}
             target_handle = label_to_handle.get(payload.edge_label) if payload.edge_label else None
             errors = EdgeValidator.validate_edge(
                 src_node.component_type, tgt_node.component_type,

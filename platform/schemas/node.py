@@ -17,7 +17,7 @@ ComponentTypeStr = Literal[
     "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat",
 ]
 EdgeTypeStr = Literal["direct", "conditional"]
-EdgeLabelStr = Literal["", "llm", "tool", "memory", "output_parser", "loop_body", "loop_return"]
+EdgeLabelStr = Literal["", "llm", "tool", "output_parser", "loop_body", "loop_return"]
 
 
 class ComponentConfigData(BaseModel):
@@ -43,7 +43,8 @@ class ComponentConfigData(BaseModel):
 
 
 class NodeIn(BaseModel):
-    node_id: str
+    node_id: str | None = None
+    label: str | None = None
     component_type: ComponentTypeStr
     is_entry_point: bool = False
     interrupt_before: bool = False
@@ -57,6 +58,7 @@ class NodeIn(BaseModel):
 
 class NodeUpdate(BaseModel):
     node_id: str | None = None
+    label: str | None = None
     component_type: ComponentTypeStr | None = None
     is_entry_point: bool | None = None
     interrupt_before: bool | None = None
@@ -88,6 +90,7 @@ class ScheduleJobInfo(BaseModel):
 class NodeOut(BaseModel):
     id: int
     node_id: str
+    label: str | None = None
     component_type: ComponentTypeStr
     is_entry_point: bool
     interrupt_before: bool
