@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react"
+import { useCallback } from "react"
 import { useCreateNode } from "@/api/nodes"
 import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
@@ -73,12 +73,8 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
 export default function NodePalette({ slug }: { slug: string }) {
   const createNode = useCreateNode(slug)
 
-  const counterRef = useRef(0)
   const handleAdd = useCallback((type: ComponentType) => {
-    counterRef.current += 1
-    const nodeId = `${type}_${Date.now().toString(36)}${counterRef.current}`
     createNode.mutate({
-      node_id: nodeId,
       component_type: type,
       position_x: 250,
       position_y: 150,

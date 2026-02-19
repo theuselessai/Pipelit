@@ -326,6 +326,7 @@ class WorkflowNode(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"))
     node_id: Mapped[str] = mapped_column(String(255))
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     component_type: Mapped[str] = mapped_column(String(30))
     component_config_id: Mapped[int] = mapped_column(
         ForeignKey("component_configs.id", ondelete="CASCADE")

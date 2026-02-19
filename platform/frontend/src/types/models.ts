@@ -1,7 +1,8 @@
 // Component types
 export type ComponentType = "categorizer" | "router" | "extractor" | "ai_model" | "agent" | "switch" | "run_command" | "http_request" | "web_search" | "calculator" | "datetime" | "create_agent_user" | "get_totp_code" | "platform_api" | "whoami" | "epic_tools" | "task_tools" | "scheduler_tools" | "system_health" | "spawn_and_await" | "workflow_create" | "workflow_discover" | "aggregator" | "human_confirmation" | "workflow" | "code" | "code_execute" | "loop" | "wait" | "merge" | "filter" | "error_handler" | "output_parser" | "memory_read" | "memory_write" | "identify_user" | "trigger_telegram" | "trigger_schedule" | "trigger_manual" | "trigger_workflow" | "trigger_error" | "trigger_chat"
 export type EdgeType = "direct" | "conditional"
-export type EdgeLabel = "" | "llm" | "tool" | "memory" | "output_parser" | "loop_body" | "loop_return"
+// "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
+export type EdgeLabel = "" | "llm" | "tool" | "output_parser" | "loop_body" | "loop_return"
 export type CredentialType = "git" | "llm" | "telegram" | "tool"
 export type ExecutionStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "cancelled"
 
@@ -14,9 +15,11 @@ export interface WorkflowUpdate { name?: string; slug?: string; description?: st
 // Node
 export interface ComponentConfigData { system_prompt: string; extra_config: Record<string, unknown>; llm_credential_id: number | null; model_name: string; temperature: number | null; max_tokens: number | null; frequency_penalty: number | null; presence_penalty: number | null; top_p: number | null; timeout: number | null; max_retries: number | null; response_format: Record<string, unknown> | null; credential_id: number | null; is_active: boolean; priority: number; trigger_config: Record<string, unknown> }
 export interface ScheduleJobInfo { id: string; status: string; run_count: number; error_count: number; current_repeat: number; current_retry: number; total_repeats: number; max_retries: number; timeout_seconds: number; interval_seconds: number; last_run_at: string | null; next_run_at: string | null; last_error: string | null; created_at: string | null }
-export interface WorkflowNode { id: number; node_id: string; component_type: ComponentType; is_entry_point: boolean; interrupt_before: boolean; interrupt_after: boolean; position_x: number; position_y: number; config: ComponentConfigData; subworkflow_id: number | null; code_block_id: number | null; updated_at: string; schedule_job?: ScheduleJobInfo | null }
-export interface NodeCreate { node_id: string; component_type: ComponentType; is_entry_point?: boolean; interrupt_before?: boolean; interrupt_after?: boolean; position_x?: number; position_y?: number; config?: Partial<ComponentConfigData>; subworkflow_id?: number | null; code_block_id?: number | null }
-export interface NodeUpdate { node_id?: string; component_type?: ComponentType; is_entry_point?: boolean; interrupt_before?: boolean; interrupt_after?: boolean; position_x?: number; position_y?: number; config?: Partial<ComponentConfigData>; subworkflow_id?: number | null; code_block_id?: number | null }
+export interface WorkflowNode { id: number; node_id: string; label: string | null; component_type: ComponentType; is_entry_point: boolean; interrupt_before: boolean; interrupt_after: boolean; position_x: number; position_y: number; config: ComponentConfigData; subworkflow_id: number | null; code_block_id: number | null; updated_at: string; schedule_job?: ScheduleJobInfo | null }
+// node_id is intentionally optional — backend auto-generates "{type}_{hex}" when omitted.
+// WorkflowNode.node_id is always present (populated after creation).
+export interface NodeCreate { node_id?: string; label?: string | null; component_type: ComponentType; is_entry_point?: boolean; interrupt_before?: boolean; interrupt_after?: boolean; position_x?: number; position_y?: number; config?: Partial<ComponentConfigData>; subworkflow_id?: number | null; code_block_id?: number | null }
+export interface NodeUpdate { node_id?: string; label?: string | null; component_type?: ComponentType; is_entry_point?: boolean; interrupt_before?: boolean; interrupt_after?: boolean; position_x?: number; position_y?: number; config?: Partial<ComponentConfigData>; subworkflow_id?: number | null; code_block_id?: number | null }
 
 // Edge
 export interface WorkflowEdge { id: number; source_node_id: string; target_node_id: string; edge_type: EdgeType; edge_label: EdgeLabel; condition_mapping: Record<string, unknown> | null; condition_value: string; priority: number }

@@ -3,7 +3,7 @@ import { useTheme } from "@/hooks/useTheme"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
 import {
-  faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart, faBrain,
+  faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart,
   faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
   faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
   faCalendarDays, faHandPointer, faHourglass, faHeartPulse,
@@ -135,7 +135,6 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent"].includes(data.componentType)
-  const hasMemory = ["agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasOutputParser = ["categorizer", "router", "extractor"].includes(data.componentType)
   const displayType = isAiModel
     ? formatDisplayName(data.providerType || "ai_model")
@@ -224,12 +223,6 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
               <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#10b981", borderColor: "#10b981", borderWidth: 1, borderStyle: "solid" }} title="tools">
                 <FontAwesomeIcon icon={faWrench} className="w-3 h-3" />
                 <Handle type="target" position={Position.Bottom} id="tools" className="!w-2 !h-2 !rounded-none !rotate-45 !-bottom-1.5" style={{ backgroundColor: "#10b981", left: "calc(50% + 1px)" }} />
-              </div>
-            )}
-            {hasMemory && (
-              <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#f59e0b", borderColor: "#f59e0b", borderWidth: 1, borderStyle: "solid" }} title="memory">
-                <FontAwesomeIcon icon={faBrain} className="w-3 h-3" />
-                <Handle type="target" position={Position.Bottom} id="memory" className="!w-2 !h-2 !rounded-none !rotate-45 !-bottom-1.5" style={{ backgroundColor: "#f59e0b", left: "calc(50% + 1px)" }} />
               </div>
             )}
             {hasOutputParser && (
@@ -423,13 +416,13 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id] },
+      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id] },
       selected: n.node_id === selectedNodeId,
     }
   }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
-    const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", memory: "memory", output_parser: "output_parser" }
+    const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", output_parser: "output_parser" }
     const targetHandle = (e.edge_label && e.edge_label !== "loop_body" && e.edge_label !== "loop_return")
       ? LABEL_TO_HANDLE[e.edge_label]
       : e.edge_label === "loop_return" ? "loop_return" : undefined
@@ -501,7 +494,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const onConnect: OnConnect = useCallback((params) => {
     if (params.source && params.target) {
-      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", memory: "memory", output_parser: "output_parser", loop_return: "loop_return" }
+      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", output_parser: "output_parser", loop_return: "loop_return" }
       const edge_label = (params.targetHandle && HANDLE_TO_LABEL[params.targetHandle]) || ""
 
       // Check if source is a loop node with loop_body handle

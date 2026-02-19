@@ -101,6 +101,7 @@ def serialize_node(node: WorkflowNode, db: Session | None = None) -> dict:
     result = {
         "id": node.id,
         "node_id": node.node_id,
+        "label": node.label,
         "component_type": node.component_type,
         "is_entry_point": node.is_entry_point,
         "interrupt_before": node.interrupt_before,

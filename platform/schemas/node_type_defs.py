@@ -65,7 +65,10 @@ register_node_type(NodeTypeSpec(
     display_name="Agent",
     description="LangGraph react agent with tools",
     category="ai",
-    requires_model=True, requires_tools=True, requires_memory=True,
+    requires_model=True, requires_tools=True,
+    # NOTE: requires_memory is intentionally absent. It controlled the canvas memory
+    # diamond handle, which was removed. The "conversation_memory" config below is
+    # unrelated — it toggles SqliteSaver checkpointer persistence across executions.
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[
         PortDefinition(name="messages", data_type=DataType.MESSAGES),
@@ -88,7 +91,7 @@ register_node_type(NodeTypeSpec(
     display_name="Categorizer",
     description="Classifies input into categories",
     category="ai",
-    requires_model=True, requires_memory=True, requires_output_parser=True,
+    requires_model=True, requires_output_parser=True,
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[
         PortDefinition(name="category", data_type=DataType.STRING),
@@ -101,7 +104,7 @@ register_node_type(NodeTypeSpec(
     display_name="Router",
     description="Routes to different branches based on input",
     category="ai",
-    requires_model=True, requires_memory=True, requires_output_parser=True,
+    requires_model=True, requires_output_parser=True,
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
 ))
@@ -111,7 +114,7 @@ register_node_type(NodeTypeSpec(
     display_name="Extractor",
     description="Extracts structured data from input",
     category="ai",
-    requires_model=True, requires_memory=True, requires_output_parser=True,
+    requires_model=True, requires_output_parser=True,
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[PortDefinition(name="extracted", data_type=DataType.OBJECT)],
 ))

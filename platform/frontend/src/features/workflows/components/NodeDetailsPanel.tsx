@@ -439,6 +439,8 @@ export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Prop
   if (node.component_type === "trigger_chat") {
     return <ChatPanel slug={slug} node={node} onClose={onClose} />
   }
+  // key={node.node_id} causes React to fully remount when switching nodes,
+  // so all useState initializers run fresh — no stale state across nodes.
   return <NodeConfigPanel key={node.node_id} slug={slug} node={node} workflow={workflow} onClose={onClose} />
 }
 
@@ -462,6 +464,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const { data: credentials } = useCredentials()
   const allCredentials = credentials?.items ?? []
   const llmCredentials = allCredentials.filter((c) => c.credential_type === "llm")
+
+  const [labelValue, setLabelValue] = useState(node.label || node.node_id)
+
+  useEffect(() => {
+    setLabelValue(node.label || node.node_id)
+  }, [node.label, node.node_id])
 
   const [systemPrompt, setSystemPrompt] = useState(node.config.system_prompt)
   const [extraConfig, setExtraConfig] = useState(JSON.stringify(node.config.extra_config, null, 2))
@@ -685,10 +693,25 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{node.node_id}</h3>
+        <Input
+          className="font-semibold text-sm h-8 px-2 border-transparent hover:border-input focus:border-input"
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
+          onBlur={() => {
+            const val = labelValue.trim()
+            if (val && val !== (node.label || node.node_id)) {
+              updateNode.mutate({ nodeId: node.node_id, data: { label: val } })
+            } else if (!val) {
+              setLabelValue(node.label || node.node_id)
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+          }}
+        />
         <Button variant="ghost" size="sm" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
-      <div className="text-xs text-muted-foreground">{node.component_type}</div>
+      <div className="text-xs text-muted-foreground">{node.component_type} &middot; {node.node_id}</div>
 
       <Separator />
 

@@ -276,6 +276,103 @@ class TestNodeAPI:
         assert data["position_x"] == 100
         assert data["config"]["model_name"] == "gpt-4o"
 
+    def test_create_node_without_node_id(self, auth_client, workflow):
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/",
+            json={"component_type": "agent", "config": {"system_prompt": "test"}},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["node_id"].startswith("agent_")
+        assert len(data["node_id"]) > len("agent_")
+
+    def test_create_node_without_node_id_loop_exhaustion(self, auth_client, workflow, db):
+        """All 10 candidates collide → falls back to 8-byte hex."""
+        from unittest.mock import patch
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        # Pre-create a node with the ID that token_hex(4) will always generate
+        cc = BaseComponentConfig(component_type="agent", system_prompt="x")
+        db.add(cc)
+        db.flush()
+        db.add(WorkflowNode(
+            workflow_id=workflow.id, node_id="agent_aaaa",
+            component_type="agent", component_config_id=cc.id,
+        ))
+        db.commit()
+
+        def fake_token_hex(n):
+            return "aaaa" if n == 4 else "bbbbbbbbbbbbbbbb"
+
+        with patch("api.nodes.secrets.token_hex", side_effect=fake_token_hex):
+            resp = auth_client.post(
+                f"/api/v1/workflows/{workflow.slug}/nodes/",
+                json={"component_type": "agent", "config": {"system_prompt": "test"}},
+            )
+        assert resp.status_code == 201
+        assert resp.json()["node_id"] == "agent_bbbbbbbbbbbbbbbb"
+
+    def test_create_node_auto_id_integrity_error_retry(self, auth_client, workflow, db):
+        """IntegrityError on auto-generated ID retries with longer hex."""
+        from unittest.mock import patch
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
+
+        original_commit = db.commit
+        calls = []
+
+        def mock_commit():
+            calls.append(1)
+            if len(calls) == 1:
+                raise SAIntegrityError("dup", {}, None)
+            return original_commit()
+
+        with patch.object(db, "commit", side_effect=mock_commit):
+            resp = auth_client.post(
+                f"/api/v1/workflows/{workflow.slug}/nodes/",
+                json={"component_type": "agent", "config": {"system_prompt": "test"}},
+            )
+        assert resp.status_code == 201
+
+    def test_create_node_auto_id_double_collision_returns_409(self, auth_client, workflow, db):
+        """IntegrityError on both attempts returns 409."""
+        from unittest.mock import patch
+        from sqlalchemy.exc import IntegrityError as SAIntegrityError
+
+        original_commit = db.commit
+
+        def mock_commit():
+            raise SAIntegrityError("dup", {}, None)
+
+        with patch.object(db, "commit", side_effect=mock_commit):
+            resp = auth_client.post(
+                f"/api/v1/workflows/{workflow.slug}/nodes/",
+                json={"component_type": "agent", "config": {"system_prompt": "test"}},
+            )
+        assert resp.status_code == 409
+
+    def test_create_node_with_label(self, auth_client, workflow):
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/",
+            json={"component_type": "agent", "label": "My Agent", "config": {"system_prompt": "test"}},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["label"] == "My Agent"
+
+    def test_create_node_duplicate_id_returns_409(self, auth_client, workflow):
+        payload = {"node_id": "dup1", "component_type": "agent", "config": {"system_prompt": "test"}}
+        resp1 = auth_client.post(f"/api/v1/workflows/{workflow.slug}/nodes/", json=payload)
+        assert resp1.status_code == 201
+        resp2 = auth_client.post(f"/api/v1/workflows/{workflow.slug}/nodes/", json=payload)
+        assert resp2.status_code == 409
+
+    def test_update_node_label(self, auth_client, workflow, node):
+        resp = auth_client.patch(
+            f"/api/v1/workflows/{workflow.slug}/nodes/{node.node_id}/",
+            json={"label": "Renamed"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["label"] == "Renamed"
+
     def test_delete_node(self, auth_client, workflow, node, edge):
         resp = auth_client.delete(
             f"/api/v1/workflows/{workflow.slug}/nodes/{node.node_id}/"
