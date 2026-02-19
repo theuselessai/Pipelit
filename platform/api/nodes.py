@@ -151,7 +151,11 @@ def create_node(
         db.rollback()
         if not payload.node_id:
             node_id = f"{payload.component_type}_{secrets.token_hex(8)}"
-            node = _create_and_commit(node_id)
+            try:
+                node = _create_and_commit(node_id)
+            except IntegrityError:
+                db.rollback()
+                raise HTTPException(status_code=409, detail=f"Node id collision after retry.")
         else:
             raise HTTPException(status_code=409, detail=f"Node with id '{node_id}' already exists.")
     db.refresh(node)
