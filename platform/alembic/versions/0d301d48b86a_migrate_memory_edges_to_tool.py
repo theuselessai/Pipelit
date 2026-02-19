@@ -18,5 +18,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Cannot reliably reverse — memory edges are now tool edges
-    pass
+    raise NotImplementedError(
+        "Cannot reliably reverse this migration — 'memory' edges have been converted to 'tool' edges. "
+        "Manual intervention required to restore original edge_label values if needed."
+    )

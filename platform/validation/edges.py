@@ -52,7 +52,7 @@ class EdgeValidator:
             # Unknown types — allow (forward compatibility)
             return errors
 
-        # Sub-component edges (llm, tool, memory, output_parser) are always valid
+        # Sub-component edges (llm, tool, output_parser) are always valid
         # if the target requires them
         if target_handle in ("model", "tools", "output_parser"):
             handle_to_flag = {

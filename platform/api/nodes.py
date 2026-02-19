@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -135,7 +136,21 @@ def create_node(
         code_block_id=payload.code_block_id,
     )
     db.add(node)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Collision on auto-generated node_id — retry with longer hex
+        if not payload.node_id:
+            node_id = f"{payload.component_type}_{secrets.token_hex(8)}"
+            node.node_id = node_id
+            db.add(cc)
+            db.flush()
+            node.component_config_id = cc.id
+            db.add(node)
+            db.commit()
+        else:
+            raise HTTPException(status_code=409, detail=f"Node with id '{node_id}' already exists.")
     db.refresh(node)
     result = serialize_node(node, db)
     broadcast(f"workflow:{slug}", "node_created", result)
