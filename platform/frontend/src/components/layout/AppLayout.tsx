@@ -55,7 +55,7 @@ export default function AppLayout() {
         } border-r bg-sidebar text-sidebar-foreground flex flex-col transition-[width] duration-200`}
       >
         <div className="p-4 font-semibold text-lg border-b flex items-center justify-between min-h-[57px]">
-          <div className={`flex items-center gap-2 overflow-hidden text-[var(--sidebar-primary)] ${collapsed ? "hidden" : ""}`}>
+          <div className={`flex items-center gap-2 overflow-hidden text-sidebar-primary ${collapsed ? "hidden" : ""}`}>
             <Workflow className="h-5 w-5 shrink-0" />
             <span>Pipelit</span>
           </div>

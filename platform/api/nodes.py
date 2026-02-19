@@ -140,13 +140,27 @@ def create_node(
         db.commit()
     except IntegrityError:
         db.rollback()
-        # Collision on auto-generated node_id — retry with longer hex
+        # Collision on auto-generated node_id — recreate objects after rollback
+        # (rollback expires all ORM objects, so we must create fresh instances)
         if not payload.node_id:
             node_id = f"{payload.component_type}_{secrets.token_hex(8)}"
-            node.node_id = node_id
+            cc = BaseComponentConfig(**kwargs)
             db.add(cc)
             db.flush()
-            node.component_config_id = cc.id
+            node = WorkflowNode(
+                workflow_id=wf.id,
+                node_id=node_id,
+                label=payload.label,
+                component_type=component_type,
+                component_config_id=cc.id,
+                is_entry_point=payload.is_entry_point,
+                interrupt_before=payload.interrupt_before,
+                interrupt_after=payload.interrupt_after,
+                position_x=payload.position_x,
+                position_y=payload.position_y,
+                subworkflow_id=payload.subworkflow_id,
+                code_block_id=payload.code_block_id,
+            )
             db.add(node)
             db.commit()
         else:
