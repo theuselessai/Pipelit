@@ -692,6 +692,8 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             const val = e.target.value.trim()
             if (val && val !== (node.label || node.node_id)) {
               updateNode.mutate({ nodeId: node.node_id, data: { label: val } })
+            } else if (!val) {
+              e.target.value = node.label || node.node_id
             }
           }}
           onKeyDown={(e) => {
