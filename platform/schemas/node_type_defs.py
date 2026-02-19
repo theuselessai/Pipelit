@@ -66,6 +66,9 @@ register_node_type(NodeTypeSpec(
     description="LangGraph react agent with tools",
     category="ai",
     requires_model=True, requires_tools=True,
+    # NOTE: requires_memory is intentionally absent. It controlled the canvas memory
+    # diamond handle, which was removed. The "conversation_memory" config below is
+    # unrelated — it toggles SqliteSaver checkpointer persistence across executions.
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[
         PortDefinition(name="messages", data_type=DataType.MESSAGES),

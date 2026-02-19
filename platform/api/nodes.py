@@ -436,6 +436,8 @@ def create_edge(
         tgt_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.target_node_id).first()
         if src_node and tgt_node:
             from validation.edges import EdgeValidator
+            # "memory" was intentionally removed — memory nodes now connect via "tool" handle.
+            # See migration 0d301d48b86a which converted all memory edges to tool edges.
             label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser"}
             target_handle = label_to_handle.get(payload.edge_label) if payload.edge_label else None
             errors = EdgeValidator.validate_edge(

@@ -43,6 +43,8 @@ class ComponentConfigData(BaseModel):
 
 
 class NodeIn(BaseModel):
+    # Intentionally optional — backend auto-generates "{component_type}_{hex}" when omitted.
+    # NodeOut.node_id is always non-null (populated after creation).
     node_id: str | None = None
     label: str | None = None
     component_type: ComponentTypeStr
