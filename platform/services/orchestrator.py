@@ -293,7 +293,17 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
         if execution.parent_execution_id:
             parent_eid = str(execution.parent_execution_id)
             parent_nid = execution.parent_node_id or ""
-            parent_slug = workflow.slug
+            # Resolve parent workflow slug from DB (not the child's workflow.slug)
+            parent_exec = (
+                db.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == parent_eid)
+                .first()
+            )
+            if parent_exec:
+                parent_wf = db.query(Workflow).filter(Workflow.id == parent_exec.workflow_id).first()
+                parent_slug = parent_wf.slug if parent_wf else ""
+            else:
+                parent_slug = ""
             # Check if parent is itself a child (grandchild+ scenario)
             grandparent_info = _get_parent_info(parent_eid)
             if grandparent_info and grandparent_info.get("root_execution_id"):
@@ -303,17 +313,7 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
             else:
                 root_eid = parent_eid
                 root_nid = parent_nid
-                # Resolve parent workflow slug from DB
-                parent_exec = (
-                    db.query(WorkflowExecution)
-                    .filter(WorkflowExecution.execution_id == parent_eid)
-                    .first()
-                )
-                if parent_exec:
-                    parent_wf = db.query(Workflow).filter(Workflow.id == parent_exec.workflow_id).first()
-                    root_slug = parent_wf.slug if parent_wf else ""
-                else:
-                    root_slug = ""
+                root_slug = parent_slug
             _cache_parent_info(
                 execution_id, parent_eid, parent_nid, parent_slug,
                 root_eid, root_nid, root_slug,

@@ -625,35 +625,37 @@ class TestCheckpointMetadataParsing:
 
         # Create an in-memory SQLite DB with checkpoint data
         conn = sqlite3.connect(":memory:", check_same_thread=False)
-        conn.execute("""
-            CREATE TABLE checkpoints (
-                thread_id TEXT,
-                checkpoint_ns TEXT,
-                checkpoint_id TEXT,
-                parent_checkpoint_id TEXT,
-                type TEXT,
-                checkpoint BLOB,
-                metadata TEXT
+        try:
+            conn.execute("""
+                CREATE TABLE checkpoints (
+                    thread_id TEXT,
+                    checkpoint_ns TEXT,
+                    checkpoint_id TEXT,
+                    parent_checkpoint_id TEXT,
+                    type TEXT,
+                    checkpoint BLOB,
+                    metadata TEXT
+                )
+            """)
+            # Insert with bytes metadata (the isinstance(metadata_raw, (str, bytes)) branch)
+            meta = json.dumps({"step": 3, "source": "loop"})
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("thread-1", "", "cp-1", None, "json", b"blob-data", meta),
             )
-        """)
-        # Insert with bytes metadata (the isinstance(metadata_raw, (str, bytes)) branch)
-        meta = json.dumps({"step": 3, "source": "loop"})
-        conn.execute(
-            "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ("thread-1", "", "cp-1", None, "json", b"blob-data", meta),
-        )
-        conn.commit()
+            conn.commit()
 
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.conn = conn
+            mock_checkpointer = MagicMock()
+            mock_checkpointer.conn = conn
 
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get("/api/v1/memories/checkpoints/")
+            with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
+                resp = auth_client.get("/api/v1/memories/checkpoints/")
 
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1
-        item = data["items"][0]
-        assert item["step"] == 3
-        assert item["source"] == "loop"
-        conn.close()
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total"] == 1
+            item = data["items"][0]
+            assert item["step"] == 3
+            assert item["source"] == "loop"
+        finally:
+            conn.close()

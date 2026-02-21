@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -324,6 +328,7 @@ def list_credential_models(
             models = sorted(page.data, key=lambda m: m.id)
             return [{"id": m.id, "name": m.id} for m in models]
         except Exception:
+            logger.debug("Anthropic models API failed, using fallback list", exc_info=True)
             return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
 
     base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"

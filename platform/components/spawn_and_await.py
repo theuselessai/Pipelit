@@ -31,7 +31,7 @@ def spawn_and_await_factory(node):
         Args:
             tasks: List of dicts, each with:
                 - workflow_slug: "self" for current workflow, or target workflow slug
-                - input_text: Instructions for the child instance
+                - input_text: (optional) Instructions for the child instance
 
         Returns:
             JSON array of results, one per task (same order as input).

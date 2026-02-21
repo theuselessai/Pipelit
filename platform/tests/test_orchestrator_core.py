@@ -284,9 +284,9 @@ class TestStartExecution:
 
         start_execution(exec_id, db=mock_db)
 
-        # First-level child: root = parent
+        # First-level child: root = parent, parent_slug resolved from DB
         mock_cache_parent.assert_called_once_with(
-            exec_id, "parent-exec-1", "agent_1", "child-wf",
+            exec_id, "parent-exec-1", "agent_1", "parent-wf",
             "parent-exec-1", "agent_1", "parent-wf",
         )
 
@@ -340,14 +340,21 @@ class TestStartExecution:
         mock_workflow.id = 1
         mock_workflow.slug = "grandchild-wf"
 
+        # Parent execution/workflow lookup for parent_slug resolution
+        mock_parent_exec = MagicMock()
+        mock_parent_exec.workflow_id = 2
+        mock_parent_wf = MagicMock()
+        mock_parent_wf.slug = "parent-wf"
+
         mock_db.query.return_value.filter.return_value.first.side_effect = [
             mock_execution, mock_workflow,
+            mock_parent_exec, mock_parent_wf,  # parent resolution
         ]
 
         start_execution("grandchild-exec", db=mock_db)
 
         mock_cache_parent.assert_called_once_with(
-            "grandchild-exec", "parent-exec", "agent_1", "grandchild-wf",
+            "grandchild-exec", "parent-exec", "agent_1", "parent-wf",
             "grandparent-exec", "gp_agent", "gp-wf",
         )
 
