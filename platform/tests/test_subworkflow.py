@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -165,7 +166,6 @@ class TestResumeFromChild:
     @patch("services.orchestrator._redis")
     @patch("database.SessionLocal")
     def test_injects_child_output_and_reenqueues(self, mock_session_cls, mock_redis, mock_load, mock_save, mock_queue):
-        import json
         from services.orchestrator import _resume_from_child
 
         mock_load.return_value = {

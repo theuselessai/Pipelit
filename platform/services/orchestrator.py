@@ -688,7 +688,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             deadline = time.time() + timeout_seconds
             wait_data = {
                 "deadline": deadline,
-                "parallel": True,
+                "parallel": is_parallel,
                 "total": count,
                 "child_ids": child_ids,
                 "results": {},

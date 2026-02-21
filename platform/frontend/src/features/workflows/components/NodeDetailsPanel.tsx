@@ -301,9 +301,10 @@ function ChatPanel({ slug, node, onClose }: Props) {
           } else {
             setLocalMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)", timestamp: new Date().toISOString() }])
           }
-        })
+        }).catch(() => { /* silent — fallback to existing messages */ })
       } else if (msg.type === "execution_failed") {
         pendingExecRef.current = null
+        receivedChatMessagesRef.current = false
         setWaiting(false)
         setActivityExpanded(false)
         setActivitySteps([])

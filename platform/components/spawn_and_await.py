@@ -38,6 +38,14 @@ def spawn_and_await_factory(node):
         """
         from langgraph.types import interrupt
 
+        if not tasks:
+            raise ToolException("tasks list cannot be empty")
+        for i, task in enumerate(tasks):
+            if not isinstance(task, dict):
+                raise ToolException(f"Task {i} must be a dict, got {type(task).__name__}")
+            if "workflow_slug" not in task:
+                raise ToolException(f"Task {i} missing required field 'workflow_slug'")
+
         result = interrupt({"action": "spawn_and_await", "tasks": tasks})
 
         # On resume, interrupt() returns the list of child results.
