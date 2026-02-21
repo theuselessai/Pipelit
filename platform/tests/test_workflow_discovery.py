@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from models.execution import WorkflowExecution
-from models.node import BaseComponentConfig, WorkflowNode
+from models.node import BaseComponentConfig, WorkflowEdge, WorkflowNode
 from models.workflow import Workflow
 from services.workflow_discovery import (
     _compute_success_rate,
@@ -55,6 +55,9 @@ def wf_telegram_agent(db, user_profile):
     db.flush()
     db.add(WorkflowNode(workflow_id=wf.id, node_id="web_search_1", component_type="web_search", component_config_id=cfg4.id))
 
+    # Edge: trigger → agent (needed for discovery to detect trigger)
+    db.add(WorkflowEdge(workflow_id=wf.id, source_node_id="trigger_telegram_1", target_node_id="agent_1", edge_label=""))
+
     db.commit()
     db.refresh(wf)
     return wf
@@ -82,6 +85,9 @@ def wf_webhook_code(db, user_profile):
     db.add(cfg2)
     db.flush()
     db.add(WorkflowNode(workflow_id=wf.id, node_id="code_1", component_type="code", component_config_id=cfg2.id))
+
+    # Edge: trigger → code (needed for discovery to detect trigger)
+    db.add(WorkflowEdge(workflow_id=wf.id, source_node_id="trigger_manual_1", target_node_id="code_1", edge_label=""))
 
     db.commit()
     db.refresh(wf)

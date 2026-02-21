@@ -48,7 +48,10 @@ register_node_type(NodeTypeSpec(
     component_type="trigger_workflow",
     display_name="Workflow Trigger",
     category="trigger",
-    outputs=[PortDefinition(name="payload", data_type=DataType.OBJECT)],
+    outputs=[
+        PortDefinition(name="text", data_type=DataType.STRING),
+        PortDefinition(name="payload", data_type=DataType.OBJECT),
+    ],
 ))
 
 register_node_type(NodeTypeSpec(

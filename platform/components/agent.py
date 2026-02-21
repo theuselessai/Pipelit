@@ -157,7 +157,13 @@ def agent_factory(node):
         # Build thread config for checkpointer
         config = None
         if checkpointer is not None:
-            if conversation_memory:
+            is_child = state.get("_is_child_execution", False)
+            if is_child:
+                # Child executions always use execution-scoped threads
+                # to avoid polluting the parent's conversation history
+                execution_id = state.get("execution_id", "unknown")
+                thread_id = f"exec:{execution_id}:{node_id}"
+            elif conversation_memory:
                 user_ctx = state.get("user_context", {})
                 user_id = user_ctx.get("user_profile_id", "anon")
                 chat_id = user_ctx.get("telegram_chat_id", "")
@@ -187,10 +193,10 @@ def agent_factory(node):
                 if isinstance(exc, GraphInterrupt) and exc.interrupts:
                     interrupt_data = exc.interrupts[0].value if exc.interrupts else {}
                     logger.info(
-                        "Agent %s: interrupted by spawn_and_await, creating child execution: %s",
+                        "Agent %s: interrupted by spawn_and_await, creating children: %s",
                         node_id, interrupt_data,
                     )
-                    return _try_create_child(interrupt_data, state, node_id)
+                    return _try_create_children(interrupt_data, state, node_id)
                 raise
 
             # With a checkpointer, LangGraph catches GraphInterrupt internally
@@ -199,12 +205,12 @@ def agent_factory(node):
                 interrupts = result["__interrupt__"]
                 if interrupts:
                     interrupt_val = interrupts[0].value if hasattr(interrupts[0], "value") else {}
-                    if isinstance(interrupt_val, dict) and interrupt_val.get("action") == "spawn_workflow":
+                    if isinstance(interrupt_val, dict) and interrupt_val.get("action") == "spawn_and_await":
                         logger.info(
-                            "Agent %s: detected interrupt in return value, creating child: %s",
+                            "Agent %s: detected interrupt in return value, creating children: %s",
                             node_id, interrupt_val,
                         )
-                        return _try_create_child(interrupt_val, state, node_id)
+                        return _try_create_children(interrupt_val, state, node_id)
 
         out_messages = result.get("messages", [])
 
@@ -245,33 +251,80 @@ def agent_factory(node):
     return agent_node
 
 
-def _try_create_child(interrupt_data: dict, state: dict, node_id: str) -> dict:
-    """Attempt to create a child execution; return error output instead of raising."""
+MAX_SPAWN_DEPTH = 3
+
+
+def _try_create_children(interrupt_data: dict, state: dict, node_id: str) -> dict:
+    """Attempt to create child executions for parallel spawn; return error output on failure."""
     try:
-        child_id = _create_child_from_interrupt(interrupt_data, state, node_id)
-        return {"_subworkflow": {"child_execution_id": child_id}}
-    except Exception as exc:
-        logger.exception("Agent %s: failed to create child execution", node_id)
+        # Check spawn depth limit
+        current_depth = state.get("_spawn_depth", 0)
+        if current_depth >= MAX_SPAWN_DEPTH:
+            msg = (
+                f"Spawn depth limit reached ({MAX_SPAWN_DEPTH}). "
+                "Cannot spawn further child workflows."
+            )
+            logger.warning("Agent %s: %s", node_id, msg)
+            return {"output": msg}
+
+        tasks = interrupt_data.get("tasks", [])
+        if not tasks:
+            return {"output": "spawn_and_await: no tasks provided"}
+
+        child_ids = []
+        for task in tasks:
+            child_id = _create_child_from_interrupt(task, state, node_id)
+            child_ids.append(child_id)
+
+        return {
+            "_subworkflow": {
+                "child_execution_ids": child_ids,
+                "parallel": True,
+                "count": len(child_ids),
+            }
+        }
+    except Exception:
+        logger.exception("Agent %s: failed to create child executions", node_id)
         return {"output": "spawn_and_await failed: unable to create child execution"}
 
 
 def _create_child_from_interrupt(
-    interrupt_data: dict,
+    task_data: dict,
     state: dict,
     parent_node_id: str,
 ) -> str:
-    """Create a child WorkflowExecution from a spawn_and_await interrupt payload."""
+    """Create a child WorkflowExecution from a single task in a spawn_and_await interrupt."""
     from database import SessionLocal
     from models.execution import WorkflowExecution
     from models.workflow import Workflow
 
-    workflow_slug = interrupt_data.get("workflow_slug", "")
-    input_text = interrupt_data.get("input_text", "")
-    task_id = interrupt_data.get("task_id")
-    input_data = interrupt_data.get("input_data", {})
+    workflow_slug = task_data.get("workflow_slug", "")
+    input_text = task_data.get("input_text", "")
+    task_id = task_data.get("task_id")
+    input_data = task_data.get("input_data", {})
+
+    parent_execution_id = state.get("execution_id", "")
+    current_depth = state.get("_spawn_depth", 0)
 
     db = SessionLocal()
     try:
+        # Resolve "self" slug to parent workflow's slug
+        parent_trigger_node_id = None
+        if workflow_slug == "self":
+            parent_exec = (
+                db.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == parent_execution_id)
+                .first()
+            )
+            if not parent_exec:
+                raise ValueError("spawn_and_await: cannot resolve 'self' — parent execution not found")
+            parent_workflow = db.query(Workflow).filter(Workflow.id == parent_exec.workflow_id).first()
+            if not parent_workflow:
+                raise ValueError("spawn_and_await: cannot resolve 'self' — parent workflow not found")
+            workflow_slug = parent_workflow.slug
+            # Copy trigger_node_id from parent so topology uses correct trigger path
+            parent_trigger_node_id = parent_exec.trigger_node_id
+
         target_workflow = (
             db.query(Workflow)
             .filter(Workflow.slug == workflow_slug, Workflow.deleted_at.is_(None))
@@ -280,7 +333,21 @@ def _create_child_from_interrupt(
         if not target_workflow:
             raise ValueError(f"spawn_and_await: target workflow not found: slug={workflow_slug!r}")
 
-        parent_execution_id = state.get("execution_id", "")
+        # For non-self spawns, find the target workflow's trigger_workflow node
+        # so build_topology scopes to the correct trigger branch.
+        if parent_trigger_node_id is None:
+            from models.node import WorkflowNode
+            tw_node = (
+                db.query(WorkflowNode)
+                .filter(
+                    WorkflowNode.workflow_id == target_workflow.id,
+                    WorkflowNode.component_type == "trigger_workflow",
+                )
+                .first()
+            )
+            if tw_node:
+                parent_trigger_node_id = tw_node.id
+
         user_context = state.get("user_context", {})
         user_profile_id = user_context.get("user_profile_id")
 
@@ -299,6 +366,7 @@ def _create_child_from_interrupt(
         trigger_payload = {
             "text": input_text,
             "payload": input_data,
+            "_spawn_depth": current_depth + 1,
         }
 
         child_execution = WorkflowExecution(
@@ -306,6 +374,7 @@ def _create_child_from_interrupt(
             user_profile_id=user_profile_id,
             thread_id=uuid.uuid4().hex,
             trigger_payload=trigger_payload,
+            trigger_node_id=parent_trigger_node_id,
             parent_execution_id=parent_execution_id,
             parent_node_id=parent_node_id,
         )
@@ -342,8 +411,9 @@ def _create_child_from_interrupt(
 
         logger.info(
             "spawn_and_await: created child execution %s for workflow '%s' "
-            "(parent=%s, node=%s)",
+            "(parent=%s, node=%s, depth=%d)",
             child_id, target_workflow.slug, parent_execution_id, parent_node_id,
+            current_depth + 1,
         )
         return child_id
 

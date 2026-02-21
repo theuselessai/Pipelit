@@ -65,16 +65,33 @@ def cleanup_stuck_child_waits() -> int:
                     time.time(),
                 )
 
-                # Resume parent with timeout error; only delete key on success
-                # so that transient failures are retried on the next cleanup run.
+                # Handle parallel waits: fill in timeout errors for missing children
                 from services.orchestrator import _resume_from_child
 
                 try:
-                    _resume_from_child(
-                        parent_execution_id=execution_id,
-                        parent_node_id=node_id,
-                        child_output={"_error": "Child execution timed out"},
-                    )
+                    if data.get("parallel"):
+                        results = data.get("results", {})
+                        child_ids = data.get("child_ids", [])
+                        # Fill in timeout errors for children that haven't reported
+                        ordered_results = []
+                        for cid in child_ids:
+                            if cid in results:
+                                ordered_results.append(results[cid])
+                            else:
+                                ordered_results.append({"_error": "Child execution timed out"})
+
+                        # Direct resume with combined results (no child_execution_id)
+                        _resume_from_child(
+                            parent_execution_id=execution_id,
+                            parent_node_id=node_id,
+                            child_output=ordered_results,
+                        )
+                    else:
+                        _resume_from_child(
+                            parent_execution_id=execution_id,
+                            parent_node_id=node_id,
+                            child_output={"_error": "Child execution timed out"},
+                        )
                     r.delete(key)
                     expired_count += 1
                 except Exception:

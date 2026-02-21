@@ -102,7 +102,7 @@ def _extract_capabilities(workflow_id: int, db: Session, workflow: Any = None) -
 
     Returns dict with keys: triggers, node_types, tools, model_names, tags.
     """
-    from models.node import WorkflowNode
+    from models.node import WorkflowEdge, WorkflowNode
     from services.topology import SUB_COMPONENT_TYPES
 
     nodes = (
@@ -110,6 +110,17 @@ def _extract_capabilities(workflow_id: int, db: Session, workflow: Any = None) -
         .filter(WorkflowNode.workflow_id == workflow_id)
         .all()
     )
+
+    # Only consider triggers that have at least one outgoing direct edge
+    edges = (
+        db.query(WorkflowEdge)
+        .filter(
+            WorkflowEdge.workflow_id == workflow_id,
+            WorkflowEdge.edge_label == "",
+        )
+        .all()
+    )
+    source_ids_with_edges = {e.source_node_id for e in edges}
 
     triggers: list[str] = []
     node_types: list[str] = []
@@ -121,7 +132,8 @@ def _extract_capabilities(workflow_id: int, db: Session, workflow: Any = None) -
     for node in nodes:
         ct = node.component_type
         if ct.startswith("trigger_"):
-            triggers.append(ct.removeprefix("trigger_"))
+            if node.node_id in source_ids_with_edges:
+                triggers.append(ct.removeprefix("trigger_"))
         elif ct in tool_types:
             tools.append(ct)
         elif ct == "ai_model":

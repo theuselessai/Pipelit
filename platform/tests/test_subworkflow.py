@@ -162,8 +162,10 @@ class TestResumeFromChild:
     @patch("services.orchestrator._queue")
     @patch("services.orchestrator.save_state")
     @patch("services.orchestrator.load_state")
+    @patch("services.orchestrator._redis")
     @patch("database.SessionLocal")
-    def test_injects_child_output_and_reenqueues(self, mock_session_cls, mock_load, mock_save, mock_queue):
+    def test_injects_child_output_and_reenqueues(self, mock_session_cls, mock_redis, mock_load, mock_save, mock_queue):
+        import json
         from services.orchestrator import _resume_from_child
 
         mock_load.return_value = {
@@ -172,6 +174,14 @@ class TestResumeFromChild:
         }
         mock_q = MagicMock()
         mock_queue.return_value = mock_q
+
+        # Mock Redis to return a legacy (non-parallel) wait key
+        mock_r = MagicMock()
+        mock_r.get.return_value = json.dumps({
+            "deadline": 9999999999,
+            "child_execution_id": "child-1",
+        })
+        mock_redis.return_value = mock_r
 
         mock_db = MagicMock()
         mock_session_cls.return_value = mock_db

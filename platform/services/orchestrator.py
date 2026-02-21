@@ -579,27 +579,43 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 return
             # Empty array or no body targets — advance normally
 
-        # Handle subworkflow: component created a child execution, wait for it
+        # Handle subworkflow: component created child execution(s), wait for completion
         if subworkflow_data:
-            child_id = subworkflow_data.get("child_execution_id")
+            child_ids = subworkflow_data.get("child_execution_ids", [])
+            is_parallel = subworkflow_data.get("parallel", False)
+            count = subworkflow_data.get("count", len(child_ids))
+
+            # Legacy single-child fallback
+            if not child_ids and subworkflow_data.get("child_execution_id"):
+                child_ids = [subworkflow_data["child_execution_id"]]
+                count = 1
+
             logger.info(
-                "Node %s waiting for child execution %s", node_id, child_id,
+                "Node %s waiting for %d child execution(s): %s",
+                node_id, count, child_ids,
             )
             # Store timeout deadline so the cleanup job can expire stuck waits
             timeout_seconds = 600  # 10 minutes
             deadline = time.time() + timeout_seconds
+            wait_data = {
+                "deadline": deadline,
+                "parallel": True,
+                "total": count,
+                "child_ids": child_ids,
+                "results": {},
+            }
             r.set(
                 _child_wait_key(execution_id, node_id),
-                json.dumps({"deadline": deadline, "child_execution_id": child_id}),
+                json.dumps(wait_data),
                 ex=timeout_seconds + 60,
             )
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.WAITING.value,
-                "child_execution_id": child_id,
+                "child_execution_ids": child_ids,
                 **_node_meta,
             }, workflow_slug=slug)
             # Do NOT advance or decrement inflight — node stays inflight
-            # until child completes and _resume_from_child is called.
+            # until all children complete and _resume_from_child is called.
             return
 
         # Handle delay: pass delay to _advance
@@ -710,6 +726,7 @@ def _propagate_failure_to_parent(execution, exc: Exception) -> None:
             parent_execution_id=parent_eid,
             parent_node_id=parent_nid,
             child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
+            child_execution_id=str(getattr(execution, "execution_id", "")),
         )
     except Exception:
         logger.exception("Failed to propagate failure to parent %s", parent_eid)
@@ -719,11 +736,13 @@ def _resume_from_child(
     parent_execution_id: str,
     parent_node_id: str,
     child_output: dict | None,
+    child_execution_id: str | None = None,
 ) -> None:
     """Resume a parent execution after a child subworkflow completes.
 
-    Injects the child's final_output into parent state, then re-enqueues
-    the subworkflow node so it can return the result and advance normally.
+    For parallel spawns, accumulates results in the child_wait key until
+    all children have reported, then injects the ordered results list into
+    parent state and re-enqueues the subworkflow node.
     """
     from database import SessionLocal
     from models.execution import WorkflowExecution
@@ -745,14 +764,71 @@ def _resume_from_child(
             )
             return
 
-        # Clean up the child-wait timeout key
         r = _redis()
-        r.delete(_child_wait_key(parent_execution_id, parent_node_id))
+        wait_key = _child_wait_key(parent_execution_id, parent_node_id)
+        raw = r.get(wait_key)
+
+        if not raw:
+            # Key already consumed (concurrent child or cleanup already resumed)
+            logger.warning(
+                "Child wait key gone for parent %s node %s, skipping",
+                parent_execution_id, parent_node_id,
+            )
+            return
+
+        wait_data = json.loads(raw)
+
+        if wait_data.get("parallel") and child_execution_id:
+            # Parallel mode: accumulate results under Redis lock
+            lock_key = f"{wait_key}:lock"
+            lock = r.lock(lock_key, timeout=LOCK_TTL)
+            if not lock.acquire(blocking=True, blocking_timeout=10):
+                logger.error(
+                    "Failed to acquire lock for parallel resume %s/%s",
+                    parent_execution_id, parent_node_id,
+                )
+                return
+            try:
+                # Re-read under lock (may have been updated by concurrent child)
+                raw = r.get(wait_key)
+                if not raw:
+                    logger.warning("Child wait key consumed under lock for %s", parent_execution_id)
+                    return
+                wait_data = json.loads(raw)
+
+                results = wait_data.get("results", {})
+                results[child_execution_id] = child_output
+                total = wait_data.get("total", 1)
+
+                if len(results) < total:
+                    # Not all children done yet — update and return
+                    wait_data["results"] = results
+                    r.set(wait_key, json.dumps(wait_data), ex=STATE_TTL)
+                    logger.info(
+                        "Parallel child %s reported (%d/%d) for parent %s node %s",
+                        child_execution_id, len(results), total,
+                        parent_execution_id, parent_node_id,
+                    )
+                    return
+
+                # All children done — build ordered results list and resume
+                child_ids = wait_data.get("child_ids", [])
+                ordered_results = [results.get(cid) for cid in child_ids]
+                r.delete(wait_key)
+            finally:
+                try:
+                    lock.release()
+                except Exception:
+                    pass
+        else:
+            # Legacy single-child path or direct resume (e.g. from cleanup)
+            r.delete(wait_key)
+            ordered_results = child_output
 
         # Inject child output into parent state
         state = load_state(parent_execution_id)
         subworkflow_results = state.get("_subworkflow_results", {})
-        subworkflow_results[parent_node_id] = child_output
+        subworkflow_results[parent_node_id] = ordered_results
         state["_subworkflow_results"] = subworkflow_results
         save_state(parent_execution_id, state)
 
@@ -1056,6 +1132,7 @@ def _finalize(execution_id: str, db: Session) -> None:
                 parent_execution_id=parent_eid,
                 parent_node_id=parent_nid,
                 child_output=execution.final_output,
+                child_execution_id=str(execution.execution_id),
             )
 
     except Exception as exc:
@@ -1191,6 +1268,8 @@ def _build_initial_state(execution) -> dict:
         "loop_state": {},
         "error": "",
         "should_retry": False,
+        "_is_child_execution": bool(execution.parent_execution_id),
+        "_spawn_depth": int(payload.get("_spawn_depth", 0)),
     }
 
 
