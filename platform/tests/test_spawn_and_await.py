@@ -1326,9 +1326,12 @@ class TestAgentNodeSpawnResume:
         assert isinstance(command_arg, Command)
         assert command_arg.resume == [{"result": "child output 1"}, {"result": "child output 2"}]
 
-        # Check ephemeral thread config
+        # Check ephemeral thread config (callbacks key added by AgentMessageCallback)
         config_arg = invoke_args[1].get("config") or invoke_args[0][1]
-        assert config_arg == {"configurable": {"thread_id": "exec:exec-123:test_node_1"}}
+        assert config_arg["configurable"] == {"thread_id": "exec:exec-123:test_node_1"}
+        from components.agent import AgentMessageCallback
+        assert len(config_arg["callbacks"]) == 1
+        assert isinstance(config_arg["callbacks"][0], AgentMessageCallback)
 
         # Verify output
         assert "output" in result

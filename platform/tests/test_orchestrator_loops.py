@@ -710,6 +710,7 @@ class TestStartExecutionErrors:
         mock_execution.trigger_payload = {"text": "hi"}
         mock_execution.user_profile_id = 1
         mock_execution.status = "pending"
+        mock_execution.parent_execution_id = None
 
         mock_workflow = MagicMock()
         mock_workflow.id = 1
