@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import redis as redis_lib
@@ -1192,9 +1193,9 @@ def _finalize(execution_id: str, db: Session) -> None:
         child_llm_calls = 0
         child_count = 0
         try:
-            queue_ids = [execution_id]
+            queue_ids = deque([execution_id])
             while queue_ids:
-                pid = queue_ids.pop(0)
+                pid = queue_ids.popleft()
                 children = (
                     db.query(WorkflowExecution)
                     .filter(WorkflowExecution.parent_execution_id == pid)

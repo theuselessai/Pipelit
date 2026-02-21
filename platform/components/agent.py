@@ -341,7 +341,7 @@ def _try_create_children(interrupt_data: dict, state: dict, node_id: str) -> dic
         }
     except Exception:
         logger.exception("Agent %s: failed to create child executions", node_id)
-        return {"output": "spawn_and_await failed: unable to create child execution"}
+        return {"output": "spawn_and_await failed: unable to create child executions"}
 
 
 def _create_child_from_interrupt(

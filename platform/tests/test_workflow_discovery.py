@@ -65,7 +65,7 @@ def wf_telegram_agent(db, user_profile):
 
 @pytest.fixture
 def wf_webhook_code(db, user_profile):
-    """Workflow with webhook trigger and code node."""
+    """Workflow with manual trigger and code node."""
     wf = Workflow(
         name="Webhook Processor",
         slug="webhook-processor",
