@@ -317,7 +317,14 @@ def list_credential_models(
     llm = cred.llm_credential
 
     if llm.provider_type == "anthropic":
-        return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=llm.api_key)
+            page = client.models.list(limit=100)
+            models = sorted(page.data, key=lambda m: m.id)
+            return [{"id": m.id, "name": m.id} for m in models]
+        except Exception:
+            return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
 
     base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
     try:
