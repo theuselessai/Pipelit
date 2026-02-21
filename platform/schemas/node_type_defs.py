@@ -21,7 +21,7 @@ register_node_type(NodeTypeSpec(
     component_type="trigger_manual",
     display_name="Manual Trigger",
     category="trigger",
-    outputs=[PortDefinition(name="payload", data_type=DataType.OBJECT)],
+    outputs=[PortDefinition(name="payload", data_type=DataType.OBJECT, description="Manual trigger payload")],
 ))
 
 register_node_type(NodeTypeSpec(
@@ -39,8 +39,8 @@ register_node_type(NodeTypeSpec(
     display_name="Chat Trigger",
     category="trigger",
     outputs=[
-        PortDefinition(name="text", data_type=DataType.STRING),
-        PortDefinition(name="payload", data_type=DataType.OBJECT),
+        PortDefinition(name="text", data_type=DataType.STRING, description="Chat message text"),
+        PortDefinition(name="payload", data_type=DataType.OBJECT, description="Full chat trigger payload"),
     ],
 ))
 

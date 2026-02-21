@@ -6,7 +6,6 @@ import logging
 
 import httpx
 
-logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -28,6 +27,8 @@ from schemas.credential import (
     CredentialTestOut,
     CredentialUpdate,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

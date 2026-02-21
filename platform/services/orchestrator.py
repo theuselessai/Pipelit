@@ -1193,9 +1193,13 @@ def _finalize(execution_id: str, db: Session) -> None:
         child_llm_calls = 0
         child_count = 0
         try:
+            visited: set[str] = set()
             queue_ids = deque([execution_id])
             while queue_ids:
                 pid = queue_ids.popleft()
+                if pid in visited:
+                    continue
+                visited.add(pid)
                 children = (
                     db.query(WorkflowExecution)
                     .filter(WorkflowExecution.parent_execution_id == pid)
@@ -1247,7 +1251,7 @@ def _finalize(execution_id: str, db: Session) -> None:
                 parent_execution_id=parent_eid,
                 parent_node_id=parent_nid,
                 child_output=execution.final_output,
-                child_execution_id=str(execution.execution_id),
+                child_execution_id=execution_id,
             )
 
     except Exception as exc:
