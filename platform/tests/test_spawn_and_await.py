@@ -46,6 +46,100 @@ def mock_session(db):
 
 
 # ---------------------------------------------------------------------------
+# AgentMessageCallback (agent.py lines 26-69)
+# ---------------------------------------------------------------------------
+
+
+class TestAgentMessageCallback:
+    """Test the AgentMessageCallback that publishes chat_message WS events."""
+
+    def _make_callback(self, exec_id="exec-1", workflow_slug="test-wf", node_id="agent_1"):
+        from components.agent import AgentMessageCallback
+
+        exec_id_ref = [exec_id]
+        return AgentMessageCallback(exec_id_ref, workflow_slug, node_id)
+
+    def _make_llm_result(self, content):
+        """Build a mock LLMResult with the given content."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, LLMResult
+
+        msg = AIMessage(content=content) if content is not None else AIMessage(content="")
+        gen = ChatGeneration(message=msg)
+        return LLMResult(generations=[[gen]])
+
+    def test_on_llm_end_publishes_chat_message(self):
+        cb = self._make_callback()
+        result = self._make_llm_result("Hello, world!")
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_called_once()
+        call_args = mock_pub.call_args
+        assert call_args[0][0] == "exec-1"
+        assert call_args[0][1] == "chat_message"
+        assert call_args[0][2]["text"] == "Hello, world!"
+        assert call_args[0][2]["node_id"] == "agent_1"
+        assert call_args[1]["workflow_slug"] == "test-wf"
+
+    def test_on_llm_end_handles_anthropic_list_format(self):
+        cb = self._make_callback()
+        content = [{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}]
+        result = self._make_llm_result(content)
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_called_once()
+        assert mock_pub.call_args[0][2]["text"] == "hello\nworld"
+
+    def test_on_llm_end_skips_empty_content(self):
+        cb = self._make_callback()
+        result = self._make_llm_result("")
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_not_called()
+
+    def test_on_llm_end_skips_none_content(self):
+        """When content is falsy (empty string from AIMessage), _publish_event is not called."""
+        cb = self._make_callback()
+        # Use a mock LLMResult to set content to None (which AIMessage doesn't allow directly)
+        mock_result = MagicMock()
+        mock_msg = MagicMock()
+        mock_msg.content = None
+        mock_gen = MagicMock()
+        mock_gen.message = mock_msg
+        mock_result.generations = [[mock_gen]]
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(mock_result)
+
+        mock_pub.assert_not_called()
+
+    def test_on_llm_end_swallows_exceptions(self):
+        cb = self._make_callback()
+        result = self._make_llm_result("test")
+
+        with patch("services.orchestrator._publish_event", side_effect=RuntimeError("publish failed")):
+            # Should not raise
+            cb.on_llm_end(result)
+
+    def test_on_llm_end_skips_without_exec_id(self):
+        from components.agent import AgentMessageCallback
+
+        cb = AgentMessageCallback([None], "test-wf", "agent_1")
+        result = self._make_llm_result("test")
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Tool factory
 # ---------------------------------------------------------------------------
 
@@ -370,6 +464,28 @@ class TestInterruptFlow:
 
         with pytest.raises(ValueError, match="target workflow not found"):
             _create_child_from_interrupt(task_data, state, "agent_1")
+
+    def test_try_create_children_exception_returns_error(self):
+        """When _create_child_from_interrupt raises, _try_create_children returns error output."""
+        from components.agent import _try_create_children
+
+        interrupt_data = {
+            "tasks": [{"workflow_slug": "wf1", "input_text": "test"}],
+        }
+        state = {
+            "execution_id": "exec-1",
+            "user_context": {"user_profile_id": 1},
+            "_spawn_depth": 0,
+        }
+
+        with patch(
+            "components.agent._create_child_from_interrupt",
+            side_effect=RuntimeError("DB connection failed"),
+        ):
+            result = _try_create_children(interrupt_data, state, "agent_1")
+
+        assert "output" in result
+        assert "spawn_and_await failed" in result["output"]
 
 
 # ---------------------------------------------------------------------------
@@ -952,6 +1068,42 @@ class TestToolInvocation:
             })
 
         assert result == json.dumps(child_output, default=str)
+
+    def test_tool_validates_non_dict_task(self):
+        """Non-dict tasks should raise ToolException during validation."""
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        # Pydantic validates list[dict] at the schema level, so we need to
+        # call the underlying function directly to test the tool body validation
+        with pytest.raises(ToolException, match="must be a dict"):
+            tool.func(tasks=["not_a_dict"])
+
+    def test_tool_validates_missing_workflow_slug(self):
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        with pytest.raises(ToolException, match="missing required field 'workflow_slug'"):
+            tool.invoke({"tasks": [{"input_text": "hi"}]})
+
+    def test_tool_validates_empty_tasks_list(self):
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        with pytest.raises(ToolException, match="cannot be empty"):
+            tool.invoke({"tasks": []})
 
 
 # ---------------------------------------------------------------------------

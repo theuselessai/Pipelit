@@ -544,3 +544,116 @@ class TestEdgeSubComponentLinking:
 
         db.refresh(agent_cc)
         assert agent_cc.llm_model_config_id is None
+
+
+# ── Credential models listing (Anthropic) ────────────────────────────────────
+
+
+class TestCredentialModelsAnthropic:
+    @pytest.fixture
+    def llm_credential(self, db, user_profile):
+        from models.credential import BaseCredential, LLMProviderCredential
+
+        base = BaseCredential(
+            user_profile_id=user_profile.id,
+            name="Anthropic Key",
+            credential_type="llm",
+        )
+        db.add(base)
+        db.flush()
+        llm = LLMProviderCredential(
+            base_credentials_id=base.id,
+            provider_type="anthropic",
+            api_key="sk-ant-test",
+        )
+        db.add(llm)
+        db.commit()
+        db.refresh(base)
+        return base
+
+    def test_anthropic_models_live_api_success(self, auth_client, llm_credential):
+        from unittest.mock import patch, MagicMock
+
+        mock_model1 = MagicMock()
+        mock_model1.id = "claude-opus-4-0-20250514"
+        mock_model2 = MagicMock()
+        mock_model2.id = "claude-sonnet-4-20250514"
+
+        mock_page = MagicMock()
+        mock_page.data = [mock_model2, mock_model1]  # unsorted
+
+        mock_client = MagicMock()
+        mock_client.models.list.return_value = mock_page
+
+        mock_anthropic_cls = MagicMock(return_value=mock_client)
+
+        # Anthropic is imported locally inside the endpoint, so patch at the module level
+        with patch.dict("sys.modules", {"anthropic": MagicMock(Anthropic=mock_anthropic_cls)}):
+            resp = auth_client.get(f"/api/v1/credentials/{llm_credential.id}/models/")
+
+        assert resp.status_code == 200
+        models = resp.json()
+        # Should be sorted by id
+        assert models[0]["id"] == "claude-opus-4-0-20250514"
+        assert models[1]["id"] == "claude-sonnet-4-20250514"
+
+    def test_anthropic_models_api_failure_falls_back(self, auth_client, llm_credential):
+        from unittest.mock import patch, MagicMock
+
+        mock_anthropic_cls = MagicMock(side_effect=RuntimeError("network error"))
+
+        with patch.dict("sys.modules", {"anthropic": MagicMock(Anthropic=mock_anthropic_cls)}):
+            resp = auth_client.get(f"/api/v1/credentials/{llm_credential.id}/models/")
+
+        assert resp.status_code == 200
+        models = resp.json()
+        # Should return fallback ANTHROPIC_MODELS list
+        assert len(models) >= 1
+        model_ids = [m["id"] for m in models]
+        assert "claude-sonnet-4-20250514" in model_ids
+
+
+# ── Checkpoint metadata parsing ──────────────────────────────────────────────
+
+
+class TestCheckpointMetadataParsing:
+    def test_checkpoint_metadata_bytes_parsed(self, auth_client):
+        """Verify list_checkpoints correctly parses bytes metadata."""
+        import json
+        import sqlite3
+        from unittest.mock import patch, MagicMock
+
+        # Create an in-memory SQLite DB with checkpoint data
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        conn.execute("""
+            CREATE TABLE checkpoints (
+                thread_id TEXT,
+                checkpoint_ns TEXT,
+                checkpoint_id TEXT,
+                parent_checkpoint_id TEXT,
+                type TEXT,
+                checkpoint BLOB,
+                metadata TEXT
+            )
+        """)
+        # Insert with bytes metadata (the isinstance(metadata_raw, (str, bytes)) branch)
+        meta = json.dumps({"step": 3, "source": "loop"})
+        conn.execute(
+            "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("thread-1", "", "cp-1", None, "json", b"blob-data", meta),
+        )
+        conn.commit()
+
+        mock_checkpointer = MagicMock()
+        mock_checkpointer.conn = conn
+
+        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
+            resp = auth_client.get("/api/v1/memories/checkpoints/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        item = data["items"][0]
+        assert item["step"] == 3
+        assert item["source"] == "loop"
+        conn.close()
