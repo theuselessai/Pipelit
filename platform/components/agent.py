@@ -7,7 +7,9 @@ import os
 import threading
 import uuid
 
+from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.outputs import LLMResult
 from langgraph.prebuilt import create_react_agent
 
 from components import register
@@ -19,6 +21,52 @@ from services.token_usage import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class AgentMessageCallback(BaseCallbackHandler):
+    """Broadcasts a ``chat_message`` WS event after each LLM call so the
+    frontend can show intermediate agent responses in real-time."""
+
+    def __init__(self, exec_id_ref: list[str | None], workflow_slug: str, node_id: str):
+        super().__init__()
+        self._exec_id_ref = exec_id_ref
+        self._workflow_slug = workflow_slug
+        self._node_id = node_id
+
+    def on_llm_end(self, response: LLMResult, **kwargs) -> None:  # noqa: ARG002
+        try:
+            exec_id = self._exec_id_ref[0] if self._exec_id_ref else None
+            if not exec_id or not self._workflow_slug:
+                return
+
+            # Extract text content from the first generation
+            msg = response.generations[0][0].message
+            content = msg.content
+            if not content:
+                return
+
+            # Handle Anthropic list format: [{"type": "text", "text": "..."}]
+            if isinstance(content, list):
+                text_parts = [
+                    block["text"] for block in content
+                    if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+                ]
+                text = "\n".join(text_parts)
+            else:
+                text = str(content)
+
+            if not text.strip():
+                return
+
+            from services.orchestrator import _publish_event
+            _publish_event(
+                exec_id,
+                "chat_message",
+                {"text": text, "node_id": self._node_id},
+                workflow_slug=self._workflow_slug,
+            )
+        except Exception:
+            logger.debug("AgentMessageCallback.on_llm_end failed (non-fatal)", exc_info=True)
 
 # Lazy singleton for SqliteSaver checkpointer (permanent — conversation memory)
 _checkpointer = None
@@ -77,6 +125,7 @@ def agent_factory(node):
     system_prompt = getattr(concrete, "system_prompt", None) or ""
     extra = getattr(concrete, "extra_config", None) or {}
     workflow_id = node.workflow_id
+    workflow_slug = node.workflow.slug if node.workflow else ""
     node_id = node.node_id
     conversation_memory = extra.get("conversation_memory", False)
 
@@ -177,6 +226,13 @@ def agent_factory(node):
                 execution_id = state.get("execution_id", "unknown")
                 thread_id = f"exec:{execution_id}:{node_id}"
             config = {"configurable": {"thread_id": thread_id}}
+
+        # Inject callback for real-time intermediate chat messages
+        _chat_cb = AgentMessageCallback(_exec_id_ref, workflow_slug, node_id)
+        if config is None:
+            config = {"callbacks": [_chat_cb]}
+        else:
+            config["callbacks"] = [_chat_cb]
 
         # Check if we're resuming from a child workflow result
         child_result = state.get("_subworkflow_results", {}).get(node_id)

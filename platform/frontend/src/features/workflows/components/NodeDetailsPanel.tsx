@@ -141,6 +141,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
 
   const [waiting, setWaiting] = useState(false)
   const pendingExecRef = useRef<string | null>(null)
+  const receivedChatMessagesRef = useRef(false)
 
   // Activity indicator state
   const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
@@ -216,6 +217,19 @@ function ChatPanel({ slug, node, onClose }: Props) {
         }
       }
 
+      // Real-time intermediate agent messages
+      if (msg.type === "chat_message" && msg.data) {
+        const text = msg.data.text as string
+        if (text) {
+          receivedChatMessagesRef.current = true
+          setLocalMessages((prev) => [
+            ...prev,
+            { role: "assistant", text, timestamp: new Date().toISOString() },
+          ])
+        }
+        return
+      }
+
       if (msg.type === "execution_completed") {
         pendingExecRef.current = null
         setWaiting(false)
@@ -224,17 +238,27 @@ function ChatPanel({ slug, node, onClose }: Props) {
           setActivitySummary(msg.data.activity_summary as ActivitySummary)
         }
         setActivityExpanded(false)
-        const output = msg.data?.output as Record<string, unknown> | undefined
-        if (output) {
-          const text =
-            (output.message as string) ||
-            (output.output as string) ||
-            (output.node_outputs ? Object.entries(output.node_outputs as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join("\n\n") : null) ||
-            JSON.stringify(output)
-          setLocalMessages((prev) => [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }])
-        } else {
-          setLocalMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)", timestamp: new Date().toISOString() }])
-        }
+        // Refetch chat history from checkpoints to get ALL messages
+        // (including intermediate messages from multi-step agent executions)
+        const outputData = msg.data?.output as Record<string, unknown> | undefined
+        refetchHistory().then((result) => {
+          if (result.data?.messages?.length) {
+            // Checkpoints had messages — use those (authoritative, replaces real-time)
+            setLocalMessages([])
+          } else if (receivedChatMessagesRef.current) {
+            // No checkpoints but we received real-time chat_message events — keep as-is
+          } else if (outputData) {
+            // No checkpoint history, no real-time messages — fallback to output
+            const text =
+              (outputData.message as string) ||
+              (outputData.output as string) ||
+              (outputData.node_outputs ? Object.entries(outputData.node_outputs as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join("\n\n") : null) ||
+              JSON.stringify(outputData)
+            setLocalMessages((prev) => [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }])
+          } else {
+            setLocalMessages((prev) => [...prev, { role: "assistant", text: "(completed with no output)", timestamp: new Date().toISOString() }])
+          }
+        })
       } else if (msg.type === "execution_failed") {
         pendingExecRef.current = null
         setWaiting(false)
@@ -252,6 +276,7 @@ function ChatPanel({ slug, node, onClose }: Props) {
     if (!text || sendMessage.isPending || waiting) return
     setInput("")
     // Reset activity state for new execution
+    receivedChatMessagesRef.current = false
     setActivitySteps([])
     setActivitySummary(null)
     setActivityExpanded(true)
