@@ -78,6 +78,42 @@ def _loop_iter_done_key(execution_id: str, loop_id: str, iter_index: int | None 
     return f"execution:{execution_id}:loop:{loop_id}:iter_done"  # legacy fallback
 
 
+def _parent_info_key(execution_id: str) -> str:
+    return f"execution:{execution_id}:parent_info"
+
+
+def _cache_parent_info(
+    execution_id: str,
+    parent_eid: str,
+    parent_nid: str,
+    parent_slug: str,
+    root_eid: str,
+    root_nid: str,
+    root_slug: str,
+) -> None:
+    """Cache parent/root execution metadata so child events can be forwarded."""
+    r = _redis()
+    r.set(
+        _parent_info_key(execution_id),
+        json.dumps({
+            "parent_execution_id": parent_eid,
+            "parent_node_id": parent_nid,
+            "parent_workflow_slug": parent_slug,
+            "root_execution_id": root_eid,
+            "root_node_id": root_nid,
+            "root_workflow_slug": root_slug,
+        }),
+        ex=STATE_TTL,
+    )
+
+
+def _get_parent_info(execution_id: str) -> dict | None:
+    """Retrieve cached parent/root execution metadata."""
+    r = _redis()
+    raw = r.get(_parent_info_key(execution_id))
+    return json.loads(raw) if raw else None
+
+
 def load_state(execution_id: str) -> dict:
     r = _redis()
     raw = r.get(_state_key(execution_id))
@@ -103,6 +139,29 @@ def _publish_event(execution_id: str, event_type: str, data: dict | None = None,
         if workflow_slug:
             payload["channel"] = f"workflow:{workflow_slug}"
             r.publish(f"workflow:{workflow_slug}", json.dumps(payload))
+
+        # Forward child node_status events to root parent's channels
+        if event_type == "node_status":
+            parent_info = _get_parent_info(execution_id)
+            if parent_info:
+                root_eid = parent_info.get("root_execution_id")
+                root_slug = parent_info.get("root_workflow_slug")
+                root_nid = parent_info.get("root_node_id")
+                if root_eid:
+                    child_data = dict(data) if data else {}
+                    child_data["child_execution_id"] = execution_id
+                    child_data["parent_node_id"] = root_nid
+                    child_data["is_child_event"] = True
+                    child_payload = {
+                        "type": "child_node_status",
+                        "execution_id": root_eid,
+                        "timestamp": time.time(),
+                        "data": child_data,
+                    }
+                    r.publish(f"{PUBSUB_CHANNEL_PREFIX}{root_eid}", json.dumps(child_payload))
+                    if root_slug:
+                        child_payload["channel"] = f"workflow:{root_slug}"
+                        r.publish(f"workflow:{root_slug}", json.dumps(child_payload))
     except Exception:
         logger.warning(
             "Failed to publish event %s for execution %s (non-fatal)",
@@ -228,6 +287,36 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
 
         topo = build_topology(workflow, db, trigger_node_id=execution.trigger_node_id)
         _save_topology(execution_id, topo)
+
+        # Cache parent info for child executions so events can be forwarded
+        if execution.parent_execution_id:
+            parent_eid = str(execution.parent_execution_id)
+            parent_nid = execution.parent_node_id or ""
+            parent_slug = workflow.slug
+            # Check if parent is itself a child (grandchild+ scenario)
+            grandparent_info = _get_parent_info(parent_eid)
+            if grandparent_info and grandparent_info.get("root_execution_id"):
+                root_eid = grandparent_info["root_execution_id"]
+                root_nid = grandparent_info["root_node_id"]
+                root_slug = grandparent_info["root_workflow_slug"]
+            else:
+                root_eid = parent_eid
+                root_nid = parent_nid
+                # Resolve parent workflow slug from DB
+                parent_exec = (
+                    db.query(WorkflowExecution)
+                    .filter(WorkflowExecution.execution_id == parent_eid)
+                    .first()
+                )
+                if parent_exec:
+                    parent_wf = db.query(Workflow).filter(Workflow.id == parent_exec.workflow_id).first()
+                    root_slug = parent_wf.slug if parent_wf else ""
+                else:
+                    root_slug = ""
+            _cache_parent_info(
+                execution_id, parent_eid, parent_nid, parent_slug,
+                root_eid, root_nid, root_slug,
+            )
 
         initial_state = _build_initial_state(execution)
 
@@ -1096,13 +1185,38 @@ def _finalize(execution_id: str, db: Session) -> None:
             sa = execution.started_at.replace(tzinfo=None) if execution.started_at.tzinfo else execution.started_at
             ca = execution.completed_at.replace(tzinfo=None) if execution.completed_at.tzinfo else execution.completed_at
             duration_ms = int((ca - sa).total_seconds() * 1000)
+
+        # Roll up descendant execution costs (BFS to handle grandchildren)
+        child_tokens = 0
+        child_cost = 0.0
+        child_llm_calls = 0
+        child_count = 0
+        try:
+            queue_ids = [execution_id]
+            while queue_ids:
+                pid = queue_ids.pop(0)
+                children = (
+                    db.query(WorkflowExecution)
+                    .filter(WorkflowExecution.parent_execution_id == pid)
+                    .all()
+                )
+                for c in children:
+                    child_count += 1
+                    child_tokens += c.total_tokens or 0
+                    child_cost += float(c.total_cost_usd or 0)
+                    child_llm_calls += c.llm_calls or 0
+                    queue_ids.append(str(c.execution_id))
+        except Exception:
+            logger.exception("Failed to roll up child costs for execution %s", execution_id)
+
         activity_summary = {
-            "total_steps": len(state.get("node_results", {})),
+            "total_steps": len(state.get("node_results", {})) + child_count,
             "total_duration_ms": duration_ms,
-            "total_tokens": execution.total_tokens or 0,
-            "total_cost_usd": float(execution.total_cost_usd or 0),
-            "llm_calls": execution.llm_calls or 0,
+            "total_tokens": (execution.total_tokens or 0) + child_tokens,
+            "total_cost_usd": float(execution.total_cost_usd or 0) + child_cost,
+            "llm_calls": (execution.llm_calls or 0) + child_llm_calls,
             "tool_invocations": exec_usage.get("tool_invocations", 0),
+            "child_count": child_count,
         }
 
         _publish_event(execution_id, "execution_completed", {

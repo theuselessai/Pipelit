@@ -562,6 +562,15 @@ def _wrap_tool_with_events(lc_tool, tool_node_id, agent_node, tool_component_typ
             )
             return result
         except Exception as e:
+            from langgraph.errors import GraphInterrupt
+            if isinstance(e, GraphInterrupt):
+                logger.info("Tool %s interrupted (control flow)", tool_node_id)
+                _publish_tool_status(
+                    tool_node_id=tool_node_id, status="waiting", workflow_slug=workflow_slug,
+                    agent_node_id=agent_node_id, tool_name=tool_name,
+                    tool_component_type=tool_component_type, execution_id=exec_id,
+                )
+                raise
             logger.info("Tool %s failed: %s", tool_node_id, e)
             _publish_tool_status(
                 tool_node_id=tool_node_id, status="failed", workflow_slug=workflow_slug,

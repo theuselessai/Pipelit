@@ -23,7 +23,7 @@ import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
 import PopoutWindow from "@/components/PopoutWindow"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
 import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule, ScheduleJobInfo } from "@/types/models"
-import type { ActivityStep, ActivityToolStep, ActivitySummary } from "@/types/activity"
+import type { ActivityStep, ActivityToolStep, ActivityChildStep, ActivitySummary } from "@/types/activity"
 import ActivityIndicator from "./ActivityIndicator"
 
 interface Props {
@@ -212,9 +212,52 @@ function ChatPanel({ slug, node, onClose }: Props) {
               duration_ms: d.duration_ms as number | undefined,
               error: d.error as string | undefined,
               tool_steps: [],
+              child_steps: [],
             }]
           })
         }
+      }
+
+      // Handle child_node_status events for nested child execution progress
+      if (msg.type === "child_node_status" && msg.data) {
+        const d = msg.data
+        const childExecId = d.child_execution_id as string
+        const parentNodeId = d.parent_node_id as string
+        const childNodeId = d.node_id as string
+        if (!childExecId || !parentNodeId || !childNodeId) return
+        const status = d.status as string
+
+        const childStep: ActivityChildStep = {
+          child_execution_id: childExecId,
+          node_id: childNodeId,
+          component_type: (d.component_type as string) || "",
+          display_name: (d.display_name as string) || childNodeId,
+          status: status as ActivityChildStep["status"],
+          started_at: Date.now(),
+          duration_ms: d.duration_ms as number | undefined,
+          error: d.error as string | undefined,
+        }
+
+        setActivitySteps((prev) => {
+          return prev.map((step) => {
+            if (step.node_id !== parentNodeId) return step
+            // Upsert by composite key: child_execution_id + node_id
+            const existingIdx = step.child_steps.findIndex(
+              (cs) => cs.child_execution_id === childExecId && cs.node_id === childNodeId
+            )
+            if (existingIdx >= 0) {
+              const updated = [...step.child_steps]
+              updated[existingIdx] = {
+                ...updated[existingIdx],
+                status: childStep.status,
+                duration_ms: childStep.duration_ms,
+                error: childStep.error,
+              }
+              return { ...step, child_steps: updated }
+            }
+            return { ...step, child_steps: [...step.child_steps, childStep] }
+          })
+        })
       }
 
       // Real-time intermediate agent messages
