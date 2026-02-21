@@ -31,6 +31,7 @@ def _make_node(component_type, workflow_id, node_id="tool_node_1"):
         workflow_id=workflow_id,
         component_type=component_type,
         component_config=config,
+        workflow=SimpleNamespace(slug="test-wf"),
     )
 
 
