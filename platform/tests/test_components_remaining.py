@@ -677,7 +677,7 @@ class TestMemoryWrite:
 
 class TestAgentComponent:
     @patch("components.agent._resolve_tools", return_value=[])
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent.resolve_llm_for_node")
     def test_basic_agent(self, mock_resolve, mock_create_agent, mock_tools):
         from components.agent import agent_factory
@@ -702,7 +702,7 @@ class TestAgentComponent:
         assert "_messages" in result
 
     @patch("components.agent._resolve_tools", return_value=[])
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent.resolve_llm_for_node")
     def test_agent_with_system_prompt(self, mock_resolve, mock_create_agent, mock_tools):
         from components.agent import agent_factory
@@ -726,7 +726,7 @@ class TestAgentComponent:
         # Agent was created with system prompt
         mock_create_agent.assert_called_once()
         call_kwargs = mock_create_agent.call_args
-        assert call_kwargs.kwargs.get("prompt") is not None
+        assert call_kwargs.kwargs.get("system_prompt") is not None
 
 
 # ── AI Model ──────────────────────────────────────────────────────────────────

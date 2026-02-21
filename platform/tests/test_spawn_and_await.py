@@ -204,7 +204,7 @@ class TestCheckpointerSelection:
 
         with patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
              patch("components.agent._resolve_tools", return_value=mock_tools), \
-             patch("components.agent.create_react_agent", side_effect=capture_create_agent), \
+             patch("components.agent.create_agent", side_effect=capture_create_agent), \
              patch("components.agent._get_checkpointer", return_value=mock_sqlite), \
              patch("components.agent._get_redis_checkpointer", return_value=mock_redis):
             agent_factory(node)
@@ -570,7 +570,7 @@ class TestCheckpointIsolation:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_checkpointer")
     def test_child_execution_uses_exec_scoped_thread(
         self, mock_get_sqlite, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -612,7 +612,7 @@ class TestCheckpointIsolation:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_checkpointer")
     def test_parent_execution_uses_conversation_thread(
         self, mock_get_sqlite, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -1426,7 +1426,7 @@ class TestAgentNodeSpawnResume:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_redis_checkpointer")
     def test_resume_from_child_result(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -1456,7 +1456,7 @@ class TestAgentNodeSpawnResume:
         node = _make_node("agent", workflow_id=1, node_id="test_node_1")
         agent_node = agent_factory(node)
 
-        # Verify create_react_agent was called with checkpointer
+        # Verify create_agent was called with checkpointer
         create_kwargs = mock_create_agent.call_args
         assert create_kwargs.kwargs.get("checkpointer") is mock_checkpointer
 
@@ -1514,7 +1514,7 @@ class TestAgentNodeGraphInterrupt:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_redis_checkpointer")
     def test_graph_interrupt_creates_children(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -1558,7 +1558,7 @@ class TestAgentNodeGraphInterrupt:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_redis_checkpointer")
     def test_interrupt_in_return_value_creates_children(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -1598,7 +1598,7 @@ class TestAgentNodeGraphInterrupt:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_redis_checkpointer")
     def test_interrupt_in_return_value_ignored_without_spawn_action(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -1630,7 +1630,7 @@ class TestAgentNodeGraphInterrupt:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_redis_checkpointer")
     def test_non_interrupt_exception_reraises(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
@@ -1651,7 +1651,7 @@ class TestAgentNodeGraphInterrupt:
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
-    @patch("components.agent.create_react_agent")
+    @patch("components.agent.create_agent")
     @patch("components.agent._get_redis_checkpointer")
     def test_interrupt_child_creation_error_returns_output(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,

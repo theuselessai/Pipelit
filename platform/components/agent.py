@@ -8,9 +8,9 @@ import threading
 import uuid
 
 from langchain_core.callbacks.base import BaseCallbackHandler
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.outputs import LLMResult
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from components import register
 from services.llm import resolve_llm_for_node
@@ -158,13 +158,12 @@ def agent_factory(node):
     agent_kwargs = dict(
         model=llm,
         tools=tools,
-        # SystemMessage applied as pre-LLM transform (not stored in checkpoint)
-        prompt=SystemMessage(content=system_prompt) if system_prompt else None,
+        system_prompt=system_prompt or None,
     )
     if checkpointer is not None:
         agent_kwargs["checkpointer"] = checkpointer
 
-    agent = create_react_agent(**agent_kwargs)
+    agent = create_agent(**agent_kwargs)
 
     # HumanMessage fallback for providers that ignore the system role (e.g. Venice.ai).
     # Stable id prevents duplication across checkpointer invocations.
