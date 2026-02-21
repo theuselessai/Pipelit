@@ -31,6 +31,7 @@ def _make_node(component_type, workflow_id, node_id="tool_node_1"):
         workflow_id=workflow_id,
         component_type=component_type,
         component_config=config,
+        workflow=SimpleNamespace(slug="test-wf"),
     )
 
 
@@ -42,6 +43,100 @@ def mock_session(db):
     with patch("database.SessionLocal", return_value=db):
         yield db
     db.close = original_close
+
+
+# ---------------------------------------------------------------------------
+# AgentMessageCallback (agent.py lines 26-69)
+# ---------------------------------------------------------------------------
+
+
+class TestAgentMessageCallback:
+    """Test the AgentMessageCallback that publishes chat_message WS events."""
+
+    def _make_callback(self, exec_id="exec-1", workflow_slug="test-wf", node_id="agent_1"):
+        from components.agent import AgentMessageCallback
+
+        exec_id_ref = [exec_id]
+        return AgentMessageCallback(exec_id_ref, workflow_slug, node_id)
+
+    def _make_llm_result(self, content):
+        """Build a mock LLMResult with the given content."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, LLMResult
+
+        msg = AIMessage(content=content) if content is not None else AIMessage(content="")
+        gen = ChatGeneration(message=msg)
+        return LLMResult(generations=[[gen]])
+
+    def test_on_llm_end_publishes_chat_message(self):
+        cb = self._make_callback()
+        result = self._make_llm_result("Hello, world!")
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_called_once()
+        call_args = mock_pub.call_args
+        assert call_args[0][0] == "exec-1"
+        assert call_args[0][1] == "chat_message"
+        assert call_args[0][2]["text"] == "Hello, world!"
+        assert call_args[0][2]["node_id"] == "agent_1"
+        assert call_args[1]["workflow_slug"] == "test-wf"
+
+    def test_on_llm_end_handles_anthropic_list_format(self):
+        cb = self._make_callback()
+        content = [{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}]
+        result = self._make_llm_result(content)
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_called_once()
+        assert mock_pub.call_args[0][2]["text"] == "hello\nworld"
+
+    def test_on_llm_end_skips_empty_content(self):
+        cb = self._make_callback()
+        result = self._make_llm_result("")
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_not_called()
+
+    def test_on_llm_end_skips_none_content(self):
+        """When content is falsy (empty string from AIMessage), _publish_event is not called."""
+        cb = self._make_callback()
+        # Use a mock LLMResult to set content to None (which AIMessage doesn't allow directly)
+        mock_result = MagicMock()
+        mock_msg = MagicMock()
+        mock_msg.content = None
+        mock_gen = MagicMock()
+        mock_gen.message = mock_msg
+        mock_result.generations = [[mock_gen]]
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(mock_result)
+
+        mock_pub.assert_not_called()
+
+    def test_on_llm_end_swallows_exceptions(self):
+        cb = self._make_callback()
+        result = self._make_llm_result("test")
+
+        with patch("services.orchestrator._publish_event", side_effect=RuntimeError("publish failed")):
+            # Should not raise
+            cb.on_llm_end(result)
+
+    def test_on_llm_end_skips_without_exec_id(self):
+        from components.agent import AgentMessageCallback
+
+        cb = AgentMessageCallback([None], "test-wf", "agent_1")
+        result = self._make_llm_result("test")
+
+        with patch("services.orchestrator._publish_event") as mock_pub:
+            cb.on_llm_end(result)
+
+        mock_pub.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -60,20 +155,20 @@ class TestSpawnAndAwaitFactory:
         assert len(tools) == 1
         assert tools[0].name == "spawn_and_await"
 
-    def test_tool_has_correct_signature(self):
+    def test_tool_has_tasks_list_parameter(self):
         from components.spawn_and_await import spawn_and_await_factory
 
         node = _make_node("spawn_and_await", workflow_id=1)
         tools = spawn_and_await_factory(node)
         tool = tools[0]
 
-        # Check that tool has expected parameters in its schema
+        # Check that tool has 'tasks' parameter in its schema
         schema = tool.args_schema.schema() if hasattr(tool, "args_schema") else {}
         props = schema.get("properties", {})
-        assert "workflow_slug" in props
-        assert "input_text" in props
-        assert "task_id" in props
-        assert "input_data" in props
+        assert "tasks" in props
+        # Should NOT have old single-task params
+        assert "workflow_slug" not in props
+        assert "input_text" not in props
 
 
 # ---------------------------------------------------------------------------
@@ -134,17 +229,17 @@ class TestCheckpointerSelection:
 
 
 # ---------------------------------------------------------------------------
-# Interrupt flow
+# Interrupt flow — parallel spawn
 # ---------------------------------------------------------------------------
 
 
 class TestInterruptFlow:
-    """Test that GraphInterrupt from spawn_and_await is caught and creates child execution."""
+    """Test that GraphInterrupt from spawn_and_await is caught and creates child executions."""
 
-    def test_graph_interrupt_returns_subworkflow(self, mock_session, workflow, user_profile):
+    def test_creates_multiple_children(self, mock_session, workflow, user_profile):
         from components.agent import _create_child_from_interrupt
 
-        # Create a target workflow
+        # Create target workflows
         from models.workflow import Workflow
         target_wf = Workflow(
             name="Child Workflow",
@@ -170,31 +265,191 @@ class TestInterruptFlow:
         state = {
             "execution_id": str(parent_exec.execution_id),
             "user_context": {"user_profile_id": user_profile.id},
-        }
-        interrupt_data = {
-            "action": "spawn_workflow",
-            "workflow_slug": "child-workflow",
-            "input_text": "Do something",
-            "task_id": None,
-            "input_data": {"key": "value"},
+            "_spawn_depth": 0,
         }
 
-        # Mock RQ enqueue to avoid actual job dispatch
+        child_ids = []
+        for i in range(2):
+            task_data = {
+                "workflow_slug": "child-workflow",
+                "input_text": f"Task {i}",
+            }
+            with patch("redis.from_url", return_value=MagicMock()), \
+                 patch("rq.Queue", return_value=MagicMock()):
+                child_id = _create_child_from_interrupt(task_data, state, "agent_1")
+                child_ids.append(child_id)
+
+        assert len(child_ids) == 2
+
+        # Verify both child executions were created
+        for child_id in child_ids:
+            child_exec = (
+                mock_session.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == child_id)
+                .first()
+            )
+            assert child_exec is not None
+            assert child_exec.parent_execution_id == str(parent_exec.execution_id)
+            assert child_exec.parent_node_id == "agent_1"
+            assert child_exec.workflow_id == target_wf.id
+            # Verify spawn_depth is incremented in trigger payload
+            assert child_exec.trigger_payload.get("_spawn_depth") == 1
+
+    def test_self_slug_resolves_to_parent_workflow(self, mock_session, workflow, user_profile):
+        from components.agent import _create_child_from_interrupt
+
+        # Create parent execution with trigger_node_id
+        parent_exec = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={"text": "test"},
+            thread_id="test-thread",
+            trigger_node_id=42,
+        )
+        mock_session.add(parent_exec)
+        mock_session.commit()
+        mock_session.refresh(parent_exec)
+
+        state = {
+            "execution_id": str(parent_exec.execution_id),
+            "user_context": {"user_profile_id": user_profile.id},
+            "_spawn_depth": 0,
+        }
+        task_data = {
+            "workflow_slug": "self",
+            "input_text": "Do something",
+        }
+
         with patch("redis.from_url", return_value=MagicMock()), \
              patch("rq.Queue", return_value=MagicMock()):
-            child_id = _create_child_from_interrupt(interrupt_data, state, "agent_1")
+            child_id = _create_child_from_interrupt(task_data, state, "agent_1")
 
-        # Verify child execution was created
         child_exec = (
             mock_session.query(WorkflowExecution)
             .filter(WorkflowExecution.execution_id == child_id)
             .first()
         )
         assert child_exec is not None
-        assert child_exec.parent_execution_id == str(parent_exec.execution_id)
-        assert child_exec.parent_node_id == "agent_1"
+        assert child_exec.workflow_id == workflow.id
+        # Child should inherit trigger_node_id from parent
+        assert child_exec.trigger_node_id == 42
+
+    def test_non_self_spawn_finds_trigger_workflow_node(self, mock_session, workflow, user_profile):
+        """Non-self spawn should look up the target workflow's trigger_workflow node."""
+        from components.agent import _create_child_from_interrupt
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        # Create target workflow with a trigger_workflow node
+        from models.workflow import Workflow
+        target_wf = Workflow(
+            name="Target WF",
+            slug="target-wf-trigger",
+            owner_id=user_profile.id,
+            is_active=True,
+        )
+        mock_session.add(target_wf)
+        mock_session.commit()
+        mock_session.refresh(target_wf)
+
+        # Create a trigger_workflow node on the target workflow
+        config = BaseComponentConfig(component_type="trigger_workflow")
+        mock_session.add(config)
+        mock_session.flush()
+
+        tw_node = WorkflowNode(
+            workflow_id=target_wf.id,
+            node_id="trigger_workflow_abc",
+            component_type="trigger_workflow",
+            component_config_id=config.id,
+        )
+        mock_session.add(tw_node)
+        mock_session.commit()
+        mock_session.refresh(tw_node)
+
+        # Create parent execution (no trigger_node_id — non-self spawn)
+        parent_exec = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={"text": "test"},
+            thread_id="test-thread",
+        )
+        mock_session.add(parent_exec)
+        mock_session.commit()
+        mock_session.refresh(parent_exec)
+
+        state = {
+            "execution_id": str(parent_exec.execution_id),
+            "user_context": {"user_profile_id": user_profile.id},
+            "_spawn_depth": 0,
+        }
+        task_data = {
+            "workflow_slug": "target-wf-trigger",
+            "input_text": "Do something",
+        }
+
+        with patch("redis.from_url", return_value=MagicMock()), \
+             patch("rq.Queue", return_value=MagicMock()):
+            child_id = _create_child_from_interrupt(task_data, state, "agent_1")
+
+        child_exec = (
+            mock_session.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == child_id)
+            .first()
+        )
+        assert child_exec is not None
         assert child_exec.workflow_id == target_wf.id
-        assert child_exec.trigger_payload["text"] == "Do something"
+        # Should have resolved trigger_node_id from the target's trigger_workflow node
+        assert child_exec.trigger_node_id == tw_node.id
+
+    def test_non_self_spawn_no_trigger_workflow_node(self, mock_session, workflow, user_profile):
+        """Non-self spawn with no trigger_workflow node leaves trigger_node_id as None."""
+        from components.agent import _create_child_from_interrupt
+
+        # Create target workflow WITHOUT a trigger_workflow node
+        from models.workflow import Workflow
+        target_wf = Workflow(
+            name="No Trigger WF",
+            slug="no-trigger-wf",
+            owner_id=user_profile.id,
+            is_active=True,
+        )
+        mock_session.add(target_wf)
+        mock_session.commit()
+        mock_session.refresh(target_wf)
+
+        parent_exec = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={"text": "test"},
+            thread_id="test-thread",
+        )
+        mock_session.add(parent_exec)
+        mock_session.commit()
+        mock_session.refresh(parent_exec)
+
+        state = {
+            "execution_id": str(parent_exec.execution_id),
+            "user_context": {"user_profile_id": user_profile.id},
+            "_spawn_depth": 0,
+        }
+        task_data = {
+            "workflow_slug": "no-trigger-wf",
+            "input_text": "Do something",
+        }
+
+        with patch("redis.from_url", return_value=MagicMock()), \
+             patch("rq.Queue", return_value=MagicMock()):
+            child_id = _create_child_from_interrupt(task_data, state, "agent_1")
+
+        child_exec = (
+            mock_session.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == child_id)
+            .first()
+        )
+        assert child_exec is not None
+        assert child_exec.workflow_id == target_wf.id
+        # No trigger_workflow node → trigger_node_id stays None
+        assert child_exec.trigger_node_id is None
 
     def test_interrupt_raises_on_missing_workflow(self, mock_session, workflow, user_profile):
         from components.agent import _create_child_from_interrupt
@@ -203,12 +458,299 @@ class TestInterruptFlow:
             "execution_id": "test-exec-id",
             "user_context": {"user_profile_id": user_profile.id},
         }
-        interrupt_data = {
+        task_data = {
             "workflow_slug": "nonexistent-workflow",
         }
 
         with pytest.raises(ValueError, match="target workflow not found"):
-            _create_child_from_interrupt(interrupt_data, state, "agent_1")
+            _create_child_from_interrupt(task_data, state, "agent_1")
+
+    def test_try_create_children_exception_returns_error(self):
+        """When _create_child_from_interrupt raises, _try_create_children returns error output."""
+        from components.agent import _try_create_children
+
+        interrupt_data = {
+            "tasks": [{"workflow_slug": "wf1", "input_text": "test"}],
+        }
+        state = {
+            "execution_id": "exec-1",
+            "user_context": {"user_profile_id": 1},
+            "_spawn_depth": 0,
+        }
+
+        with patch(
+            "components.agent._create_child_from_interrupt",
+            side_effect=RuntimeError("DB connection failed"),
+        ):
+            result = _try_create_children(interrupt_data, state, "agent_1")
+
+        assert "output" in result
+        assert "spawn_and_await failed" in result["output"]
+
+
+# ---------------------------------------------------------------------------
+# Spawn depth limit
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnDepthLimit:
+    """Test depth limit prevents infinite spawn chains."""
+
+    def test_depth_limit_blocks_spawning(self):
+        from components.agent import MAX_SPAWN_DEPTH, _try_create_children
+
+        interrupt_data = {
+            "tasks": [{"workflow_slug": "child-wf", "input_text": "test"}],
+        }
+        state = {
+            "execution_id": "exec-1",
+            "user_context": {"user_profile_id": 1},
+            "_spawn_depth": MAX_SPAWN_DEPTH,
+        }
+
+        result = _try_create_children(interrupt_data, state, "agent_1")
+
+        # Should return error output, not create children
+        assert "output" in result
+        assert "depth limit" in result["output"].lower()
+
+    def test_depth_increments_per_level(self, mock_session, workflow, user_profile):
+        from components.agent import _create_child_from_interrupt
+        from models.workflow import Workflow
+
+        target_wf = Workflow(
+            name="Child", slug="child-wf", owner_id=user_profile.id, is_active=True,
+        )
+        mock_session.add(target_wf)
+        mock_session.commit()
+
+        parent_exec = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            trigger_payload={},
+            thread_id="t",
+        )
+        mock_session.add(parent_exec)
+        mock_session.commit()
+        mock_session.refresh(parent_exec)
+
+        state = {
+            "execution_id": str(parent_exec.execution_id),
+            "user_context": {"user_profile_id": user_profile.id},
+            "_spawn_depth": 2,
+        }
+        task_data = {"workflow_slug": "child-wf", "input_text": "test"}
+
+        with patch("redis.from_url", return_value=MagicMock()), \
+             patch("rq.Queue", return_value=MagicMock()):
+            child_id = _create_child_from_interrupt(task_data, state, "agent_1")
+
+        child_exec = (
+            mock_session.query(WorkflowExecution)
+            .filter(WorkflowExecution.execution_id == child_id)
+            .first()
+        )
+        assert child_exec.trigger_payload["_spawn_depth"] == 3
+
+    def test_no_tasks_returns_error(self):
+        from components.agent import _try_create_children
+
+        result = _try_create_children({"tasks": []}, {"_spawn_depth": 0}, "agent_1")
+        assert "output" in result
+        assert "no tasks" in result["output"]
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint isolation for child executions
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointIsolation:
+    """Test that child executions use execution-scoped thread_id."""
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_checkpointer")
+    def test_child_execution_uses_exec_scoped_thread(
+        self, mock_get_sqlite, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        from components.agent import agent_factory
+
+        mock_resolve_llm.return_value = MagicMock()
+        mock_spawn = MagicMock()
+        mock_spawn.name = "spawn_and_await"
+        mock_resolve_tools.return_value = [mock_spawn]
+        mock_checkpointer = MagicMock()
+        mock_get_sqlite.return_value = mock_checkpointer
+
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {
+            "messages": [MagicMock(type="ai", content="done", additional_kwargs={})],
+        }
+        mock_create_agent.return_value = mock_agent
+
+        node = _make_node("agent", workflow_id=1, node_id="agent_1")
+        node.component_config.extra_config = {"conversation_memory": True}
+        node.component_config.concrete.extra_config = {"conversation_memory": True}
+        agent_node = agent_factory(node)
+
+        # Simulate child execution state
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "child-exec-123",
+            "_is_child_execution": True,
+            "user_context": {"user_profile_id": 1, "telegram_chat_id": "chat-456"},
+        }
+
+        agent_node(state)
+
+        # Verify thread_id is execution-scoped, NOT conversation-scoped
+        config_arg = mock_agent.invoke.call_args
+        config = config_arg[1].get("config") or config_arg[0][1]
+        assert config["configurable"]["thread_id"] == "exec:child-exec-123:agent_1"
+
+    @patch("components.agent.resolve_llm_for_node")
+    @patch("components.agent._resolve_tools")
+    @patch("components.agent.create_react_agent")
+    @patch("components.agent._get_checkpointer")
+    def test_parent_execution_uses_conversation_thread(
+        self, mock_get_sqlite, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
+    ):
+        from components.agent import agent_factory
+
+        mock_resolve_llm.return_value = MagicMock()
+        mock_resolve_tools.return_value = []
+        mock_checkpointer = MagicMock()
+        mock_get_sqlite.return_value = mock_checkpointer
+
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {
+            "messages": [MagicMock(type="ai", content="done", additional_kwargs={})],
+        }
+        mock_create_agent.return_value = mock_agent
+
+        node = _make_node("agent", workflow_id=1, node_id="agent_1")
+        node.component_config.extra_config = {"conversation_memory": True}
+        node.component_config.concrete.extra_config = {"conversation_memory": True}
+        agent_node = agent_factory(node)
+
+        # Simulate parent execution state (NOT a child)
+        state = {
+            "messages": [MagicMock(type="human", content="hello")],
+            "execution_id": "parent-exec-123",
+            "_is_child_execution": False,
+            "user_context": {"user_profile_id": 1, "telegram_chat_id": "chat-456"},
+        }
+
+        agent_node(state)
+
+        config_arg = mock_agent.invoke.call_args
+        config = config_arg[1].get("config") or config_arg[0][1]
+        # Should use conversation-scoped thread_id
+        assert config["configurable"]["thread_id"] == "1:chat-456:1"
+
+
+# ---------------------------------------------------------------------------
+# Parallel wait tracking (orchestrator)
+# ---------------------------------------------------------------------------
+
+
+class TestParallelWaitTracking:
+    """Test parallel child wait key format and accumulation."""
+
+    def test_parallel_wait_key_format(self):
+        """Verify wait key stores parallel metadata."""
+        from services.orchestrator import _child_wait_key
+
+        key = _child_wait_key("exec-123", "agent_1")
+        assert key == "execution:exec-123:child_wait:agent_1"
+
+    def test_partial_completion_does_not_resume(self):
+        """When only some children complete, parent should NOT be resumed."""
+        from services.orchestrator import _resume_from_child
+
+        mock_redis = MagicMock()
+        wait_data = json.dumps({
+            "parallel": True,
+            "total": 3,
+            "child_ids": ["c1", "c2", "c3"],
+            "results": {},
+            "deadline": 9999999999,
+        })
+        mock_redis.get.return_value = wait_data
+
+        # Mock Redis lock
+        mock_lock = MagicMock()
+        mock_lock.acquire.return_value = True
+        mock_redis.lock.return_value = mock_lock
+
+        mock_parent = MagicMock()
+        mock_parent.status = "running"
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_parent
+
+        with patch("services.orchestrator._redis", return_value=mock_redis), \
+             patch("services.orchestrator.load_state", return_value={}) as mock_load, \
+             patch("services.orchestrator.save_state") as mock_save, \
+             patch("services.orchestrator._queue", return_value=MagicMock()) as mock_q, \
+             patch("database.SessionLocal", return_value=mock_db):
+            _resume_from_child("parent-exec", "agent_1", {"result": "ok"}, child_execution_id="c1")
+
+        # Parent should NOT be re-enqueued (only 1/3 done)
+        mock_q.return_value.enqueue.assert_not_called()
+        mock_save.assert_not_called()
+
+        # Wait key should be updated, not deleted
+        mock_redis.delete.assert_not_called()
+        mock_redis.set.assert_called()
+
+    def test_full_completion_resumes_parent(self):
+        """When all children complete, parent should be resumed with ordered results."""
+        from services.orchestrator import _resume_from_child
+
+        mock_redis = MagicMock()
+
+        # Simulate: c1 already done, c2 now completing
+        wait_data_initial = json.dumps({
+            "parallel": True,
+            "total": 2,
+            "child_ids": ["c1", "c2"],
+            "results": {"c1": {"output": "result1"}},
+            "deadline": 9999999999,
+        })
+        mock_redis.get.return_value = wait_data_initial
+
+        mock_lock = MagicMock()
+        mock_lock.acquire.return_value = True
+        mock_redis.lock.return_value = mock_lock
+
+        mock_parent = MagicMock()
+        mock_parent.status = "running"
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_parent
+
+        saved_state = {}
+
+        def capture_save(eid, state):
+            saved_state.update(state)
+
+        with patch("services.orchestrator._redis", return_value=mock_redis), \
+             patch("services.orchestrator.load_state", return_value={}), \
+             patch("services.orchestrator.save_state", side_effect=capture_save), \
+             patch("services.orchestrator._queue", return_value=MagicMock()) as mock_q, \
+             patch("database.SessionLocal", return_value=mock_db):
+            _resume_from_child("parent-exec", "agent_1", {"output": "result2"}, child_execution_id="c2")
+
+        # Parent should be re-enqueued
+        mock_q.return_value.enqueue.assert_called_once()
+
+        # Wait key should be deleted
+        mock_redis.delete.assert_called()
+
+        # Results should be ordered by child_ids
+        results = saved_state.get("_subworkflow_results", {}).get("agent_1")
+        assert results == [{"output": "result1"}, {"output": "result2"}]
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +806,7 @@ class TestTaskLinkage:
             "execution_id": str(parent_exec.execution_id),
             "user_context": {"user_profile_id": user_profile.id},
         }
-        interrupt_data = {
+        task_data = {
             "workflow_slug": "child-wf",
             "input_text": "run task",
             "task_id": task.id,
@@ -273,7 +815,7 @@ class TestTaskLinkage:
 
         with patch("redis.from_url", return_value=MagicMock()), \
              patch("rq.Queue", return_value=MagicMock()):
-            child_id = _create_child_from_interrupt(interrupt_data, state, "agent_1")
+            child_id = _create_child_from_interrupt(task_data, state, "agent_1")
 
         # Verify task was linked
         mock_session.refresh(task)
@@ -457,28 +999,30 @@ class TestRegistration:
 
 
 # ---------------------------------------------------------------------------
-# Tool invocation (spawn_and_await.py lines 47–60)
+# Tool invocation (spawn_and_await.py)
 # ---------------------------------------------------------------------------
 
 
 class TestToolInvocation:
     """Test spawn_and_await tool body: interrupt call and result serialization."""
 
-    def test_tool_returns_json_when_interrupt_returns_dict(self):
+    def test_tool_returns_json_when_interrupt_returns_list(self):
         from components.spawn_and_await import spawn_and_await_factory
 
         node = _make_node("spawn_and_await", workflow_id=1)
         tool = spawn_and_await_factory(node)[0]
 
-        child_output = {"result": "done", "score": 42}
+        child_results = [{"result": "done1"}, {"result": "done2"}]
 
-        with patch("langgraph.types.interrupt", return_value=child_output):
+        with patch("langgraph.types.interrupt", return_value=child_results):
             result = tool.invoke({
-                "workflow_slug": "child-wf",
-                "input_text": "hello",
+                "tasks": [
+                    {"workflow_slug": "wf1", "input_text": "task1"},
+                    {"workflow_slug": "wf2", "input_text": "task2"},
+                ],
             })
 
-        assert result == json.dumps(child_output, default=str)
+        assert result == json.dumps(child_results, default=str)
 
     def test_tool_returns_string_passthrough_when_interrupt_returns_string(self):
         from components.spawn_and_await import spawn_and_await_factory
@@ -488,13 +1032,12 @@ class TestToolInvocation:
 
         with patch("langgraph.types.interrupt", return_value="child completed"):
             result = tool.invoke({
-                "workflow_slug": "child-wf",
-                "input_text": "hello",
+                "tasks": [{"workflow_slug": "wf1", "input_text": "hello"}],
             })
 
         assert result == "child completed"
 
-    def test_tool_raises_tool_exception_on_child_error(self):
+    def test_tool_raises_tool_exception_on_error(self):
         from langchain_core.tools import ToolException
 
         from components.spawn_and_await import spawn_and_await_factory
@@ -502,13 +1045,12 @@ class TestToolInvocation:
         node = _make_node("spawn_and_await", workflow_id=1)
         tool = spawn_and_await_factory(node)[0]
 
-        child_error = {"_error": "Child execution failed: division by zero"}
+        error_result = {"_error": "Spawn depth limit reached"}
 
-        with patch("langgraph.types.interrupt", return_value=child_error):
-            with pytest.raises(ToolException, match="Child workflow failed"):
+        with patch("langgraph.types.interrupt", return_value=error_result):
+            with pytest.raises(ToolException, match="Spawn failed"):
                 tool.invoke({
-                    "workflow_slug": "child-wf",
-                    "input_text": "hello",
+                    "tasks": [{"workflow_slug": "wf1", "input_text": "hello"}],
                 })
 
     def test_tool_returns_dict_without_error_normally(self):
@@ -522,11 +1064,46 @@ class TestToolInvocation:
 
         with patch("langgraph.types.interrupt", return_value=child_output):
             result = tool.invoke({
-                "workflow_slug": "child-wf",
-                "input_text": "hello",
+                "tasks": [{"workflow_slug": "wf1", "input_text": "hello"}],
             })
 
         assert result == json.dumps(child_output, default=str)
+
+    def test_tool_validates_non_dict_task(self):
+        """Non-dict tasks should raise ToolException during validation."""
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        # Pydantic validates list[dict] at the schema level, so we need to
+        # call the underlying function directly to test the tool body validation
+        with pytest.raises(ToolException, match="must be a dict"):
+            tool.func(tasks=["not_a_dict"])
+
+    def test_tool_validates_missing_workflow_slug(self):
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        with pytest.raises(ToolException, match="missing required field 'workflow_slug'"):
+            tool.invoke({"tasks": [{"input_text": "hi"}]})
+
+    def test_tool_validates_empty_tasks_list(self):
+        from langchain_core.tools import ToolException
+
+        from components.spawn_and_await import spawn_and_await_factory
+
+        node = _make_node("spawn_and_await", workflow_id=1)
+        tool = spawn_and_await_factory(node)[0]
+
+        with pytest.raises(ToolException, match="cannot be empty"):
+            tool.invoke({"tasks": []})
 
 
 # ---------------------------------------------------------------------------
@@ -565,7 +1142,7 @@ class TestCreateChildEdgeCases:
             "execution_id": str(parent_exec.execution_id),
             "user_context": {},
         }
-        interrupt_data = {
+        task_data = {
             "workflow_slug": "target-wf",
             "input_text": "test fallback",
             "task_id": None,
@@ -574,7 +1151,7 @@ class TestCreateChildEdgeCases:
 
         with patch("redis.from_url", return_value=MagicMock()), \
              patch("rq.Queue", return_value=MagicMock()):
-            child_id = _create_child_from_interrupt(interrupt_data, state, "agent_1")
+            child_id = _create_child_from_interrupt(task_data, state, "agent_1")
 
         child_exec = (
             mock_session.query(WorkflowExecution)
@@ -600,7 +1177,7 @@ class TestCreateChildEdgeCases:
             "execution_id": "nonexistent-exec-id",
             "user_context": {},
         }
-        interrupt_data = {
+        task_data = {
             "workflow_slug": "target-wf2",
             "input_text": "test",
             "task_id": None,
@@ -608,7 +1185,7 @@ class TestCreateChildEdgeCases:
         }
 
         with pytest.raises(ValueError, match="cannot determine user_profile_id"):
-            _create_child_from_interrupt(interrupt_data, state, "agent_1")
+            _create_child_from_interrupt(task_data, state, "agent_1")
 
     def test_task_linkage_exception_swallowed(
         self, mock_session, workflow, user_profile
@@ -637,7 +1214,7 @@ class TestCreateChildEdgeCases:
             "execution_id": str(parent_exec.execution_id),
             "user_context": {"user_profile_id": user_profile.id},
         }
-        interrupt_data = {
+        task_data = {
             "workflow_slug": "target-wf3",
             "input_text": "test",
             "task_id": "tk-fake123",
@@ -673,7 +1250,7 @@ class TestCreateChildEdgeCases:
 
             mock_session.commit = commit_then_patch
             try:
-                child_id = _create_child_from_interrupt(interrupt_data, state, "agent_1")
+                child_id = _create_child_from_interrupt(task_data, state, "agent_1")
             finally:
                 mock_session.commit = original_commit
                 mock_session.query = original_query
@@ -840,8 +1417,7 @@ class TestRedisCheckpointer:
 
 
 # ---------------------------------------------------------------------------
-# Agent node: spawn resume / interrupt flow (agent.py lines 91, 99-100,
-# 116-117, 140, 150-154, 157-161, 167-176)
+# Agent node: spawn resume / interrupt flow (agent.py)
 # ---------------------------------------------------------------------------
 
 
@@ -889,7 +1465,7 @@ class TestAgentNodeSpawnResume:
             "messages": [],
             "execution_id": "exec-123",
             "_subworkflow_results": {
-                "test_node_1": {"result": "child output"},
+                "test_node_1": [{"result": "child output 1"}, {"result": "child output 2"}],
             },
         }
         result = agent_node(state)
@@ -897,14 +1473,17 @@ class TestAgentNodeSpawnResume:
         # Verify agent.invoke was called with Command(resume=...) and ephemeral thread config
         invoke_args = mock_agent.invoke.call_args
         command_arg = invoke_args[0][0]
-        # Check it's a Command with resume data
+        # Check it's a Command with resume data (list of results for parallel)
         from langgraph.types import Command
         assert isinstance(command_arg, Command)
-        assert command_arg.resume == {"result": "child output"}
+        assert command_arg.resume == [{"result": "child output 1"}, {"result": "child output 2"}]
 
-        # Check ephemeral thread config
+        # Check ephemeral thread config (callbacks key added by AgentMessageCallback)
         config_arg = invoke_args[1].get("config") or invoke_args[0][1]
-        assert config_arg == {"configurable": {"thread_id": "exec:exec-123:test_node_1"}}
+        assert config_arg["configurable"] == {"thread_id": "exec:exec-123:test_node_1"}
+        from components.agent import AgentMessageCallback
+        assert len(config_arg["callbacks"]) == 1
+        assert isinstance(config_arg["callbacks"][0], AgentMessageCallback)
 
         # Verify output
         assert "output" in result
@@ -937,7 +1516,7 @@ class TestAgentNodeGraphInterrupt:
     @patch("components.agent._resolve_tools")
     @patch("components.agent.create_react_agent")
     @patch("components.agent._get_redis_checkpointer")
-    def test_graph_interrupt_creates_child(
+    def test_graph_interrupt_creates_children(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
     ):
         from langgraph.errors import GraphInterrupt
@@ -946,19 +1525,17 @@ class TestAgentNodeGraphInterrupt:
             mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
         )
 
-        # Make agent.invoke raise GraphInterrupt with .interrupts attribute
+        # New parallel interrupt format
         interrupt_value = {
-            "action": "spawn_workflow",
-            "workflow_slug": "child-wf",
-            "input_text": "do something",
-            "task_id": None,
-            "input_data": {},
+            "action": "spawn_and_await",
+            "tasks": [
+                {"workflow_slug": "wf1", "input_text": "task 1"},
+                {"workflow_slug": "wf2", "input_text": "task 2"},
+            ],
         }
         interrupt_obj = MagicMock()
         interrupt_obj.value = interrupt_value
 
-        # GraphInterrupt stores interrupts in args[0]; the agent code accesses
-        # exc.interrupts, so we create the exception and attach the attribute.
         exc = GraphInterrupt([interrupt_obj])
         exc.interrupts = [interrupt_obj]
         mock_agent.invoke.side_effect = exc
@@ -966,19 +1543,24 @@ class TestAgentNodeGraphInterrupt:
         state = {
             "messages": [MagicMock(type="human", content="hello")],
             "execution_id": "exec-789",
+            "_spawn_depth": 0,
         }
 
-        with patch("components.agent._create_child_from_interrupt", return_value="child-exec-456") as mock_create_child:
+        with patch("components.agent._try_create_children", return_value={
+            "_subworkflow": {"child_execution_ids": ["c1", "c2"], "parallel": True, "count": 2}
+        }) as mock_create:
             result = agent_node(state)
 
-        assert result == {"_subworkflow": {"child_execution_id": "child-exec-456"}}
-        mock_create_child.assert_called_once_with(interrupt_value, state, "test_node_1")
+        assert result == {
+            "_subworkflow": {"child_execution_ids": ["c1", "c2"], "parallel": True, "count": 2}
+        }
+        mock_create.assert_called_once_with(interrupt_value, state, "test_node_1")
 
     @patch("components.agent.resolve_llm_for_node")
     @patch("components.agent._resolve_tools")
     @patch("components.agent.create_react_agent")
     @patch("components.agent._get_redis_checkpointer")
-    def test_interrupt_in_return_value_creates_child(
+    def test_interrupt_in_return_value_creates_children(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
     ):
         """When checkpointer is present, invoke() returns __interrupt__ instead of raising."""
@@ -989,11 +1571,8 @@ class TestAgentNodeGraphInterrupt:
         )
 
         interrupt_value = {
-            "action": "spawn_workflow",
-            "workflow_slug": "child-wf",
-            "input_text": "do something",
-            "task_id": None,
-            "input_data": {},
+            "action": "spawn_and_await",
+            "tasks": [{"workflow_slug": "wf1", "input_text": "do something"}],
         }
         interrupt_obj = Interrupt(value=interrupt_value)
 
@@ -1006,12 +1585,15 @@ class TestAgentNodeGraphInterrupt:
         state = {
             "messages": [MagicMock(type="human", content="hello")],
             "execution_id": "exec-789",
+            "_spawn_depth": 0,
         }
 
-        with patch("components.agent._create_child_from_interrupt", return_value="child-456") as mock_create:
+        with patch("components.agent._try_create_children", return_value={
+            "_subworkflow": {"child_execution_ids": ["c1"], "parallel": True, "count": 1}
+        }) as mock_create:
             result = agent_node(state)
 
-        assert result == {"_subworkflow": {"child_execution_id": "child-456"}}
+        assert "_subworkflow" in result
         mock_create.assert_called_once_with(interrupt_value, state, "test_node_1")
 
     @patch("components.agent.resolve_llm_for_node")
@@ -1042,7 +1624,7 @@ class TestAgentNodeGraphInterrupt:
 
         result = agent_node(state)
 
-        # Should NOT create a child — falls through to normal output extraction
+        # Should NOT create children — falls through to normal output extraction
         assert "output" in result
         assert result["output"] == "waiting"
 
@@ -1074,7 +1656,7 @@ class TestAgentNodeGraphInterrupt:
     def test_interrupt_child_creation_error_returns_output(
         self, mock_get_redis, mock_create_agent, mock_resolve_tools, mock_resolve_llm,
     ):
-        """When _create_child_from_interrupt fails, return error output instead of raising."""
+        """When _try_create_children fails, return error output instead of raising."""
         from langgraph.types import Interrupt
 
         agent_node, mock_agent = self._setup_agent(
@@ -1082,11 +1664,8 @@ class TestAgentNodeGraphInterrupt:
         )
 
         interrupt_value = {
-            "action": "spawn_workflow",
-            "workflow_slug": "nonexistent",
-            "input_text": "test",
-            "task_id": None,
-            "input_data": {},
+            "action": "spawn_and_await",
+            "tasks": [{"workflow_slug": "nonexistent", "input_text": "test"}],
         }
         interrupt_obj = Interrupt(value=interrupt_value)
 
@@ -1098,6 +1677,7 @@ class TestAgentNodeGraphInterrupt:
         state = {
             "messages": [MagicMock(type="human", content="hello")],
             "execution_id": "exec-err",
+            "_spawn_depth": 0,
         }
 
         with patch(
@@ -1127,10 +1707,15 @@ class TestChildWaitTimeout:
         assert key == "execution:exec-123:child_wait:agent_1"
 
     def test_resume_from_child_deletes_wait_key(self):
-        """_resume_from_child should delete the child_wait key."""
+        """_resume_from_child (legacy single-child) should delete the child_wait key."""
         from services.orchestrator import _child_wait_key, _resume_from_child
 
         mock_redis = MagicMock()
+        # Legacy non-parallel wait key
+        mock_redis.get.return_value = json.dumps({
+            "deadline": 9999999999,
+            "child_execution_id": "child-1",
+        })
         mock_parent = MagicMock()
         mock_parent.status = "running"
 
@@ -1148,14 +1733,49 @@ class TestChildWaitTimeout:
             _child_wait_key("parent-exec", "agent_1")
         )
 
-    def test_cleanup_expires_stuck_waits(self):
-        """cleanup_stuck_child_waits should call _resume_from_child for expired keys."""
+    def test_cleanup_expires_stuck_parallel_waits(self):
+        """cleanup_stuck_child_waits handles parallel wait keys with timeout errors."""
         import time as _time
 
         from services.cleanup import cleanup_stuck_child_waits
 
         expired_data = json.dumps({
-            "deadline": _time.time() - 100,  # already expired
+            "deadline": _time.time() - 100,
+            "parallel": True,
+            "total": 3,
+            "child_ids": ["c1", "c2", "c3"],
+            "results": {"c1": {"output": "done"}},
+        })
+
+        mock_redis = MagicMock()
+        mock_redis.scan.return_value = (0, ["execution:parent-exec:child_wait:agent_1"])
+        mock_redis.get.return_value = expired_data
+
+        with patch("services.cleanup.redis_lib.from_url", return_value=mock_redis), \
+             patch("services.cleanup.settings"), \
+             patch("services.orchestrator._resume_from_child") as mock_resume:
+            count = cleanup_stuck_child_waits()
+
+        assert count == 1
+        # Should resume with ordered list: c1 has result, c2 and c3 timed out
+        mock_resume.assert_called_once_with(
+            parent_execution_id="parent-exec",
+            parent_node_id="agent_1",
+            child_output=[
+                {"output": "done"},
+                {"_error": "Child execution timed out"},
+                {"_error": "Child execution timed out"},
+            ],
+        )
+
+    def test_cleanup_expires_stuck_single_waits(self):
+        """cleanup_stuck_child_waits handles legacy single-child wait keys."""
+        import time as _time
+
+        from services.cleanup import cleanup_stuck_child_waits
+
+        expired_data = json.dumps({
+            "deadline": _time.time() - 100,
             "child_execution_id": "child-456",
         })
 
@@ -1174,7 +1794,6 @@ class TestChildWaitTimeout:
             parent_node_id="agent_1",
             child_output={"_error": "Child execution timed out"},
         )
-        mock_redis.delete.assert_called_with("execution:parent-exec:child_wait:agent_1")
 
     def test_cleanup_skips_non_expired_waits(self):
         """cleanup_stuck_child_waits should skip keys whose deadline hasn't passed."""
@@ -1304,13 +1923,14 @@ class TestPropagateFailureToParent:
 
         mock_resume.assert_not_called()
 
-    def test_calls_resume_from_child(self):
-        """Calls _resume_from_child with error payload when parent exists."""
+    def test_calls_resume_from_child_with_execution_id(self):
+        """Calls _resume_from_child with error payload and child_execution_id."""
         from services.orchestrator import _propagate_failure_to_parent
 
         execution = MagicMock()
         execution.parent_execution_id = "parent-exec-1"
         execution.parent_node_id = "agent_1"
+        execution.execution_id = "child-exec-1"
 
         with patch("services.orchestrator._resume_from_child") as mock_resume:
             _propagate_failure_to_parent(execution, RuntimeError("something broke"))
@@ -1319,6 +1939,7 @@ class TestPropagateFailureToParent:
             parent_execution_id="parent-exec-1",
             parent_node_id="agent_1",
             child_output={"_error": "Child execution failed: something broke"},
+            child_execution_id="child-exec-1",
         )
 
     def test_swallows_resume_exception(self):
@@ -1328,6 +1949,7 @@ class TestPropagateFailureToParent:
         execution = MagicMock()
         execution.parent_execution_id = "parent-exec-1"
         execution.parent_node_id = "agent_1"
+        execution.execution_id = "child-exec-1"
 
         with patch("services.orchestrator._resume_from_child", side_effect=RuntimeError("redis down")):
             # Should not raise
@@ -1411,8 +2033,8 @@ class TestExecuteNodeJobSpawnPaths:
 
     @patch("services.orchestrator._advance")
     @patch("services.orchestrator._publish_event")
-    def test_subworkflow_stores_deadline(self, mock_publish, mock_advance):
-        """When component returns _subworkflow, a deadline key is stored in Redis."""
+    def test_subworkflow_stores_parallel_wait(self, mock_publish, mock_advance):
+        """When component returns _subworkflow with parallel children, a parallel wait key is stored."""
         from services.orchestrator import _child_wait_key, execute_node_job
 
         mock_exec = MagicMock()
@@ -1433,7 +2055,14 @@ class TestExecuteNodeJobSpawnPaths:
 
         def fake_factory(node):
             def fn(state):
-                return {"_subworkflow": {"child_execution_id": "child-99"}, "output": "ok"}
+                return {
+                    "_subworkflow": {
+                        "child_execution_ids": ["c1", "c2"],
+                        "parallel": True,
+                        "count": 2,
+                    },
+                    "output": "spawning",
+                }
             return fn
 
         with patch("database.SessionLocal", return_value=mock_db), \
@@ -1447,12 +2076,16 @@ class TestExecuteNodeJobSpawnPaths:
              patch("services.expressions.resolve_config_expressions", side_effect=lambda c, *a: c):
             execute_node_job("exec-2", "agent_1")
 
-        # Verify deadline was stored in Redis
-        mock_redis.set.assert_any_call(
-            _child_wait_key("exec-2", "agent_1"),
-            unittest.mock.ANY,
-            ex=unittest.mock.ANY,
-        )
+        # Verify parallel wait data was stored in Redis
+        set_calls = [c for c in mock_redis.set.call_args_list
+                     if c[0][0] == _child_wait_key("exec-2", "agent_1")]
+        assert len(set_calls) == 1
+        wait_data = json.loads(set_calls[0][0][1])
+        assert wait_data["parallel"] is True
+        assert wait_data["total"] == 2
+        assert wait_data["child_ids"] == ["c1", "c2"]
+        assert wait_data["results"] == {}
+
         # Verify _advance was NOT called (node stays waiting)
         mock_advance.assert_not_called()
 
@@ -1481,3 +2114,87 @@ class TestExecuteNodeJobSpawnPaths:
             execute_node_job("exec-3", "agent_1")
 
         mock_propagate.assert_called_once_with(mock_exec, unittest.mock.ANY)
+
+
+# ---------------------------------------------------------------------------
+# Initial state: _is_child_execution and _spawn_depth
+# ---------------------------------------------------------------------------
+
+
+class TestBuildInitialState:
+    """Test _build_initial_state includes child/spawn_depth flags."""
+
+    def test_parent_execution_state(self):
+        from services.orchestrator import _build_initial_state
+
+        execution = MagicMock()
+        execution.trigger_payload = {"text": "hello"}
+        execution.user_profile_id = 1
+        execution.execution_id = "exec-1"
+        execution.parent_execution_id = None
+
+        state = _build_initial_state(execution)
+        assert state["_is_child_execution"] is False
+        assert state["_spawn_depth"] == 0
+
+    def test_child_execution_state(self):
+        from services.orchestrator import _build_initial_state
+
+        execution = MagicMock()
+        execution.trigger_payload = {"text": "do task", "_spawn_depth": 2}
+        execution.user_profile_id = 1
+        execution.execution_id = "child-exec-1"
+        execution.parent_execution_id = "parent-exec-1"
+
+        state = _build_initial_state(execution)
+        assert state["_is_child_execution"] is True
+        assert state["_spawn_depth"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Resume from child: gone wait key
+# ---------------------------------------------------------------------------
+
+
+class TestResumeFromChildEdgeCases:
+    """Test edge cases in _resume_from_child."""
+
+    def test_no_op_when_wait_key_gone(self):
+        """When wait key is already consumed, _resume_from_child is a no-op."""
+        from services.orchestrator import _resume_from_child
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None  # key already gone
+
+        mock_parent = MagicMock()
+        mock_parent.status = "running"
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_parent
+
+        with patch("services.orchestrator._redis", return_value=mock_redis), \
+             patch("services.orchestrator.load_state") as mock_load, \
+             patch("services.orchestrator.save_state") as mock_save, \
+             patch("services.orchestrator._queue", return_value=MagicMock()) as mock_q, \
+             patch("database.SessionLocal", return_value=mock_db):
+            _resume_from_child("parent-exec", "agent_1", {"result": "ok"}, child_execution_id="c1")
+
+        # Should not load/save state or enqueue
+        mock_load.assert_not_called()
+        mock_save.assert_not_called()
+        mock_q.return_value.enqueue.assert_not_called()
+
+    def test_no_op_when_parent_not_running(self):
+        """When parent is not running, skip resume."""
+        from services.orchestrator import _resume_from_child
+
+        mock_parent = MagicMock()
+        mock_parent.status = "failed"
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_parent
+
+        with patch("services.orchestrator._redis", return_value=MagicMock()), \
+             patch("services.orchestrator.load_state") as mock_load, \
+             patch("database.SessionLocal", return_value=mock_db):
+            _resume_from_child("parent-exec", "agent_1", {"result": "ok"}, child_execution_id="c1")
+
+        mock_load.assert_not_called()

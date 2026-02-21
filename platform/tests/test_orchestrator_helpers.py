@@ -222,6 +222,7 @@ class TestBuildInitialState:
             trigger_payload={"text": "Hello", "chat_id": 12345},
             user_profile_id=1,
             execution_id="exec-abc",
+            parent_execution_id=None,
         )
         state = _build_initial_state(execution)
         assert len(state["messages"]) == 1
@@ -239,6 +240,7 @@ class TestBuildInitialState:
             trigger_payload={"key": "value"},
             user_profile_id=2,
             execution_id="exec-def",
+            parent_execution_id=None,
         )
         state = _build_initial_state(execution)
         assert state["messages"] == []
@@ -251,6 +253,7 @@ class TestBuildInitialState:
             trigger_payload=None,
             user_profile_id=3,
             execution_id="exec-ghi",
+            parent_execution_id=None,
         )
         state = _build_initial_state(execution)
         assert state["messages"] == []

@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import redis as redis_lib
@@ -78,6 +79,42 @@ def _loop_iter_done_key(execution_id: str, loop_id: str, iter_index: int | None 
     return f"execution:{execution_id}:loop:{loop_id}:iter_done"  # legacy fallback
 
 
+def _parent_info_key(execution_id: str) -> str:
+    return f"execution:{execution_id}:parent_info"
+
+
+def _cache_parent_info(
+    execution_id: str,
+    parent_eid: str,
+    parent_nid: str,
+    parent_slug: str,
+    root_eid: str,
+    root_nid: str,
+    root_slug: str,
+) -> None:
+    """Cache parent/root execution metadata so child events can be forwarded."""
+    r = _redis()
+    r.set(
+        _parent_info_key(execution_id),
+        json.dumps({
+            "parent_execution_id": parent_eid,
+            "parent_node_id": parent_nid,
+            "parent_workflow_slug": parent_slug,
+            "root_execution_id": root_eid,
+            "root_node_id": root_nid,
+            "root_workflow_slug": root_slug,
+        }),
+        ex=STATE_TTL,
+    )
+
+
+def _get_parent_info(execution_id: str) -> dict | None:
+    """Retrieve cached parent/root execution metadata."""
+    r = _redis()
+    raw = r.get(_parent_info_key(execution_id))
+    return json.loads(raw) if raw else None
+
+
 def load_state(execution_id: str) -> dict:
     r = _redis()
     raw = r.get(_state_key(execution_id))
@@ -103,6 +140,29 @@ def _publish_event(execution_id: str, event_type: str, data: dict | None = None,
         if workflow_slug:
             payload["channel"] = f"workflow:{workflow_slug}"
             r.publish(f"workflow:{workflow_slug}", json.dumps(payload))
+
+        # Forward child node_status events to root parent's channels
+        if event_type == "node_status":
+            parent_info = _get_parent_info(execution_id)
+            if parent_info:
+                root_eid = parent_info.get("root_execution_id")
+                root_slug = parent_info.get("root_workflow_slug")
+                root_nid = parent_info.get("root_node_id")
+                if root_eid:
+                    child_data = dict(data) if data else {}
+                    child_data["child_execution_id"] = execution_id
+                    child_data["parent_node_id"] = root_nid
+                    child_data["is_child_event"] = True
+                    child_payload = {
+                        "type": "child_node_status",
+                        "execution_id": root_eid,
+                        "timestamp": time.time(),
+                        "data": child_data,
+                    }
+                    r.publish(f"{PUBSUB_CHANNEL_PREFIX}{root_eid}", json.dumps(child_payload))
+                    if root_slug:
+                        child_payload["channel"] = f"workflow:{root_slug}"
+                        r.publish(f"workflow:{root_slug}", json.dumps(child_payload))
     except Exception:
         logger.warning(
             "Failed to publish event %s for execution %s (non-fatal)",
@@ -228,6 +288,36 @@ def start_execution(execution_id: str, db: Session | None = None) -> None:
 
         topo = build_topology(workflow, db, trigger_node_id=execution.trigger_node_id)
         _save_topology(execution_id, topo)
+
+        # Cache parent info for child executions so events can be forwarded
+        if execution.parent_execution_id:
+            parent_eid = str(execution.parent_execution_id)
+            parent_nid = execution.parent_node_id or ""
+            # Resolve parent workflow slug from DB (not the child's workflow.slug)
+            parent_exec = (
+                db.query(WorkflowExecution)
+                .filter(WorkflowExecution.execution_id == parent_eid)
+                .first()
+            )
+            if parent_exec:
+                parent_wf = db.query(Workflow).filter(Workflow.id == parent_exec.workflow_id).first()
+                parent_slug = parent_wf.slug if parent_wf else ""
+            else:
+                parent_slug = ""
+            # Check if parent is itself a child (grandchild+ scenario)
+            grandparent_info = _get_parent_info(parent_eid)
+            if grandparent_info and grandparent_info.get("root_execution_id"):
+                root_eid = grandparent_info["root_execution_id"]
+                root_nid = grandparent_info["root_node_id"]
+                root_slug = grandparent_info["root_workflow_slug"]
+            else:
+                root_eid = parent_eid
+                root_nid = parent_nid
+                root_slug = parent_slug
+            _cache_parent_info(
+                execution_id, parent_eid, parent_nid, parent_slug,
+                root_eid, root_nid, root_slug,
+            )
 
         initial_state = _build_initial_state(execution)
 
@@ -579,27 +669,43 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 return
             # Empty array or no body targets — advance normally
 
-        # Handle subworkflow: component created a child execution, wait for it
+        # Handle subworkflow: component created child execution(s), wait for completion
         if subworkflow_data:
-            child_id = subworkflow_data.get("child_execution_id")
+            child_ids = subworkflow_data.get("child_execution_ids", [])
+            is_parallel = subworkflow_data.get("parallel", False)
+            count = subworkflow_data.get("count", len(child_ids))
+
+            # Legacy single-child fallback
+            if not child_ids and subworkflow_data.get("child_execution_id"):
+                child_ids = [subworkflow_data["child_execution_id"]]
+                count = 1
+
             logger.info(
-                "Node %s waiting for child execution %s", node_id, child_id,
+                "Node %s waiting for %d child execution(s): %s",
+                node_id, count, child_ids,
             )
             # Store timeout deadline so the cleanup job can expire stuck waits
             timeout_seconds = 600  # 10 minutes
             deadline = time.time() + timeout_seconds
+            wait_data = {
+                "deadline": deadline,
+                "parallel": is_parallel,
+                "total": count,
+                "child_ids": child_ids,
+                "results": {},
+            }
             r.set(
                 _child_wait_key(execution_id, node_id),
-                json.dumps({"deadline": deadline, "child_execution_id": child_id}),
+                json.dumps(wait_data),
                 ex=timeout_seconds + 60,
             )
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.WAITING.value,
-                "child_execution_id": child_id,
+                "child_execution_ids": child_ids,
                 **_node_meta,
             }, workflow_slug=slug)
             # Do NOT advance or decrement inflight — node stays inflight
-            # until child completes and _resume_from_child is called.
+            # until all children complete and _resume_from_child is called.
             return
 
         # Handle delay: pass delay to _advance
@@ -710,6 +816,7 @@ def _propagate_failure_to_parent(execution, exc: Exception) -> None:
             parent_execution_id=parent_eid,
             parent_node_id=parent_nid,
             child_output={"_error": f"Child execution failed: {str(exc)[:500]}"},
+            child_execution_id=str(getattr(execution, "execution_id", "")),
         )
     except Exception:
         logger.exception("Failed to propagate failure to parent %s", parent_eid)
@@ -719,11 +826,13 @@ def _resume_from_child(
     parent_execution_id: str,
     parent_node_id: str,
     child_output: dict | None,
+    child_execution_id: str | None = None,
 ) -> None:
     """Resume a parent execution after a child subworkflow completes.
 
-    Injects the child's final_output into parent state, then re-enqueues
-    the subworkflow node so it can return the result and advance normally.
+    For parallel spawns, accumulates results in the child_wait key until
+    all children have reported, then injects the ordered results list into
+    parent state and re-enqueues the subworkflow node.
     """
     from database import SessionLocal
     from models.execution import WorkflowExecution
@@ -745,14 +854,71 @@ def _resume_from_child(
             )
             return
 
-        # Clean up the child-wait timeout key
         r = _redis()
-        r.delete(_child_wait_key(parent_execution_id, parent_node_id))
+        wait_key = _child_wait_key(parent_execution_id, parent_node_id)
+        raw = r.get(wait_key)
+
+        if not raw:
+            # Key already consumed (concurrent child or cleanup already resumed)
+            logger.warning(
+                "Child wait key gone for parent %s node %s, skipping",
+                parent_execution_id, parent_node_id,
+            )
+            return
+
+        wait_data = json.loads(raw)
+
+        if wait_data.get("parallel") and child_execution_id:
+            # Parallel mode: accumulate results under Redis lock
+            lock_key = f"{wait_key}:lock"
+            lock = r.lock(lock_key, timeout=LOCK_TTL)
+            if not lock.acquire(blocking=True, blocking_timeout=10):
+                logger.error(
+                    "Failed to acquire lock for parallel resume %s/%s",
+                    parent_execution_id, parent_node_id,
+                )
+                return
+            try:
+                # Re-read under lock (may have been updated by concurrent child)
+                raw = r.get(wait_key)
+                if not raw:
+                    logger.warning("Child wait key consumed under lock for %s", parent_execution_id)
+                    return
+                wait_data = json.loads(raw)
+
+                results = wait_data.get("results", {})
+                results[child_execution_id] = child_output
+                total = wait_data.get("total", 1)
+
+                if len(results) < total:
+                    # Not all children done yet — update and return
+                    wait_data["results"] = results
+                    r.set(wait_key, json.dumps(wait_data), ex=STATE_TTL)
+                    logger.info(
+                        "Parallel child %s reported (%d/%d) for parent %s node %s",
+                        child_execution_id, len(results), total,
+                        parent_execution_id, parent_node_id,
+                    )
+                    return
+
+                # All children done — build ordered results list and resume
+                child_ids = wait_data.get("child_ids", [])
+                ordered_results = [results.get(cid) for cid in child_ids]
+                r.delete(wait_key)
+            finally:
+                try:
+                    lock.release()
+                except Exception:
+                    pass
+        else:
+            # Legacy single-child path or direct resume (e.g. from cleanup)
+            r.delete(wait_key)
+            ordered_results = child_output
 
         # Inject child output into parent state
         state = load_state(parent_execution_id)
         subworkflow_results = state.get("_subworkflow_results", {})
-        subworkflow_results[parent_node_id] = child_output
+        subworkflow_results[parent_node_id] = ordered_results
         state["_subworkflow_results"] = subworkflow_results
         save_state(parent_execution_id, state)
 
@@ -1020,13 +1186,42 @@ def _finalize(execution_id: str, db: Session) -> None:
             sa = execution.started_at.replace(tzinfo=None) if execution.started_at.tzinfo else execution.started_at
             ca = execution.completed_at.replace(tzinfo=None) if execution.completed_at.tzinfo else execution.completed_at
             duration_ms = int((ca - sa).total_seconds() * 1000)
+
+        # Roll up descendant execution costs (BFS to handle grandchildren)
+        child_tokens = 0
+        child_cost = 0.0
+        child_llm_calls = 0
+        child_count = 0
+        try:
+            visited: set[str] = set()
+            queue_ids = deque([execution_id])
+            while queue_ids:
+                pid = queue_ids.popleft()
+                if pid in visited:
+                    continue
+                visited.add(pid)
+                children = (
+                    db.query(WorkflowExecution)
+                    .filter(WorkflowExecution.parent_execution_id == pid)
+                    .all()
+                )
+                for c in children:
+                    child_count += 1
+                    child_tokens += c.total_tokens or 0
+                    child_cost += float(c.total_cost_usd or 0)
+                    child_llm_calls += c.llm_calls or 0
+                    queue_ids.append(str(c.execution_id))
+        except Exception:
+            logger.exception("Failed to roll up child costs for execution %s", execution_id)
+
         activity_summary = {
-            "total_steps": len(state.get("node_results", {})),
+            "total_steps": len(state.get("node_results", {})) + child_count,
             "total_duration_ms": duration_ms,
-            "total_tokens": execution.total_tokens or 0,
-            "total_cost_usd": float(execution.total_cost_usd or 0),
-            "llm_calls": execution.llm_calls or 0,
+            "total_tokens": (execution.total_tokens or 0) + child_tokens,
+            "total_cost_usd": float(execution.total_cost_usd or 0) + child_cost,
+            "llm_calls": (execution.llm_calls or 0) + child_llm_calls,
             "tool_invocations": exec_usage.get("tool_invocations", 0),
+            "child_count": child_count,
         }
 
         _publish_event(execution_id, "execution_completed", {
@@ -1056,6 +1251,7 @@ def _finalize(execution_id: str, db: Session) -> None:
                 parent_execution_id=parent_eid,
                 parent_node_id=parent_nid,
                 child_output=execution.final_output,
+                child_execution_id=execution_id,
             )
 
     except Exception as exc:
@@ -1191,6 +1387,8 @@ def _build_initial_state(execution) -> dict:
         "loop_state": {},
         "error": "",
         "should_retry": False,
+        "_is_child_execution": bool(execution.parent_execution_id),
+        "_spawn_depth": int(payload.get("_spawn_depth", 0)),
     }
 
 

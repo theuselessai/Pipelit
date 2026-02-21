@@ -215,7 +215,10 @@ def list_checkpoints(
         metadata_raw = row[6]
         if metadata_raw:
             try:
-                meta = json.loads(metadata_raw) if isinstance(metadata_raw, str) else metadata_raw
+                if isinstance(metadata_raw, (str, bytes)):
+                    meta = json.loads(metadata_raw)
+                else:
+                    meta = metadata_raw
                 step = meta.get("step")
                 source = meta.get("source")
             except (json.JSONDecodeError, TypeError):

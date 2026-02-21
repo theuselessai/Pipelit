@@ -1,4 +1,4 @@
-"""spawn_and_await tool — LangChain tool for spawning a child workflow and awaiting its result."""
+"""spawn_and_await tool — LangChain tool for spawning child workflows in parallel."""
 
 from __future__ import annotations
 
@@ -18,47 +18,41 @@ def spawn_and_await_factory(node):
 
     When invoked inside an agent's reasoning loop, this tool calls
     ``interrupt()`` from LangGraph to checkpoint the agent mid-tool-call.
-    On resume (after the child completes), ``interrupt()`` returns the
-    child's output and the tool returns it as a JSON string to the LLM.
+    On resume (after all children complete), ``interrupt()`` returns the
+    list of child results and the tool returns them as a JSON string.
     """
 
     @tool
-    def spawn_and_await(
-        workflow_slug: str,
-        input_text: str = "",
-        task_id: str | None = None,
-        input_data: dict | None = None,
-    ) -> str:
-        """Spawn a child workflow and wait for its result.
+    def spawn_and_await(tasks: list[dict]) -> str:
+        """Spawn one or more child workflows in parallel and wait for all results.
 
-        This tool launches another workflow as a child execution and pauses
-        the current agent until the child completes.  The child's output is
-        returned as a JSON string.
+        Use workflow_slug="self" to spawn another instance of the current workflow.
 
         Args:
-            workflow_slug: Slug of the workflow to spawn.
-            input_text: Text input to pass as the child's trigger text.
-            task_id: Optional task ID to link the child execution to.
-            input_data: Optional dict of additional data for the child trigger payload.
+            tasks: List of dicts, each with:
+                - workflow_slug: "self" for current workflow, or target workflow slug
+                - input_text: (optional) Instructions for the child instance
 
         Returns:
-            JSON string with the child workflow's output.
+            JSON array of results, one per task (same order as input).
         """
         from langgraph.types import interrupt
 
-        result = interrupt({
-            "action": "spawn_workflow",
-            "workflow_slug": workflow_slug,
-            "input_text": input_text,
-            "task_id": task_id,
-            "input_data": input_data if input_data is not None else {},
-        })
+        if not tasks:
+            raise ToolException("tasks list cannot be empty")
+        for i, task in enumerate(tasks):
+            if not isinstance(task, dict):
+                raise ToolException(f"Task {i} must be a dict, got {type(task).__name__}")
+            if "workflow_slug" not in task:
+                raise ToolException(f"Task {i} missing required field 'workflow_slug'")
 
-        # On resume, interrupt() returns the child's output.
-        # If the child failed, the result contains an _error key — raise so the
-        # agent's error handling kicks in instead of the LLM retrying the tool.
+        result = interrupt({"action": "spawn_and_await", "tasks": tasks})
+
+        # On resume, interrupt() returns the list of child results.
+        # If the result contains an _error key, raise so the agent's
+        # error handling kicks in instead of the LLM retrying the tool.
         if isinstance(result, dict) and "_error" in result:
-            raise ToolException(f"Child workflow failed: {result['_error']}")
+            raise ToolException(f"Spawn failed: {result['_error']}")
 
         if isinstance(result, str):
             return result

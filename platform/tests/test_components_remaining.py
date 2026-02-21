@@ -26,6 +26,7 @@ def _make_node(component_type="test", extra_config=None, system_prompt=None, nod
         workflow_id=1,
         component_type=component_type,
         component_config=config,
+        workflow=SimpleNamespace(slug="test-wf"),
     )
 
 
