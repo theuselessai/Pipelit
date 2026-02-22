@@ -143,7 +143,7 @@ class TestPublishToolStatus:
     def test_no_slug_logs_warning(self, mock_get_type):
         from components.agent import _publish_tool_status
 
-        with patch("components.agent.logger") as mock_logger:
+        with patch("components._agent_shared.logger") as mock_logger:
             _publish_tool_status(
                 tool_node_id="tool_1",
                 status="running",
@@ -176,7 +176,7 @@ class TestPipelitAgentMiddlewareToolCall:
 
         mock_handler = MagicMock(return_value="result")
 
-        with patch("components.agent._publish_tool_status") as mock_publish:
+        with patch("components._agent_shared._publish_tool_status") as mock_publish:
             result = middleware.wrap_tool_call(mock_request, mock_handler)
 
         assert result == "result"
@@ -195,7 +195,7 @@ class TestPipelitAgentMiddlewareToolCall:
 
         mock_handler = MagicMock(side_effect=ValueError("boom"))
 
-        with patch("components.agent._publish_tool_status") as mock_publish:
+        with patch("components._agent_shared._publish_tool_status") as mock_publish:
             with pytest.raises(ValueError, match="boom"):
                 middleware.wrap_tool_call(mock_request, mock_handler)
 
@@ -214,7 +214,7 @@ class TestPipelitAgentMiddlewareToolCall:
 
         mock_handler = MagicMock(side_effect=GraphInterrupt([]))
 
-        with patch("components.agent._publish_tool_status") as mock_publish:
+        with patch("components._agent_shared._publish_tool_status") as mock_publish:
             with pytest.raises(GraphInterrupt):
                 middleware.wrap_tool_call(mock_request, mock_handler)
 
@@ -229,11 +229,11 @@ class TestPipelitAgentMiddlewareToolCall:
 
         mock_handler = MagicMock(return_value="ok")
 
-        with patch("components.agent._publish_tool_status") as mock_publish:
+        with patch("components._agent_shared._publish_tool_status") as mock_publish:
             result = middleware.wrap_tool_call(mock_request, mock_handler)
 
         assert result == "ok"
         assert mock_publish.call_count == 2
-        # Should use empty strings for unknown metadata
-        assert mock_publish.call_args_list[0].kwargs["tool_node_id"] == ""
+        # Unknown tools get a synthetic _builtin_ prefix node ID
+        assert mock_publish.call_args_list[0].kwargs["tool_node_id"] == "_builtin_unknown_tool"
         assert mock_publish.call_args_list[0].kwargs["tool_component_type"] == ""

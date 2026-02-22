@@ -90,6 +90,65 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="deep_agent",
+    display_name="Deep Agent",
+    description="Advanced agent with built-in task planning, filesystem tools, and subagents",
+    category="ai",
+    requires_model=True, requires_tools=True,
+    inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
+    outputs=[
+        PortDefinition(name="messages", data_type=DataType.MESSAGES),
+        PortDefinition(name="output", data_type=DataType.STRING),
+    ],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "conversation_memory": {
+                "type": "boolean",
+                "default": False,
+                "description": "Enable conversation memory across executions",
+            },
+            "enable_filesystem": {
+                "type": "boolean",
+                "default": False,
+                "description": "Enable built-in filesystem tools",
+            },
+            "filesystem_backend": {
+                "type": "string",
+                "enum": ["state", "filesystem", "store"],
+                "default": "state",
+                "description": "Filesystem storage backend",
+            },
+            "filesystem_root_dir": {
+                "type": "string",
+                "default": "",
+                "description": "Root directory for filesystem backend (filesystem mode only)",
+            },
+            "enable_todos": {
+                "type": "boolean",
+                "default": False,
+                "description": "Enable built-in task planning (todos)",
+            },
+            "subagents": {
+                "type": "array",
+                "default": [],
+                "description": "Inline subagent definitions",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "system_prompt": {"type": "string"},
+                        "model": {"type": "string", "default": ""},
+                    },
+                    "required": ["name", "description", "system_prompt"],
+                },
+            },
+        },
+    },
+))
+
+register_node_type(NodeTypeSpec(
     component_type="categorizer",
     display_name="Categorizer",
     description="Classifies input into categories",

@@ -1406,11 +1406,11 @@ class TestRedisCheckpointer:
 
     def test_creates_and_caches_redis_saver(self):
         import sys
-        import components.agent as agent_mod
-        from components.agent import _get_redis_checkpointer
+        import components._agent_shared as shared_mod
+        from components._agent_shared import _get_redis_checkpointer
 
-        original = agent_mod._redis_checkpointer
-        agent_mod._redis_checkpointer = None
+        original = shared_mod._redis_checkpointer
+        shared_mod._redis_checkpointer = None
         try:
             mock_saver_instance = MagicMock()
             mock_saver_cls = MagicMock(return_value=mock_saver_instance)
@@ -1427,7 +1427,7 @@ class TestRedisCheckpointer:
                 mock_saver_cls.assert_called_once_with(redis_url="redis://test:6379/0")
                 mock_saver_instance.setup.assert_called_once()
         finally:
-            agent_mod._redis_checkpointer = original
+            shared_mod._redis_checkpointer = original
 
 
 # ---------------------------------------------------------------------------
