@@ -11,6 +11,7 @@ from typing_extensions import NotRequired
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import AgentState, OmitFromOutput
+from langgraph.errors import GraphInterrupt
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,6 @@ class PipelitAgentMiddleware(AgentMiddleware):
             )
             return result
         except Exception as e:
-            from langgraph.errors import GraphInterrupt
             if isinstance(e, GraphInterrupt):
                 _publish_tool_status(
                     tool_node_id=tool_node_id, status="waiting",
