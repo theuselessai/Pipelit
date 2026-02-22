@@ -11,6 +11,9 @@ _platform_dir = str(Path(__file__).resolve().parent)
 if _platform_dir not in sys.path:
     sys.path.insert(0, _platform_dir)
 
+_version_file = Path(__file__).resolve().parent.parent / "VERSION"
+__version__ = _version_file.read_text().strip() if _version_file.exists() else "0.0.0-dev"
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -56,7 +59,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Workflow Platform API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Workflow Platform API", version=__version__, lifespan=lifespan)
 
 # CORS
 app.add_middleware(

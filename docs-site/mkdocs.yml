@@ -185,6 +185,7 @@ nav:
     - Adding Components: contributing/adding-components.md
     - Migrations: contributing/migrations.md
     - Code Style: contributing/code-style.md
+    - Releasing: contributing/releasing.md
     - Frontend Guide:
       - frontend/index.md
       - Dashboard: frontend/dashboard.md
