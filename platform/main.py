@@ -11,8 +11,10 @@ _platform_dir = str(Path(__file__).resolve().parent)
 if _platform_dir not in sys.path:
     sys.path.insert(0, _platform_dir)
 
-_version_file = Path(__file__).resolve().parent.parent / "VERSION"
-__version__ = _version_file.read_text().strip() if _version_file.exists() else "0.0.0-dev"
+try:
+    __version__ = (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+except Exception:
+    __version__ = "0.0.0-dev"
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

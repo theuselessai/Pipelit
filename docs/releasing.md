@@ -25,7 +25,7 @@ echo "X.Y.Z" > VERSION
 #   - Rename old [Unreleased] → [X.Y.Z] - YYYY-MM-DD
 
 # 5. Commit & PR
-git add VERSION platform/main.py platform/frontend/package.json docs-site/docs/changelog.md
+git add VERSION platform/frontend/package.json docs-site/docs/changelog.md
 git commit -m "Prepare vX.Y.Z release"
 git push -u origin release/vX.Y.Z
 gh pr create --title "Release vX.Y.Z" --body "Release prep for vX.Y.Z"

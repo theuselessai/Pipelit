@@ -35,6 +35,12 @@ jobs:
           # Write to file for gh release
           echo "$NOTES" > release_notes.md
 
+          # Fail if no changelog entry was found for this version
+          if [ -z "$(cat release_notes.md | tr -d '[:space:]')" ]; then
+            echo "::error::No changelog entry found for version ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
