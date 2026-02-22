@@ -1,8 +1,10 @@
 import * as React from "react"
+import { useContext } from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { PopoutContainerContext } from "@/components/PopoutWindow"
 
 function Select({
   ...props
@@ -55,8 +57,9 @@ function SelectContent({
   align = "center",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  const popoutContainer = useContext(PopoutContainerContext)
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={popoutContainer}>
       <SelectPrimitive.Content
         data-slot="select-content"
         className={cn(

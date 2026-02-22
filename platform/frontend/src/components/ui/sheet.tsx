@@ -1,8 +1,10 @@
 import * as React from "react"
+import { useContext } from "react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { PopoutContainerContext } from "@/components/PopoutWindow"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -23,7 +25,8 @@ function SheetClose({
 function SheetPortal({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Portal>) {
-  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
+  const popoutContainer = useContext(PopoutContainerContext)
+  return <SheetPrimitive.Portal data-slot="sheet-portal" container={popoutContainer} {...props} />
 }
 
 function SheetOverlay({
