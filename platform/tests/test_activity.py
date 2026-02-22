@@ -85,7 +85,7 @@ class TestPublishToolStatus:
     @patch("schemas.node_types.get_node_type")
     @patch("services.orchestrator._publish_event")
     def test_uses_publish_event_when_execution_id_available(self, mock_publish, mock_get_type):
-        from components.agent import _publish_tool_status
+        from components._agent_shared import _publish_tool_status
 
         mock_spec = MagicMock()
         mock_spec.display_name = "Web Search"
@@ -116,7 +116,7 @@ class TestPublishToolStatus:
     @patch("schemas.node_types.get_node_type")
     @patch("ws.broadcast.broadcast")
     def test_falls_back_to_broadcast_without_execution_id(self, mock_broadcast, mock_get_type):
-        from components.agent import _publish_tool_status
+        from components._agent_shared import _publish_tool_status
 
         mock_spec = MagicMock()
         mock_spec.display_name = "Calculator"
@@ -141,7 +141,7 @@ class TestPublishToolStatus:
 
     @patch("schemas.node_types.get_node_type", return_value=None)
     def test_no_slug_logs_warning(self, mock_get_type):
-        from components.agent import _publish_tool_status
+        from components._agent_shared import _publish_tool_status
 
         with patch("components._agent_shared.logger") as mock_logger:
             _publish_tool_status(

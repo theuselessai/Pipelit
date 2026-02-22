@@ -190,7 +190,11 @@ def deep_agent_factory(node):
         if exec_id:
             invoke_input["execution_id"] = exec_id
 
-        result = agent.invoke(invoke_input, config=config)
+        try:
+            result = agent.invoke(invoke_input, config=config)
+        except Exception:
+            logger.exception("DeepAgent %s: agent.invoke() failed", node_id)
+            raise
 
         out_messages = result.get("messages", [])
 

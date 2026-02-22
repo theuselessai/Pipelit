@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+# FIXME: reformat this union to one entry per line for readability
 ComponentTypeStr = Literal[
     "categorizer", "router", "extractor", "ai_model", "agent", "deep_agent", "switch",
     "run_command", "http_request", "web_search", "calculator", "datetime", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools",
