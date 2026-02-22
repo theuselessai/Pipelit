@@ -6,11 +6,14 @@ import logging
 import os
 import threading
 import uuid
+from typing import Annotated, Any
 
-from langchain_core.callbacks.base import BaseCallbackHandler
+from typing_extensions import NotRequired
+
 from langchain_core.messages import HumanMessage
-from langchain_core.outputs import LLMResult
 from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import AgentState, OmitFromOutput
 
 from components import register
 from services.llm import resolve_llm_for_node
@@ -23,50 +26,113 @@ from services.token_usage import (
 logger = logging.getLogger(__name__)
 
 
-class AgentMessageCallback(BaseCallbackHandler):
-    """Broadcasts a ``chat_message`` WS event after each LLM call so the
-    frontend can show intermediate agent responses in real-time."""
+class PipelitAgentState(AgentState[Any]):
+    """Extends AgentState with execution_id so middleware can access it."""
 
-    def __init__(self, exec_id_ref: list[str | None], workflow_slug: str, node_id: str):
-        super().__init__()
-        self._exec_id_ref = exec_id_ref
+    execution_id: NotRequired[Annotated[str | None, OmitFromOutput]]
+
+
+class PipelitAgentMiddleware(AgentMiddleware):
+    """Broadcasts tool status and chat message WebSocket events."""
+
+    state_schema = PipelitAgentState
+
+    def __init__(self, tool_metadata: dict[str, dict], agent_node_id: str, workflow_slug: str):
+        self._tool_metadata = tool_metadata  # {tool_name: {tool_node_id, component_type}}
+        self._agent_node_id = agent_node_id
         self._workflow_slug = workflow_slug
-        self._node_id = node_id
 
-    def on_llm_end(self, response: LLMResult, **kwargs) -> None:  # noqa: ARG002
+    def wrap_tool_call(self, request, handler):
+        tool_name = request.tool_call.get("name", "") if isinstance(request.tool_call, dict) else getattr(request.tool_call, "name", "")
+        meta = self._tool_metadata.get(tool_name, {})
+        tool_node_id = meta.get("tool_node_id", "")
+        component_type = meta.get("component_type", "")
+
+        exec_id = None
+        state = request.state
+        if isinstance(state, dict):
+            exec_id = state.get("execution_id")
+
+        _publish_tool_status(
+            tool_node_id=tool_node_id, status="running",
+            workflow_slug=self._workflow_slug,
+            agent_node_id=self._agent_node_id,
+            tool_name=tool_name, tool_component_type=component_type,
+            execution_id=exec_id,
+        )
         try:
-            exec_id = self._exec_id_ref[0] if self._exec_id_ref else None
-            if not exec_id or not self._workflow_slug:
-                return
-
-            # Extract text content from the first generation
-            msg = response.generations[0][0].message
-            content = msg.content
-            if not content:
-                return
-
-            # Handle Anthropic list format: [{"type": "text", "text": "..."}]
-            if isinstance(content, list):
-                text_parts = [
-                    block["text"] for block in content
-                    if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
-                ]
-                text = "\n".join(text_parts)
-            else:
-                text = str(content)
-
-            if not text.strip():
-                return
-
-            from services.orchestrator import _publish_event
-            _publish_event(
-                exec_id,
-                "chat_message",
-                {"text": text, "node_id": self._node_id},
+            result = handler(request)
+            _publish_tool_status(
+                tool_node_id=tool_node_id, status="success",
                 workflow_slug=self._workflow_slug,
+                agent_node_id=self._agent_node_id,
+                tool_name=tool_name, tool_component_type=component_type,
+                execution_id=exec_id,
             )
+            return result
+        except Exception as e:
+            from langgraph.errors import GraphInterrupt
+            if isinstance(e, GraphInterrupt):
+                _publish_tool_status(
+                    tool_node_id=tool_node_id, status="waiting",
+                    workflow_slug=self._workflow_slug,
+                    agent_node_id=self._agent_node_id,
+                    tool_name=tool_name, tool_component_type=component_type,
+                    execution_id=exec_id,
+                )
+                raise
+            _publish_tool_status(
+                tool_node_id=tool_node_id, status="failed",
+                workflow_slug=self._workflow_slug,
+                agent_node_id=self._agent_node_id,
+                tool_name=tool_name, tool_component_type=component_type,
+                execution_id=exec_id,
+            )
+            raise
+
+    def wrap_model_call(self, request, handler):
+        response = handler(request)
+        try:
+            exec_id = None
+            state = request.state
+            if isinstance(state, dict):
+                exec_id = state.get("execution_id")
+            elif hasattr(state, "execution_id"):
+                exec_id = state.execution_id
+
+            if not exec_id or not self._workflow_slug:
+                return response
+
+            # Extract text from the last AI message in response.result
+            messages = response.result if hasattr(response, "result") else []
+            text = ""
+            for msg in reversed(messages):
+                content = getattr(msg, "content", None)
+                if not content:
+                    continue
+                # Handle Anthropic list format: [{"type": "text", "text": "..."}]
+                if isinstance(content, list):
+                    text_parts = [
+                        block["text"] for block in content
+                        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+                    ]
+                    text = "\n".join(text_parts)
+                else:
+                    text = str(content)
+                if text.strip():
+                    break
+
+            if text.strip():
+                from services.orchestrator import _publish_event
+                _publish_event(
+                    exec_id,
+                    "chat_message",
+                    {"text": text, "node_id": self._agent_node_id},
+                    workflow_slug=self._workflow_slug,
+                )
         except Exception:
-            logger.debug("AgentMessageCallback.on_llm_end failed (non-fatal)", exc_info=True)
+            logger.debug("PipelitAgentMiddleware.wrap_model_call publish failed (non-fatal)", exc_info=True)
+        return response
 
 # Lazy singleton for SqliteSaver checkpointer (permanent — conversation memory)
 _checkpointer = None
@@ -134,11 +200,7 @@ def agent_factory(node):
         node_id, system_prompt[:80] if system_prompt else None, conversation_memory, extra,
     )
 
-    # Shared mutable ref so tool wrappers (which may run in executor threads)
-    # can read the execution_id set by agent_node at invocation time.
-    _exec_id_ref: list[str | None] = [None]
-
-    tools = _resolve_tools(node, _exec_id_ref)
+    tools, tool_metadata = _resolve_tools(node)
 
     # Detect spawn_and_await tool
     has_spawn_tool = any(
@@ -155,10 +217,13 @@ def agent_factory(node):
     elif has_spawn_tool:
         checkpointer = _get_redis_checkpointer()
 
+    middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug)
+
     agent_kwargs = dict(
         model=llm,
         tools=tools,
         system_prompt=system_prompt or None,
+        middleware=[middleware],
     )
     if checkpointer is not None:
         agent_kwargs["checkpointer"] = checkpointer
@@ -179,9 +244,6 @@ def agent_factory(node):
     def agent_node(state: dict) -> dict:
         from datetime import datetime, timezone
         from langgraph.types import Command
-
-        # Expose execution_id to tool wrappers (may run in executor threads)
-        _exec_id_ref[0] = state.get("execution_id")
 
         messages = list(state.get("messages", []))
 
@@ -226,12 +288,11 @@ def agent_factory(node):
                 thread_id = f"exec:{execution_id}:{node_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
-        # Inject callback for real-time intermediate chat messages
-        _chat_cb = AgentMessageCallback(_exec_id_ref, workflow_slug, node_id)
-        if config is None:
-            config = {"callbacks": [_chat_cb]}
-        else:
-            config["callbacks"] = [_chat_cb]
+        # Pass execution_id in the input so middleware can read it from state
+        exec_id = state.get("execution_id")
+        invoke_input = {"messages": messages}
+        if exec_id:
+            invoke_input["execution_id"] = exec_id
 
         # Check if we're resuming from a child workflow result
         child_result = state.get("_subworkflow_results", {}).get(node_id)
@@ -241,7 +302,7 @@ def agent_factory(node):
             result = agent.invoke(Command(resume=child_result), config=config)
         else:
             try:
-                result = agent.invoke({"messages": messages}, config=config)
+                result = agent.invoke(invoke_input, config=config)
             except Exception as exc:
                 # Check if this is a GraphInterrupt from spawn_and_await
                 from langgraph.errors import GraphInterrupt
@@ -479,9 +540,15 @@ def _create_child_from_interrupt(
         db.close()
 
 
-def _resolve_tools(node, exec_id_ref: list[str | None] | None = None) -> list:
-    """Resolve LangChain tools from edge_label='tool' or 'memory' edges connected to this agent."""
+def _resolve_tools(node) -> tuple[list, dict[str, dict]]:
+    """Resolve LangChain tools from edge_label='tool' or 'memory' edges connected to this agent.
+
+    Returns:
+        (tools, tool_metadata) where tool_metadata maps tool_name to
+        {tool_node_id, component_type} for the middleware.
+    """
     tools = []
+    tool_metadata: dict[str, dict] = {}
     try:
         from database import SessionLocal
         from models.node import WorkflowEdge, WorkflowNode
@@ -489,11 +556,6 @@ def _resolve_tools(node, exec_id_ref: list[str | None] | None = None) -> list:
 
         db = SessionLocal()
         try:
-            # Resolve workflow slug once for all tools (avoids per-invocation DB queries)
-            workflow_slug = ""
-            if node.workflow:
-                workflow_slug = node.workflow.slug
-
             tool_edges = (
                 db.query(WorkflowEdge)
                 .filter(
@@ -520,66 +582,21 @@ def _resolve_tools(node, exec_id_ref: list[str | None] | None = None) -> list:
                     if isinstance(result, list):
                         for lc_tool in result:
                             tool_name = getattr(lc_tool, 'name', lc_tool.__class__.__name__)
-                            logger.info("Agent %s: wrapping tool %s from %s (%s)", node.node_id, tool_name, tool_db_node.node_id, tool_component_type)
-                            tools.append(_wrap_tool_with_events(lc_tool, tool_db_node.node_id, node, tool_component_type, workflow_slug, exec_id_ref))
+                            logger.info("Agent %s: resolved tool %s from %s (%s)", node.node_id, tool_name, tool_db_node.node_id, tool_component_type)
+                            tools.append(lc_tool)
+                            tool_metadata[tool_name] = {"tool_node_id": tool_db_node.node_id, "component_type": tool_component_type}
                     else:
-                        logger.info("Agent %s: wrapping tool %s (%s)", node.node_id, tool_db_node.node_id, tool_component_type)
-                        tools.append(_wrap_tool_with_events(result, tool_db_node.node_id, node, tool_component_type, workflow_slug, exec_id_ref))
+                        tool_name = getattr(result, 'name', result.__class__.__name__)
+                        logger.info("Agent %s: resolved tool %s (%s)", node.node_id, tool_db_node.node_id, tool_component_type)
+                        tools.append(result)
+                        tool_metadata[tool_name] = {"tool_node_id": tool_db_node.node_id, "component_type": tool_component_type}
         finally:
             db.close()
     except Exception:
         logger.exception("Failed to resolve tools for agent %s", node.node_id)
 
-    return tools
+    return tools, tool_metadata
 
-
-def _wrap_tool_with_events(lc_tool, tool_node_id, agent_node, tool_component_type="", workflow_slug="", exec_id_ref=None):
-    """Wrap a LangChain tool to publish node_status WS events."""
-    from functools import wraps
-
-    original_fn = lc_tool.func
-    agent_node_id = agent_node.node_id
-    tool_name = getattr(lc_tool, "name", lc_tool.__class__.__name__)
-    @wraps(original_fn)
-    def wrapped(*args, **kwargs):
-        # Read execution_id from shared ref (set by agent_node before invoke).
-        # This works across executor threads because it's a mutable list, not thread-local.
-        exec_id = exec_id_ref[0] if exec_id_ref else None
-        logger.info("Tool %s invoked, publishing running status (exec=%s)", tool_node_id, exec_id)
-        _publish_tool_status(
-            tool_node_id=tool_node_id, status="running", workflow_slug=workflow_slug,
-            agent_node_id=agent_node_id, tool_name=tool_name,
-            tool_component_type=tool_component_type, execution_id=exec_id,
-        )
-        try:
-            result = original_fn(*args, **kwargs)
-            logger.info("Tool %s completed successfully", tool_node_id)
-            _publish_tool_status(
-                tool_node_id=tool_node_id, status="success", workflow_slug=workflow_slug,
-                agent_node_id=agent_node_id, tool_name=tool_name,
-                tool_component_type=tool_component_type, execution_id=exec_id,
-            )
-            return result
-        except Exception as e:
-            from langgraph.errors import GraphInterrupt
-            if isinstance(e, GraphInterrupt):
-                logger.info("Tool %s interrupted (control flow)", tool_node_id)
-                _publish_tool_status(
-                    tool_node_id=tool_node_id, status="waiting", workflow_slug=workflow_slug,
-                    agent_node_id=agent_node_id, tool_name=tool_name,
-                    tool_component_type=tool_component_type, execution_id=exec_id,
-                )
-                raise
-            logger.info("Tool %s failed: %s", tool_node_id, e)
-            _publish_tool_status(
-                tool_node_id=tool_node_id, status="failed", workflow_slug=workflow_slug,
-                agent_node_id=agent_node_id, tool_name=tool_name,
-                tool_component_type=tool_component_type, execution_id=exec_id,
-            )
-            raise
-
-    lc_tool.func = wrapped
-    return lc_tool
 
 
 def _publish_tool_status(

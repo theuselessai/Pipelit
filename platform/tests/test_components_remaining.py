@@ -676,7 +676,7 @@ class TestMemoryWrite:
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class TestAgentComponent:
-    @patch("components.agent._resolve_tools", return_value=[])
+    @patch("components.agent._resolve_tools", return_value=([], {}))
     @patch("components.agent.create_agent")
     @patch("components.agent.resolve_llm_for_node")
     def test_basic_agent(self, mock_resolve, mock_create_agent, mock_tools):
@@ -701,7 +701,7 @@ class TestAgentComponent:
         assert result["output"] == "I am an agent"
         assert "_messages" in result
 
-    @patch("components.agent._resolve_tools", return_value=[])
+    @patch("components.agent._resolve_tools", return_value=([], {}))
     @patch("components.agent.create_agent")
     @patch("components.agent.resolve_llm_for_node")
     def test_agent_with_system_prompt(self, mock_resolve, mock_create_agent, mock_tools):

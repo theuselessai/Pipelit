@@ -920,13 +920,16 @@ class TestAgentListFactorySupport:
         mock_session.commit()
         mock_session.refresh(agent_node)
 
-        tools = _resolve_tools(agent_node)
+        tools, tool_metadata = _resolve_tools(agent_node)
 
         # epic_tools returns 4 tools
         assert len(tools) == 4
         tool_names = {t.name for t in tools}
         assert "create_epic" in tool_names
         assert "epic_status" in tool_names
+        # Verify tool_metadata was populated
+        assert "create_epic" in tool_metadata
+        assert tool_metadata["create_epic"]["tool_node_id"] == "epic_tools_1"
 
     def test_resolve_tools_single_tool_factory(self, mock_session, workflow):
         """Cover the else branch (L176-177) — single tool from factory."""
@@ -966,10 +969,12 @@ class TestAgentListFactorySupport:
         mock_session.commit()
         mock_session.refresh(agent_node)
 
-        tools = _resolve_tools(agent_node)
+        tools, tool_metadata = _resolve_tools(agent_node)
 
         assert len(tools) == 1
         assert tools[0].name == "calculator"
+        assert "calculator" in tool_metadata
+        assert tool_metadata["calculator"]["tool_node_id"] == "calc_1"
 
     def test_resolve_tools_exception_returns_empty(self, db, workflow):
         """Cover the except branch in _resolve_tools (L176-177)."""
@@ -991,9 +996,10 @@ class TestAgentListFactorySupport:
 
         # Force an exception by making SessionLocal raise
         with patch("database.SessionLocal", side_effect=RuntimeError("DB down")):
-            tools = _resolve_tools(agent_node)
+            tools, tool_metadata = _resolve_tools(agent_node)
 
         assert tools == []
+        assert tool_metadata == {}
 
 
 # ---------------------------------------------------------------------------

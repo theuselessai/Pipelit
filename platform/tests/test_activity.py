@@ -156,58 +156,84 @@ class TestPublishToolStatus:
             mock_logger.warning.assert_called()
 
 
-class TestWrapToolWithEvents:
-    def test_exec_id_ref_is_read_at_invocation_time(self):
-        from components.agent import _wrap_tool_with_events
+class TestPipelitAgentMiddlewareToolCall:
+    def _make_middleware(self, tool_metadata=None, agent_node_id="agent_1", workflow_slug="wf"):
+        from components.agent import PipelitAgentMiddleware
 
-        mock_tool = MagicMock()
-        mock_tool.func = MagicMock(return_value="result")
-        mock_tool.name = "test_tool"
+        return PipelitAgentMiddleware(
+            tool_metadata=tool_metadata or {},
+            agent_node_id=agent_node_id,
+            workflow_slug=workflow_slug,
+        )
 
-        mock_agent_node = MagicMock()
-        mock_agent_node.node_id = "agent_1"
+    def test_publishes_running_and_success(self):
+        middleware = self._make_middleware(
+            tool_metadata={"test_tool": {"tool_node_id": "tool_1", "component_type": "run_command"}},
+        )
+        mock_request = MagicMock()
+        mock_request.tool_call = {"name": "test_tool"}
+        mock_request.state = {"execution_id": "exec-99"}
 
-        exec_id_ref = [None]
-
-        with patch("components.agent._publish_tool_status") as mock_publish:
-            wrapped = _wrap_tool_with_events(
-                mock_tool, "tool_1", mock_agent_node,
-                tool_component_type="run_command", workflow_slug="wf",
-                exec_id_ref=exec_id_ref,
-            )
-            # Set execution_id after wrapping (simulates agent_node setting it)
-            exec_id_ref[0] = "exec-99"
-
-            # Invoke the wrapped tool
-            result = wrapped.func("arg1")
-            assert result == "result"
-
-            # Verify _publish_tool_status was called with the exec_id
-            assert mock_publish.call_count == 2  # running + success
-            running_call = mock_publish.call_args_list[0]
-            assert running_call.kwargs["execution_id"] == "exec-99"
-            success_call = mock_publish.call_args_list[1]
-            assert success_call.kwargs["execution_id"] == "exec-99"
-
-    def test_tool_failure_publishes_failed_status(self):
-        from components.agent import _wrap_tool_with_events
-
-        mock_tool = MagicMock()
-        mock_tool.func = MagicMock(side_effect=ValueError("boom"))
-        mock_tool.name = "bad_tool"
-
-        mock_agent_node = MagicMock()
-        mock_agent_node.node_id = "agent_1"
+        mock_handler = MagicMock(return_value="result")
 
         with patch("components.agent._publish_tool_status") as mock_publish:
-            wrapped = _wrap_tool_with_events(
-                mock_tool, "tool_1", mock_agent_node,
-                tool_component_type="",
-                workflow_slug="",
-                exec_id_ref=[None],
-            )
+            result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        assert result == "result"
+        assert mock_publish.call_count == 2  # running + success
+        assert mock_publish.call_args_list[0].kwargs["status"] == "running"
+        assert mock_publish.call_args_list[0].kwargs["execution_id"] == "exec-99"
+        assert mock_publish.call_args_list[1].kwargs["status"] == "success"
+
+    def test_publishes_running_and_failed_on_error(self):
+        middleware = self._make_middleware(
+            tool_metadata={"bad_tool": {"tool_node_id": "tool_1", "component_type": ""}},
+        )
+        mock_request = MagicMock()
+        mock_request.tool_call = {"name": "bad_tool"}
+        mock_request.state = {"execution_id": "exec-99"}
+
+        mock_handler = MagicMock(side_effect=ValueError("boom"))
+
+        with patch("components.agent._publish_tool_status") as mock_publish:
             with pytest.raises(ValueError, match="boom"):
-                wrapped.func()
+                middleware.wrap_tool_call(mock_request, mock_handler)
 
-            assert mock_publish.call_count == 2  # running + failed
-            assert mock_publish.call_args_list[1].kwargs["status"] == "failed"
+        assert mock_publish.call_count == 2  # running + failed
+        assert mock_publish.call_args_list[1].kwargs["status"] == "failed"
+
+    def test_publishes_running_and_waiting_on_graph_interrupt(self):
+        from langgraph.errors import GraphInterrupt
+
+        middleware = self._make_middleware(
+            tool_metadata={"spawn_tool": {"tool_node_id": "tool_1", "component_type": "spawn_and_await"}},
+        )
+        mock_request = MagicMock()
+        mock_request.tool_call = {"name": "spawn_tool"}
+        mock_request.state = {"execution_id": "exec-99"}
+
+        mock_handler = MagicMock(side_effect=GraphInterrupt([]))
+
+        with patch("components.agent._publish_tool_status") as mock_publish:
+            with pytest.raises(GraphInterrupt):
+                middleware.wrap_tool_call(mock_request, mock_handler)
+
+        assert mock_publish.call_count == 2  # running + waiting
+        assert mock_publish.call_args_list[1].kwargs["status"] == "waiting"
+
+    def test_unknown_tool_degrades_gracefully(self):
+        middleware = self._make_middleware(tool_metadata={})
+        mock_request = MagicMock()
+        mock_request.tool_call = {"name": "unknown_tool"}
+        mock_request.state = {"execution_id": "exec-99"}
+
+        mock_handler = MagicMock(return_value="ok")
+
+        with patch("components.agent._publish_tool_status") as mock_publish:
+            result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        assert result == "ok"
+        assert mock_publish.call_count == 2
+        # Should use empty strings for unknown metadata
+        assert mock_publish.call_args_list[0].kwargs["tool_node_id"] == ""
+        assert mock_publish.call_args_list[0].kwargs["tool_component_type"] == ""
