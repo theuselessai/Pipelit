@@ -4,16 +4,17 @@ AI components are the LLM-powered nodes in Pipelit. They send messages to a lang
 
 ## Overview
 
-There are four AI component types:
+There are five AI component types:
 
 | Component | Purpose | Key Output |
 |-----------|---------|------------|
 | [Agent](agent.md) | Autonomous reasoning with tool calling | `output` (final text), `messages` (full conversation) |
+| [Deep Agent](deep-agent.md) | Advanced agent with built-in task planning, filesystem tools, and subagent delegation | `output` (final text), `messages` (full conversation) |
 | [Categorizer](categorizer.md) | Classify input into predefined categories | `category` (matched label), `raw` (LLM response) |
 | [Router](router.md) | Route execution to different branches based on input content | `route` (branch identifier) |
 | [Extractor](extractor.md) | Extract structured data from unstructured text | `extracted` (JSON object) |
 
-All four share a common trait: they require an **AI Model** sub-component connection to function. Without a model, the node cannot resolve which LLM to use and will fail at build time.
+All five share a common trait: they require an **AI Model** sub-component connection to function. Without a model, the node cannot resolve which LLM to use and will fail at build time.
 
 ## Canvas Appearance
 
@@ -31,6 +32,7 @@ Each AI node type supports a different set of sub-components. Connect these via 
 | Node | Model | Tools | Memory | Output Parser |
 |------|:-----:|:-----:|:------:|:-------------:|
 | **Agent** | :material-check: | :material-check: | :material-check: | :material-close: |
+| **Deep Agent** | :material-check: | :material-check: | :material-close: | :material-close: |
 | **Categorizer** | :material-check: | :material-close: | :material-check: | :material-check: |
 | **Router** | :material-check: | :material-close: | :material-check: | :material-check: |
 | **Extractor** | :material-check: | :material-close: | :material-check: | :material-check: |
@@ -44,8 +46,8 @@ Each AI node type supports a different set of sub-components. Connect these via 
 | Memory | Amber (`#f59e0b`) | `memory` |
 | Output Parser | Slate (`#94a3b8`) | `output_parser` |
 
-!!! note "Agent is the only node with tool support"
-    Only the Agent node supports connecting tool sub-components. Categorizer, Router, and Extractor rely solely on the LLM's text generation without tool calling.
+!!! note "Agent and Deep Agent support tool connections"
+    Only Agent and Deep Agent nodes support connecting tool sub-components. Categorizer, Router, and Extractor rely solely on the LLM's text generation without tool calling.
 
 ## Common Input
 
@@ -72,6 +74,7 @@ See [Expressions](../../concepts/expressions.md) for the full template syntax.
 ## What's Next?
 
 - [Agent](agent.md) -- autonomous reasoning with tool calling
+- [Deep Agent](deep-agent.md) -- advanced agent with built-in task planning, filesystem tools, and subagents
 - [Categorizer](categorizer.md) -- classify input into categories
 - [Router](router.md) -- route execution based on input content
 - [Extractor](extractor.md) -- extract structured data from text

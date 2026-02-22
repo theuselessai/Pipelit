@@ -20,11 +20,11 @@ Entry points that initiate workflow execution. Triggers are first-class nodes on
 
 <div class="card" markdown>
 
-### [AI](ai/index.md) <span class="badge badge--ai">4 types</span>
+### [AI](ai/index.md) <span class="badge badge--ai">5 types</span>
 
 LLM-powered nodes that reason, classify, route, and extract structured data. AI nodes connect to an AI Model sub-component and optionally to tools and memory.
 
-**Agent** | **Categorizer** | **Router** | **Extractor**
+**Agent** | **Deep Agent** | **Categorizer** | **Router** | **Extractor**
 
 </div>
 

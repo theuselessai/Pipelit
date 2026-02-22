@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 
+- Deep Agent node type (`deep_agent`) -- advanced agent with built-in task planning (todos), filesystem tools, and inline subagent delegation via the `deepagents` library
+- Agent middleware architecture -- shared `PipelitAgentMiddleware` for tool status WebSocket events and streaming across agent types
+- LangGraph v1 migration -- `create_react_agent` replaced with `create_agent`
+- Real-time chat streaming -- intermediate agent LLM responses streamed to the chat panel during execution
+- Dynamic Anthropic model fetching from API
+- Auto-generated node IDs (`{type}_{hex}`) and node rename support on the canvas
 - Documentation site with MkDocs Material
 - Full component reference for all 42+ node types
 - API reference documentation

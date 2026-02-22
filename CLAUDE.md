@@ -313,11 +313,12 @@ Nodes on the canvas use Font Awesome icons and color-coded borders by component 
 
 **Trigger nodes** strip the `trigger_` prefix in display (e.g., `trigger_telegram` shows as `telegram`). All trigger nodes share orange (`#f97316`) borders. Node labels strip the `<component_type>_` prefix to show only the hash/suffix.
 
-**AI-type nodes** (`agent`, `categorizer`, `router`, `extractor`) have fixed 250px width with a separator line and bottom sub-component pills:
+**AI-type nodes** (`agent`, `deep_agent`, `categorizer`, `router`, `extractor`) have fixed 250px width with a separator line and bottom sub-component pills:
 
 | Node | model | tools | memory | output_parser |
 |------|-------|-------|--------|---------------|
 | agent | yes | yes | yes | no |
+| deep_agent | yes | yes | no | no |
 | categorizer | yes | no | yes | yes |
 | router | yes | no | yes | yes |
 | extractor | yes | no | yes | yes |

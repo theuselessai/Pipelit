@@ -118,6 +118,7 @@ nav:
     - AI:
       - components/ai/index.md
       - Agent: components/ai/agent.md
+      - Deep Agent: components/ai/deep-agent.md
       - Categorizer: components/ai/categorizer.md
       - Router: components/ai/router.md
       - Extractor: components/ai/extractor.md
