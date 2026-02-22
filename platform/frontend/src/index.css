@@ -185,6 +185,125 @@
   background: oklch(0.6 0 0 / 70%);
 }
 
+/* Markdown in chat bubbles */
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+.chat-markdown p {
+  margin: 0.4em 0;
+}
+.chat-markdown h1 {
+  font-size: 1.25em;
+  font-weight: 700;
+  margin: 0.6em 0 0.3em;
+}
+.chat-markdown h2 {
+  font-size: 1.125em;
+  font-weight: 700;
+  margin: 0.5em 0 0.25em;
+}
+.chat-markdown h3 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  padding-left: 1.5em;
+  margin: 0.3em 0;
+}
+.chat-markdown ul {
+  list-style: disc;
+}
+.chat-markdown ol {
+  list-style: decimal;
+}
+.chat-markdown li {
+  margin: 0.15em 0;
+}
+.chat-markdown code {
+  font-size: 0.85em;
+  background: oklch(0.92 0 0 / 60%);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+.dark .chat-markdown code {
+  background: oklch(0.3 0 0 / 60%);
+}
+.chat-markdown pre {
+  margin: 0.4em 0;
+  border-radius: 6px;
+  overflow-x: auto;
+  background: oklch(0.95 0 0) !important;
+}
+.dark .chat-markdown pre {
+  background: oklch(0.18 0 0) !important;
+}
+.chat-markdown pre code {
+  display: block;
+  padding: 0.6em 0.8em;
+  background: transparent;
+  border-radius: 0;
+  white-space: pre;
+}
+.chat-markdown table {
+  border-collapse: collapse;
+  margin: 0.4em 0;
+  font-size: 0.9em;
+  width: 100%;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid oklch(0.85 0 0);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+.dark .chat-markdown th,
+.dark .chat-markdown td {
+  border-color: oklch(0.35 0 0);
+}
+.chat-markdown th {
+  font-weight: 600;
+  background: oklch(0.95 0 0);
+}
+.dark .chat-markdown th {
+  background: oklch(0.22 0 0);
+}
+.chat-markdown tr:nth-child(even) td {
+  background: oklch(0.97 0 0 / 50%);
+}
+.dark .chat-markdown tr:nth-child(even) td {
+  background: oklch(0.2 0 0 / 50%);
+}
+.chat-markdown a {
+  color: oklch(0.55 0.2 250);
+  text-decoration: underline;
+}
+.dark .chat-markdown a {
+  color: oklch(0.7 0.2 250);
+}
+.chat-markdown blockquote {
+  border-left: 3px solid oklch(0.8 0 0);
+  padding-left: 0.8em;
+  margin: 0.4em 0;
+  color: oklch(0.45 0 0);
+}
+.dark .chat-markdown blockquote {
+  border-left-color: oklch(0.4 0 0);
+  color: oklch(0.65 0 0);
+}
+.chat-markdown hr {
+  border: none;
+  border-top: 1px solid oklch(0.85 0 0);
+  margin: 0.5em 0;
+}
+.dark .chat-markdown hr {
+  border-top-color: oklch(0.35 0 0);
+}
+
 /* Jinja2 template highlighting in CodeMirror — target self AND nested syntax spans */
 .cm-editor .cm-jinja2-bracket,
 .cm-editor .cm-jinja2-bracket * {

@@ -24,6 +24,7 @@ import PopoutWindow from "@/components/PopoutWindow"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
 import type { WorkflowNode, WorkflowDetail, ChatMessage, SwitchRule, FilterRule, ScheduleJobInfo } from "@/types/models"
 import type { ActivityStep, ActivityToolStep, ActivityChildStep, ActivitySummary } from "@/types/activity"
+import { MarkdownContent } from "@/components/MarkdownContent"
 import ActivityIndicator from "./ActivityIndicator"
 
 interface Props {
@@ -413,8 +414,8 @@ function ChatPanel({ slug, node, onClose }: Props) {
         {messages.length === 0 && <div className="text-xs text-muted-foreground text-center py-8">Send a message to test this workflow</div>}
         {messages.map((msg, i) => (
           <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-              {msg.text}
+            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground whitespace-pre-wrap" : "bg-muted"}`}>
+              {msg.role === "user" ? msg.text : <MarkdownContent content={msg.text} />}
             </div>
             {msg.timestamp && (
               <div className="text-[10px] text-muted-foreground mt-0.5 px-1">
