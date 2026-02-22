@@ -149,4 +149,4 @@ You are a code generation assistant. When given a request:
 - AI Model: Claude Sonnet via Anthropic credential
 - Canvas Tools: Web Search (SearXNG)
 - Subagents:
-    - `reviewer` -- Reviews generated code for bugs and style issues
+    - `reviewer` -- name: `reviewer`, description: `Reviews generated code for bugs and style issues`, system_prompt: `You are a code reviewer. Analyze the provided code for bugs, style issues, and best practices. Provide specific, actionable feedback.`

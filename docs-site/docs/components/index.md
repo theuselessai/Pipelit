@@ -1,6 +1,6 @@
 # Components
 
-Pipelit provides approximately 42 component types that serve as the building blocks for workflows. Each component type represents a distinct piece of functionality -- from receiving events to reasoning with LLMs to routing data through conditional logic.
+Pipelit provides 42 component types that serve as the building blocks for workflows. Each component type represents a distinct piece of functionality -- from receiving events to reasoning with LLMs to routing data through conditional logic.
 
 Components are organized into seven categories, each with a distinct role in the workflow pipeline.
 

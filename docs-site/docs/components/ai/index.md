@@ -51,7 +51,7 @@ Each AI node type supports a different set of sub-components. Connect these via 
 
 ## Common Input
 
-All four AI nodes accept the same input:
+All five AI nodes accept the same input:
 
 | Port | Type | Required |
 |------|------|----------|

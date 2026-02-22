@@ -54,7 +54,7 @@ Every agent node has diamond-shaped handles on its bottom edge for connecting su
 
 The system prompt defines the agent's personality, instructions, and constraints. It is delivered to the LLM in two ways:
 
-1. **SystemMessage** -- passed via `create_react_agent(prompt=SystemMessage(...))` for the standard system role.
+1. **SystemMessage** -- passed via `create_agent(prompt=SystemMessage(...))` for the standard system role.
 2. **HumanMessage fallback** -- a `HumanMessage` with a stable ID prefixed with `[System instructions]` is prepended to the conversation. This handles LLM providers (e.g., Venice.ai) that ignore the system role entirely.
 
 The stable ID (`system_prompt_fallback`) prevents the fallback message from being duplicated across checkpointer invocations, thanks to LangGraph's `add_messages` reducer which deduplicates by message ID.
