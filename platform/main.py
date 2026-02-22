@@ -8,8 +8,13 @@ from pathlib import Path
 
 # Ensure platform/ is on sys.path for absolute imports
 _platform_dir = str(Path(__file__).resolve().parent)
-if _platform_dir not in sys.path:
+if _platform_dir not in sys.path:  # pragma: no cover
     sys.path.insert(0, _platform_dir)
+
+try:
+    __version__ = (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+except Exception:  # pragma: no cover
+    __version__ = "0.0.0-dev"
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,7 +61,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Workflow Platform API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Workflow Platform API", version=__version__, lifespan=lifespan)
 
 # CORS
 app.add_middleware(

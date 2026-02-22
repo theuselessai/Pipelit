@@ -46,6 +46,14 @@ Python and TypeScript conventions, type hints, formatting, and the most importan
 
 </div>
 
+<div class="card" markdown>
+
+### [Releasing](releasing.md)
+
+How to create a new Pipelit release: version bumping, changelog updates, tagging, and the automated GitHub Release workflow.
+
+</div>
+
 </div>
 
 ## Quick Contribution Checklist

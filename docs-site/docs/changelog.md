@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-02-23
+
 ### Added
 
 - Deep Agent node type (`deep_agent`) -- advanced agent with built-in task planning (todos), filesystem tools, and inline subagent delegation via the `deepagents` library
