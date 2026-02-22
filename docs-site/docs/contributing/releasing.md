@@ -51,17 +51,9 @@ git push -u origin release/vX.Y.Z
 gh pr create --title "Release vX.Y.Z" --body "Release prep for vX.Y.Z"
 ```
 
-### 6. Merge and tag
+### 6. Merge the PR
 
-After the PR is reviewed and merged:
-
-```bash
-git checkout master && git pull
-git tag -a vX.Y.Z -m "Pipelit vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-The tag push triggers the release CI workflow automatically.
+After the PR is reviewed and merged, tagging is **automatic**. The `.github/workflows/auto-tag.yml` workflow detects that a `release/v*` branch was merged to master, reads the version from the `VERSION` file, and pushes the `vX.Y.Z` tag. That tag push triggers the release CI workflow to create the GitHub Release.
 
 ## Versioning guidelines
 

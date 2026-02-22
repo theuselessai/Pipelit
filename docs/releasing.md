@@ -30,13 +30,10 @@ git commit -m "Prepare vX.Y.Z release"
 git push -u origin release/vX.Y.Z
 gh pr create --title "Release vX.Y.Z" --body "Release prep for vX.Y.Z"
 
-# 6. After PR merges — tag on master
-git checkout master && git pull
-git tag -a vX.Y.Z -m "Pipelit vX.Y.Z"
-git push origin vX.Y.Z
+# 6. Merge the PR — tagging is automatic
 ```
 
-Tag push triggers `.github/workflows/release.yml` → creates GitHub Release with changelog notes automatically.
+When the release PR merges to master, `.github/workflows/auto-tag.yml` automatically creates and pushes the `vX.Y.Z` tag (read from `VERSION`). That tag push triggers `.github/workflows/release.yml` → creates GitHub Release with changelog notes.
 
 ## Hotfix
 
