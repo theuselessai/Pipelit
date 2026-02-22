@@ -38,6 +38,7 @@ class PipelitAgentMiddleware(AgentMiddleware):
     state_schema = PipelitAgentState
 
     def __init__(self, tool_metadata: dict[str, dict], agent_node_id: str, workflow_slug: str):
+        super().__init__()
         self._tool_metadata = tool_metadata  # {tool_name: {tool_node_id, component_type}}
         self._agent_node_id = agent_node_id
         self._workflow_slug = workflow_slug
