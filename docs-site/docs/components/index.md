@@ -1,6 +1,6 @@
 # Components
 
-Pipelit provides approximately 42 component types that serve as the building blocks for workflows. Each component type represents a distinct piece of functionality -- from receiving events to reasoning with LLMs to routing data through conditional logic.
+Pipelit provides 42 component types that serve as the building blocks for workflows. Each component type represents a distinct piece of functionality -- from receiving events to reasoning with LLMs to routing data through conditional logic.
 
 Components are organized into seven categories, each with a distinct role in the workflow pipeline.
 
@@ -20,11 +20,11 @@ Entry points that initiate workflow execution. Triggers are first-class nodes on
 
 <div class="card" markdown>
 
-### [AI](ai/index.md) <span class="badge badge--ai">4 types</span>
+### [AI](ai/index.md) <span class="badge badge--ai">5 types</span>
 
 LLM-powered nodes that reason, classify, route, and extract structured data. AI nodes connect to an AI Model sub-component and optionally to tools and memory.
 
-**Agent** | **Categorizer** | **Router** | **Extractor**
+**Agent** | **Deep Agent** | **Categorizer** | **Router** | **Extractor**
 
 </div>
 

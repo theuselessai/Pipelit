@@ -149,6 +149,7 @@ Every trigger is a first-class workflow node:
 | Component | Description |
 |-----------|-------------|
 | **Agent** | LangGraph react agent with system prompt, tools, and optional conversation memory |
+| **Deep Agent** | Advanced agent with built-in task planning, filesystem tools, and subagent delegation |
 | **Categorizer** | Classifies input into predefined categories |
 | **Router** | Routes messages to different branches based on content |
 | **Extractor** | Extracts structured data from unstructured text |

@@ -1,6 +1,6 @@
 # Agents
 
-Agents are the core AI nodes in Pipelit. Each agent is a **LangGraph ReAct agent** -- an LLM that can reason about a task, decide which tools to call, observe the results, and iterate until it produces a final answer.
+Agents are the core AI nodes in Pipelit. The standard **Agent** is a LangGraph ReAct agent -- an LLM that can reason about a task, decide which tools to call, observe the results, and iterate until it produces a final answer. For more advanced use cases, the **[Deep Agent](../components/ai/deep-agent.md)** extends this with built-in task planning, filesystem tools, and inline subagent delegation.
 
 ## How ReAct Agents Work
 
@@ -11,7 +11,7 @@ The ReAct (Reason + Act) pattern gives an LLM a loop:
 3. **Observe** -- the tool result is appended to the conversation as a `ToolMessage`.
 4. **Repeat** -- the LLM reasons again with the new information, calling more tools or producing a final response.
 
-In Pipelit, this loop is powered by LangGraph's `create_react_agent()`. The agent continues reasoning and acting until it produces a text response without any tool calls.
+In Pipelit, this loop is powered by LangGraph's `create_agent()`. The agent continues reasoning and acting until it produces a text response without any tool calls.
 
 ```mermaid
 sequenceDiagram
@@ -54,7 +54,7 @@ Every agent node has diamond-shaped handles on its bottom edge for connecting su
 
 The system prompt defines the agent's personality, instructions, and constraints. It is delivered to the LLM in two ways:
 
-1. **SystemMessage** -- passed via `create_react_agent(prompt=SystemMessage(...))` for the standard system role.
+1. **SystemMessage** -- passed via `create_agent(prompt=SystemMessage(...))` for the standard system role.
 2. **HumanMessage fallback** -- a `HumanMessage` with a stable ID prefixed with `[System instructions]` is prepended to the conversation. This handles LLM providers (e.g., Venice.ai) that ignore the system role entirely.
 
 The stable ID (`system_prompt_fallback`) prevents the fallback message from being duplicated across checkpointer invocations, thanks to LangGraph's `add_messages` reducer which deduplicates by message ID.
@@ -126,6 +126,18 @@ This means:
 ### Stale Checkpoint Cleanup
 
 When an execution fails (especially mid-interrupt during `spawn_and_await`), the SqliteSaver checkpoint may retain orphaned tool calls with no matching `ToolMessage`. On the next conversation turn, this would cause an `INVALID_CHAT_HISTORY` error. Pipelit automatically detects and deletes stale checkpoints for failed executions to prevent this.
+
+## Deep Agent
+
+The **Deep Agent** (`deep_agent`) is an advanced alternative to the standard Agent, powered by the `deepagents` library. While it shares the same ReAct reasoning loop and output format, it includes built-in capabilities that the standard Agent requires canvas tool connections for:
+
+- **Task Planning (Todos)** -- the agent can create and manage a task list during execution, breaking complex requests into steps.
+- **Filesystem Tools** -- built-in file read/write with selectable backends (`state` for in-memory, `filesystem` for disk, `store` for LangGraph store).
+- **Inline Subagents** -- define specialized sub-agents directly in the node configuration. The parent agent can delegate subtasks to them without needing separate workflows or Spawn & Await nodes.
+
+Deep Agent supports canvas tool connections (green diamond handle) just like the standard Agent, so you can combine built-in features with external tools like web search or HTTP requests.
+
+For full configuration details, see the [Deep Agent component reference](../components/ai/deep-agent.md).
 
 ## Agent Output
 
