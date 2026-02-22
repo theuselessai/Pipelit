@@ -53,6 +53,7 @@ from components import (  # noqa: E402, F401
     memory_write,
     output_parser,
     agent,
+    deep_agent,
     router,
     run_command,
     subworkflow,

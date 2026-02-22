@@ -105,6 +105,10 @@ class AIComponentConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "agent"}
 
 
+class _DeepAgentConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "deep_agent"}
+
+
 class _CategorizerConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "categorizer"}
 
@@ -270,6 +274,7 @@ class _TriggerChatConfig(BaseComponentConfig):
 COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "ai_model": ModelComponentConfig,
     "agent": AIComponentConfig,
+    "deep_agent": AIComponentConfig,
     "categorizer": AIComponentConfig,
     "router": AIComponentConfig,
     "extractor": AIComponentConfig,

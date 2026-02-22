@@ -1406,11 +1406,11 @@ class TestRedisCheckpointer:
 
     def test_creates_and_caches_redis_saver(self):
         import sys
-        import components.agent as agent_mod
-        from components.agent import _get_redis_checkpointer
+        import components._agent_shared as shared_mod
+        from components._agent_shared import _get_redis_checkpointer
 
-        original = agent_mod._redis_checkpointer
-        agent_mod._redis_checkpointer = None
+        original = shared_mod._redis_checkpointer
+        shared_mod._redis_checkpointer = None
         try:
             mock_saver_instance = MagicMock()
             mock_saver_cls = MagicMock(return_value=mock_saver_instance)
@@ -1427,7 +1427,45 @@ class TestRedisCheckpointer:
                 mock_saver_cls.assert_called_once_with(redis_url="redis://test:6379/0")
                 mock_saver_instance.setup.assert_called_once()
         finally:
-            agent_mod._redis_checkpointer = original
+            shared_mod._redis_checkpointer = original
+
+
+class TestSqliteCheckpointer:
+    """Test _get_checkpointer() creates and caches a SqliteSaver singleton."""
+
+    def test_creates_and_caches_sqlite_saver(self):
+        import sys
+        import components._agent_shared as shared_mod
+        from components._agent_shared import _get_checkpointer
+
+        original = shared_mod._checkpointer
+        shared_mod._checkpointer = None
+        try:
+            mock_conn = MagicMock()
+            mock_sqlite3 = MagicMock()
+            mock_sqlite3.connect.return_value = mock_conn
+
+            mock_saver_instance = MagicMock()
+            mock_saver_cls = MagicMock(return_value=mock_saver_instance)
+            mock_sqlite_module = MagicMock(SqliteSaver=mock_saver_cls)
+
+            with patch.dict(sys.modules, {
+                "sqlite3": mock_sqlite3,
+                "langgraph.checkpoint.sqlite": mock_sqlite_module,
+            }):
+                first = _get_checkpointer()
+                second = _get_checkpointer()
+
+                assert first is second
+                assert first is mock_saver_instance
+                mock_sqlite3.connect.assert_called_once()
+                # Verify check_same_thread=False was passed
+                connect_kwargs = mock_sqlite3.connect.call_args
+                assert connect_kwargs[1].get("check_same_thread") is False
+                mock_saver_cls.assert_called_once_with(mock_conn)
+                mock_saver_instance.setup.assert_called_once()
+        finally:
+            shared_mod._checkpointer = original
 
 
 # ---------------------------------------------------------------------------

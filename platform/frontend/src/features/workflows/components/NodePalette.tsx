@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
 import {
   MessageSquare, Send, Clock, Hand, Workflow, AlertTriangle, Compass,
-  Cpu, Bot,
+  Cpu, Bot, Brain,
   GitFork, Route, FileOutput, Split,
   Terminal, Globe, Search, Calculator,
   Repeat, Pause, Merge, Filter,
@@ -23,6 +23,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   trigger_error: AlertTriangle,
   ai_model: Cpu,
   agent: Bot,
+  deep_agent: Brain,
   categorizer: GitFork,
   router: Route,
   switch: Split,
@@ -61,7 +62,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "Triggers", types: ["trigger_chat", "trigger_telegram", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error"] },
-  { label: "AI", types: ["ai_model", "agent"] },
+  { label: "AI", types: ["ai_model", "agent", "deep_agent"] },
   { label: "Routing", types: ["categorizer", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
   { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"] },

@@ -554,6 +554,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
   const [conversationMemory, setConversationMemory] = useState<boolean>(Boolean(node.config.extra_config?.conversation_memory))
 
+  // Deep agent state
+  const [enableFilesystem, setEnableFilesystem] = useState<boolean>(Boolean(node.config.extra_config?.enable_filesystem))
+  const [filesystemBackend, setFilesystemBackend] = useState<string>((node.config.extra_config?.filesystem_backend as string) ?? "state")
+  const [filesystemRootDir, setFilesystemRootDir] = useState<string>((node.config.extra_config?.filesystem_root_dir as string) ?? "")
+  const [enableTodos, setEnableTodos] = useState<boolean>(Boolean(node.config.extra_config?.enable_todos))
+  const [subagents, setSubagents] = useState<{ name: string; description: string; system_prompt: string; model: string }[]>(
+    () => (node.config.extra_config?.subagents as { name: string; description: string; system_prompt: string; model: string }[]) ?? []
+  )
+
   // Code editor state
   const [codeSnippet, setCodeSnippet] = useState<string>((node.config.extra_config?.code as string) ?? "")
   const [codeLanguage, setCodeLanguage] = useState<string>((node.config.extra_config?.language as string) ?? "python")
@@ -671,8 +680,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const { data: availableModels } = useCredentialModels(credId)
 
   const isLLMNode = node.component_type === "ai_model"
-  const isAgentNode = node.component_type === "agent"
-  const hasSystemPrompt = ["agent", "categorizer", "router"].includes(node.component_type)
+  const isAgentNode = node.component_type === "agent" || node.component_type === "deep_agent"
+  const isDeepAgent = node.component_type === "deep_agent"
+  const hasSystemPrompt = ["agent", "deep_agent", "categorizer", "router"].includes(node.component_type)
   const isTriggerNode = TRIGGER_TYPES.includes(node.component_type)
 
   function handleSave() {
@@ -680,6 +690,16 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     try { parsedExtra = JSON.parse(extraConfig) } catch { /* keep empty */ }
     if (isAgentNode) {
       parsedExtra = { ...parsedExtra, conversation_memory: conversationMemory }
+    }
+    if (isDeepAgent) {
+      parsedExtra = {
+        ...parsedExtra,
+        enable_filesystem: enableFilesystem,
+        filesystem_backend: filesystemBackend,
+        filesystem_root_dir: filesystemRootDir,
+        enable_todos: enableTodos,
+        subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
+      }
     }
     if (node.component_type === "code") {
       parsedExtra = { ...parsedExtra, code: codeSnippet, language: codeLanguage }
@@ -1265,6 +1285,140 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <p className="text-xs text-muted-foreground">Remember prior conversations across executions</p>
             </div>
             <Switch checked={conversationMemory} onCheckedChange={setConversationMemory} />
+          </div>
+        </>
+      )}
+
+      {isDeepAgent && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Deep Agent Features</Label>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Task Planning (Todos)</Label>
+                <p className="text-xs text-muted-foreground">Built-in task planning and tracking</p>
+              </div>
+              <Switch checked={enableTodos} onCheckedChange={setEnableTodos} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Filesystem Tools</Label>
+                <p className="text-xs text-muted-foreground">Read, write, and manage files</p>
+              </div>
+              <Switch checked={enableFilesystem} onCheckedChange={setEnableFilesystem} />
+            </div>
+            {enableFilesystem && (
+              <div className="space-y-2 pl-2 border-l-2 border-muted ml-1">
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Backend</Label>
+                  <Select value={filesystemBackend} onValueChange={setFilesystemBackend}>
+                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="state">State (in-memory)</SelectItem>
+                      <SelectItem value="filesystem">Filesystem (disk)</SelectItem>
+                      <SelectItem value="store">Store</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {filesystemBackend === "filesystem" && (
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Root Directory</Label>
+                    <Input
+                      value={filesystemRootDir}
+                      onChange={(e) => setFilesystemRootDir(e.target.value)}
+                      className="text-xs h-7"
+                      placeholder="/path/to/workspace"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <Separator />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">Subagents</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => setSubagents([...subagents, { name: "", description: "", system_prompt: "", model: "" }])}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add
+              </Button>
+            </div>
+            {subagents.length === 0 && (
+              <p className="text-xs text-muted-foreground">No subagents configured. Add one to enable agent delegation.</p>
+            )}
+            {subagents.map((sa, idx) => (
+              <div key={idx} className="space-y-2 p-2 border rounded-md">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-medium">Subagent {idx + 1}</Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0"
+                    onClick={() => setSubagents(subagents.filter((_, i) => i !== idx))}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Name</Label>
+                  <Input
+                    value={sa.name}
+                    onChange={(e) => {
+                      const updated = [...subagents]
+                      updated[idx] = { ...updated[idx], name: e.target.value }
+                      setSubagents(updated)
+                    }}
+                    className="text-xs h-7"
+                    placeholder="researcher"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Description</Label>
+                  <Input
+                    value={sa.description}
+                    onChange={(e) => {
+                      const updated = [...subagents]
+                      updated[idx] = { ...updated[idx], description: e.target.value }
+                      setSubagents(updated)
+                    }}
+                    className="text-xs h-7"
+                    placeholder="Researches topics and gathers information"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">System Prompt</Label>
+                  <Textarea
+                    value={sa.system_prompt}
+                    onChange={(e) => {
+                      const updated = [...subagents]
+                      updated[idx] = { ...updated[idx], system_prompt: e.target.value }
+                      setSubagents(updated)
+                    }}
+                    className="text-xs h-16 resize-none"
+                    placeholder="You are a research assistant..."
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Model Override (optional)</Label>
+                  <Input
+                    value={sa.model}
+                    onChange={(e) => {
+                      const updated = [...subagents]
+                      updated[idx] = { ...updated[idx], model: e.target.value }
+                      setSubagents(updated)
+                    }}
+                    className="text-xs h-7"
+                    placeholder="Leave empty to use parent model"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </>
       )}
