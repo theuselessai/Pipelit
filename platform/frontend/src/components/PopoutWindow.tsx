@@ -33,8 +33,9 @@ export default function PopoutWindow({ popupWindow, title, onClose, children }: 
         popupDoc.head.appendChild(node.cloneNode(true))
       }
 
-      // Copy dark mode class from parent <html>
+      // Copy dark mode class and color theme CSS variables from parent <html>
       popupDoc.documentElement.className = document.documentElement.className
+      popupDoc.documentElement.style.cssText = document.documentElement.style.cssText
 
       // Create root container in popup body
       root = popupDoc.createElement("div")
@@ -56,11 +57,12 @@ export default function PopoutWindow({ popupWindow, title, onClose, children }: 
     })
     headObserver.observe(parentHead, { childList: true })
 
-    // Watch parent <html> class for dark mode toggles
+    // Watch parent <html> class and style for dark mode toggles and color theme changes
     const htmlObserver = new MutationObserver(() => {
       popupDoc.documentElement.className = document.documentElement.className
+      popupDoc.documentElement.style.cssText = document.documentElement.style.cssText
     })
-    htmlObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
+    htmlObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] })
 
     // Notify parent when user closes popup via browser X button
     const handleUnload = () => onCloseRef.current()
