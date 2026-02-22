@@ -42,7 +42,7 @@ def agent_factory(node):
     node_id = node.node_id
     conversation_memory = extra.get("conversation_memory", False)
 
-    logger.warning(
+    logger.info(
         "Agent %s: system_prompt=%r, conversation_memory=%s, extra_config=%r",
         node_id, system_prompt[:80] if system_prompt else None, conversation_memory, extra,
     )
@@ -109,7 +109,7 @@ def agent_factory(node):
 
         if _prompt_fallback:
             messages = [_prompt_fallback] + messages
-        logger.warning("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))
+        logger.info("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))
 
         # Build thread config for checkpointer
         config = None
