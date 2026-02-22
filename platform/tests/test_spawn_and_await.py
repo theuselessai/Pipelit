@@ -46,35 +46,41 @@ def mock_session(db):
 
 
 # ---------------------------------------------------------------------------
-# AgentMessageCallback (agent.py lines 26-69)
+# PipelitAgentMiddleware.wrap_model_call (replaces AgentMessageCallback)
 # ---------------------------------------------------------------------------
 
 
-class TestAgentMessageCallback:
-    """Test the AgentMessageCallback that publishes chat_message WS events."""
+class TestPipelitAgentMiddlewareModelCall:
+    """Test the PipelitAgentMiddleware.wrap_model_call that publishes chat_message WS events."""
 
-    def _make_callback(self, exec_id="exec-1", workflow_slug="test-wf", node_id="agent_1"):
-        from components.agent import AgentMessageCallback
+    def _make_middleware(self, agent_node_id="agent_1", workflow_slug="test-wf"):
+        from components.agent import PipelitAgentMiddleware
 
-        exec_id_ref = [exec_id]
-        return AgentMessageCallback(exec_id_ref, workflow_slug, node_id)
+        return PipelitAgentMiddleware(
+            tool_metadata={},
+            agent_node_id=agent_node_id,
+            workflow_slug=workflow_slug,
+        )
 
-    def _make_llm_result(self, content):
-        """Build a mock LLMResult with the given content."""
-        from langchain_core.messages import AIMessage
-        from langchain_core.outputs import ChatGeneration, LLMResult
+    def _make_model_response(self, content):
+        """Build a mock ModelResponse with the given AI message content."""
+        msg = MagicMock()
+        msg.content = content
+        response = MagicMock()
+        response.result = [msg]
+        return response
 
-        msg = AIMessage(content=content) if content is not None else AIMessage(content="")
-        gen = ChatGeneration(message=msg)
-        return LLMResult(generations=[[gen]])
-
-    def test_on_llm_end_publishes_chat_message(self):
-        cb = self._make_callback()
-        result = self._make_llm_result("Hello, world!")
+    def test_publishes_chat_message_after_llm_response(self):
+        middleware = self._make_middleware()
+        response = self._make_model_response("Hello, world!")
+        mock_request = MagicMock()
+        mock_request.state = {"execution_id": "exec-1"}
+        mock_handler = MagicMock(return_value=response)
 
         with patch("services.orchestrator._publish_event") as mock_pub:
-            cb.on_llm_end(result)
+            result = middleware.wrap_model_call(mock_request, mock_handler)
 
+        assert result is response
         mock_pub.assert_called_once()
         call_args = mock_pub.call_args
         assert call_args[0][0] == "exec-1"
@@ -83,58 +89,66 @@ class TestAgentMessageCallback:
         assert call_args[0][2]["node_id"] == "agent_1"
         assert call_args[1]["workflow_slug"] == "test-wf"
 
-    def test_on_llm_end_handles_anthropic_list_format(self):
-        cb = self._make_callback()
+    def test_handles_anthropic_list_format(self):
+        middleware = self._make_middleware()
         content = [{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}]
-        result = self._make_llm_result(content)
+        response = self._make_model_response(content)
+        mock_request = MagicMock()
+        mock_request.state = {"execution_id": "exec-1"}
+        mock_handler = MagicMock(return_value=response)
 
         with patch("services.orchestrator._publish_event") as mock_pub:
-            cb.on_llm_end(result)
+            middleware.wrap_model_call(mock_request, mock_handler)
 
         mock_pub.assert_called_once()
         assert mock_pub.call_args[0][2]["text"] == "hello\nworld"
 
-    def test_on_llm_end_skips_empty_content(self):
-        cb = self._make_callback()
-        result = self._make_llm_result("")
+    def test_skips_empty_content(self):
+        middleware = self._make_middleware()
+        response = self._make_model_response("")
+        mock_request = MagicMock()
+        mock_request.state = {"execution_id": "exec-1"}
+        mock_handler = MagicMock(return_value=response)
 
         with patch("services.orchestrator._publish_event") as mock_pub:
-            cb.on_llm_end(result)
+            middleware.wrap_model_call(mock_request, mock_handler)
 
         mock_pub.assert_not_called()
 
-    def test_on_llm_end_skips_none_content(self):
-        """When content is falsy (empty string from AIMessage), _publish_event is not called."""
-        cb = self._make_callback()
-        # Use a mock LLMResult to set content to None (which AIMessage doesn't allow directly)
-        mock_result = MagicMock()
-        mock_msg = MagicMock()
-        mock_msg.content = None
-        mock_gen = MagicMock()
-        mock_gen.message = mock_msg
-        mock_result.generations = [[mock_gen]]
+    def test_skips_none_content(self):
+        middleware = self._make_middleware()
+        response = self._make_model_response(None)
+        mock_request = MagicMock()
+        mock_request.state = {"execution_id": "exec-1"}
+        mock_handler = MagicMock(return_value=response)
 
         with patch("services.orchestrator._publish_event") as mock_pub:
-            cb.on_llm_end(mock_result)
+            middleware.wrap_model_call(mock_request, mock_handler)
 
         mock_pub.assert_not_called()
 
-    def test_on_llm_end_swallows_exceptions(self):
-        cb = self._make_callback()
-        result = self._make_llm_result("test")
+    def test_swallows_exceptions(self):
+        middleware = self._make_middleware()
+        response = self._make_model_response("test")
+        mock_request = MagicMock()
+        mock_request.state = {"execution_id": "exec-1"}
+        mock_handler = MagicMock(return_value=response)
 
         with patch("services.orchestrator._publish_event", side_effect=RuntimeError("publish failed")):
-            # Should not raise
-            cb.on_llm_end(result)
+            result = middleware.wrap_model_call(mock_request, mock_handler)
 
-    def test_on_llm_end_skips_without_exec_id(self):
-        from components.agent import AgentMessageCallback
+        # Should not raise, and should still return the response
+        assert result is response
 
-        cb = AgentMessageCallback([None], "test-wf", "agent_1")
-        result = self._make_llm_result("test")
+    def test_skips_without_exec_id(self):
+        middleware = self._make_middleware()
+        response = self._make_model_response("test")
+        mock_request = MagicMock()
+        mock_request.state = {}
+        mock_handler = MagicMock(return_value=response)
 
         with patch("services.orchestrator._publish_event") as mock_pub:
-            cb.on_llm_end(result)
+            middleware.wrap_model_call(mock_request, mock_handler)
 
         mock_pub.assert_not_called()
 
@@ -203,7 +217,7 @@ class TestCheckpointerSelection:
             return MagicMock()
 
         with patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
-             patch("components.agent._resolve_tools", return_value=mock_tools), \
+             patch("components.agent._resolve_tools", return_value=(mock_tools, {})), \
              patch("components.agent.create_agent", side_effect=capture_create_agent), \
              patch("components.agent._get_checkpointer", return_value=mock_sqlite), \
              patch("components.agent._get_redis_checkpointer", return_value=mock_redis):
@@ -580,7 +594,7 @@ class TestCheckpointIsolation:
         mock_resolve_llm.return_value = MagicMock()
         mock_spawn = MagicMock()
         mock_spawn.name = "spawn_and_await"
-        mock_resolve_tools.return_value = [mock_spawn]
+        mock_resolve_tools.return_value = ([mock_spawn], {"spawn_and_await": {"tool_node_id": "spawn_1", "component_type": "spawn_and_await"}})
         mock_checkpointer = MagicMock()
         mock_get_sqlite.return_value = mock_checkpointer
 
@@ -620,7 +634,7 @@ class TestCheckpointIsolation:
         from components.agent import agent_factory
 
         mock_resolve_llm.return_value = MagicMock()
-        mock_resolve_tools.return_value = []
+        mock_resolve_tools.return_value = ([], {})
         mock_checkpointer = MagicMock()
         mock_get_sqlite.return_value = mock_checkpointer
 
@@ -1439,7 +1453,7 @@ class TestAgentNodeSpawnResume:
         # Mock tools list with a spawn_and_await tool
         mock_spawn_tool = MagicMock()
         mock_spawn_tool.name = "spawn_and_await"
-        mock_resolve_tools.return_value = [mock_spawn_tool]
+        mock_resolve_tools.return_value = ([mock_spawn_tool], {"spawn_and_await": {"tool_node_id": "spawn_1", "component_type": "spawn_and_await"}})
 
         # Mock redis checkpointer
         mock_checkpointer = MagicMock()
@@ -1456,9 +1470,10 @@ class TestAgentNodeSpawnResume:
         node = _make_node("agent", workflow_id=1, node_id="test_node_1")
         agent_node = agent_factory(node)
 
-        # Verify create_agent was called with checkpointer
+        # Verify create_agent was called with checkpointer and middleware
         create_kwargs = mock_create_agent.call_args
         assert create_kwargs.kwargs.get("checkpointer") is mock_checkpointer
+        assert "middleware" in create_kwargs.kwargs
 
         # Invoke with _subworkflow_results present (resume path)
         state = {
@@ -1478,12 +1493,10 @@ class TestAgentNodeSpawnResume:
         assert isinstance(command_arg, Command)
         assert command_arg.resume == [{"result": "child output 1"}, {"result": "child output 2"}]
 
-        # Check ephemeral thread config (callbacks key added by AgentMessageCallback)
+        # Check ephemeral thread config (no callbacks — middleware handles events now)
         config_arg = invoke_args[1].get("config") or invoke_args[0][1]
         assert config_arg["configurable"] == {"thread_id": "exec:exec-123:test_node_1"}
-        from components.agent import AgentMessageCallback
-        assert len(config_arg["callbacks"]) == 1
-        assert isinstance(config_arg["callbacks"][0], AgentMessageCallback)
+        assert "callbacks" not in config_arg
 
         # Verify output
         assert "output" in result
@@ -1500,7 +1513,7 @@ class TestAgentNodeGraphInterrupt:
 
         mock_spawn_tool = MagicMock()
         mock_spawn_tool.name = "spawn_and_await"
-        mock_resolve_tools.return_value = [mock_spawn_tool]
+        mock_resolve_tools.return_value = ([mock_spawn_tool], {"spawn_and_await": {"tool_node_id": "spawn_1", "component_type": "spawn_and_await"}})
 
         mock_checkpointer = MagicMock()
         mock_get_redis.return_value = mock_checkpointer
