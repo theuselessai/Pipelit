@@ -287,6 +287,10 @@ class TestDeepAgentFactory:
 
         assert captured["tools"] == [mock_tool]
 
+    def test_invalid_context_window_falls_back_to_none(self):
+        fn, _, _, _ = self._build(extra_config={"context_window": "bad"})
+        assert callable(fn)
+
 
 # ---------------------------------------------------------------------------
 # deep_agent_node (inner closure)

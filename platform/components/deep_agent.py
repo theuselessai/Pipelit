@@ -90,6 +90,14 @@ def deep_agent_factory(node):
     workflow_slug = node.workflow.slug if node.workflow else ""
     node_id = node.node_id
     conversation_memory = extra.get("conversation_memory", False)
+    max_completion_tokens = getattr(concrete, "max_tokens", None)
+    context_window_override = extra.get("context_window", None)
+    if context_window_override is not None:
+        try:
+            context_window_override = int(context_window_override)
+        except (ValueError, TypeError):
+            logger.warning("Invalid context_window value %r for deep_agent %s, ignoring", context_window_override, node_id)
+            context_window_override = None
 
     enable_filesystem = extra.get("enable_filesystem", False)
     enable_todos = extra.get("enable_todos", False)
@@ -128,6 +136,10 @@ def deep_agent_factory(node):
     # Build subagents
     subagents = _build_subagents(extra)
 
+    # Note: create_deep_agent already includes SummarizationMiddleware internally
+    # with sensible defaults (fraction-based if model has profile, absolute tokens otherwise).
+    # We only add trim_messages as a hard safety net below in deep_agent_node().
+
     agent_kwargs: dict = dict(
         model=llm,
         tools=tools or None,
@@ -161,6 +173,15 @@ def deep_agent_factory(node):
 
         if _prompt_fallback:
             messages = [_prompt_fallback] + messages
+
+        # Trim messages as hard safety net against context overflow
+        from services.context import trim_messages_for_model
+        messages = trim_messages_for_model(
+            messages, model_name,
+            max_completion_tokens=max_completion_tokens,
+            context_window_override=context_window_override,
+        )
+
         logger.info("DeepAgent %s: sending %d messages", node_id, len(messages))
 
         # Build thread config for checkpointer
