@@ -704,10 +704,10 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       parsedExtra = {
         ...parsedExtra,
         conversation_memory: conversationMemory,
-        context_window: contextWindow ? Number(contextWindow) : null,
+        context_window: contextWindow ? (Number(contextWindow) || null) : null,
         compacting: compacting || null,
-        compacting_trigger: compacting === "summarize" ? Number(compactingTrigger) : null,
-        compacting_keep: compacting === "summarize" ? Number(compactingKeep) : null,
+        compacting_trigger: compacting === "summarize" ? (Number(compactingTrigger) || null) : null,
+        compacting_keep: compacting === "summarize" ? (Number(compactingKeep) || null) : null,
       }
     }
     if (isDeepAgent) {
