@@ -41,6 +41,11 @@ def agent_factory(node):
     workflow_slug = node.workflow.slug if node.workflow else ""
     node_id = node.node_id
     conversation_memory = extra.get("conversation_memory", False)
+    max_completion_tokens = getattr(concrete, "max_tokens", None)
+    context_window_override = extra.get("context_window", None)
+    if context_window_override is not None:
+        context_window_override = int(context_window_override)
+    compacting = extra.get("compacting", None)  # "summarize" | None
 
     logger.info(
         "Agent %s: system_prompt=%r, conversation_memory=%s, extra_config=%r",
@@ -66,11 +71,25 @@ def agent_factory(node):
 
     middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug)
 
+    # Build middleware list — optionally prepend SummarizationMiddleware
+    middlewares: list = []
+    if compacting == "summarize":
+        from langchain.agents.middleware import SummarizationMiddleware
+        compacting_trigger = extra.get("compacting_trigger", 70)  # percentage
+        compacting_keep = extra.get("compacting_keep", 20)  # message count
+        summarization_mw = SummarizationMiddleware(
+            model=llm,
+            trigger=("fraction", compacting_trigger / 100),
+            keep=("messages", int(compacting_keep)),
+        )
+        middlewares.append(summarization_mw)
+    middlewares.append(middleware)
+
     agent_kwargs = dict(
         model=llm,
         tools=tools,
         system_prompt=system_prompt or None,
-        middleware=[middleware],
+        middleware=middlewares,
     )
     if checkpointer is not None:
         agent_kwargs["checkpointer"] = checkpointer
@@ -112,7 +131,11 @@ def agent_factory(node):
 
         # Trim messages as hard safety net against context overflow
         from services.context import trim_messages_for_model
-        messages = trim_messages_for_model(messages, model_name)
+        messages = trim_messages_for_model(
+            messages, model_name,
+            max_completion_tokens=max_completion_tokens,
+            context_window_override=context_window_override,
+        )
 
         logger.info("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))
 

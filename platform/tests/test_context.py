@@ -98,3 +98,69 @@ class TestTrimMessagesForModel:
         ):
             result = trim_messages_for_model(messages, "gpt-4")
         assert result is messages
+
+
+class TestContextWindowOverride:
+    def test_override_used_when_provided(self):
+        """context_window_override should be used instead of auto-detected window."""
+        messages = [HumanMessage(content="Hello")]
+        # gpt-4 has 8192 window; override with a larger one — messages should fit
+        result = trim_messages_for_model(
+            messages, "gpt-4", context_window_override=200_000
+        )
+        assert len(result) == 1
+
+    def test_override_causes_more_aggressive_trimming(self):
+        """A small override should trim messages that would fit in the default window."""
+        messages = [SystemMessage(content="System")]
+        for i in range(50):
+            messages.append(HumanMessage(content=f"Q{i} " + "x" * 200))
+            messages.append(AIMessage(content=f"A{i} " + "x" * 200))
+        # Default window for claude is 200K — all messages fit.
+        result_default = trim_messages_for_model(messages, "claude-3-5-sonnet")
+        # Override with a tiny window — should trim aggressively
+        result_small = trim_messages_for_model(
+            messages, "claude-3-5-sonnet", context_window_override=4_000
+        )
+        assert len(result_small) < len(result_default)
+        # System message preserved
+        assert result_small[0].content == "System"
+
+    def test_none_falls_back_to_autodetect(self):
+        """None override should use auto-detected window."""
+        messages = [HumanMessage(content="Hello")]
+        result = trim_messages_for_model(
+            messages, "gpt-4", context_window_override=None
+        )
+        assert len(result) == 1
+
+    def test_zero_falls_back_to_autodetect(self):
+        """Zero override should use auto-detected window."""
+        messages = [HumanMessage(content="Hello")]
+        result = trim_messages_for_model(
+            messages, "gpt-4", context_window_override=0
+        )
+        assert len(result) == 1
+
+    def test_negative_falls_back_to_autodetect(self):
+        """Negative override should use auto-detected window."""
+        messages = [HumanMessage(content="Hello")]
+        result = trim_messages_for_model(
+            messages, "gpt-4", context_window_override=-1000
+        )
+        assert len(result) == 1
+
+    def test_override_with_max_completion_tokens(self):
+        """Override and max_completion_tokens should work together."""
+        messages = [SystemMessage(content="System")]
+        for i in range(50):
+            messages.append(HumanMessage(content=f"Q{i} " + "x" * 200))
+            messages.append(AIMessage(content=f"A{i} " + "x" * 200))
+        # Small window + large completion reserve = very aggressive trim
+        result = trim_messages_for_model(
+            messages, "gpt-4",
+            max_completion_tokens=2_000,
+            context_window_override=4_000,
+        )
+        assert len(result) < len(messages)
+        assert result[0].content == "System"

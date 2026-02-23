@@ -90,6 +90,10 @@ def deep_agent_factory(node):
     workflow_slug = node.workflow.slug if node.workflow else ""
     node_id = node.node_id
     conversation_memory = extra.get("conversation_memory", False)
+    max_completion_tokens = getattr(concrete, "max_tokens", None)
+    context_window_override = extra.get("context_window", None)
+    if context_window_override is not None:
+        context_window_override = int(context_window_override)
 
     enable_filesystem = extra.get("enable_filesystem", False)
     enable_todos = extra.get("enable_todos", False)
@@ -168,7 +172,11 @@ def deep_agent_factory(node):
 
         # Trim messages as hard safety net against context overflow
         from services.context import trim_messages_for_model
-        messages = trim_messages_for_model(messages, model_name)
+        messages = trim_messages_for_model(
+            messages, model_name,
+            max_completion_tokens=max_completion_tokens,
+            context_window_override=context_window_override,
+        )
 
         logger.info("DeepAgent %s: sending %d messages", node_id, len(messages))
 

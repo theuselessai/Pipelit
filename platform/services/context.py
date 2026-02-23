@@ -46,6 +46,7 @@ def trim_messages_for_model(
     messages: list,
     model_name: str,
     max_completion_tokens: int | None = None,
+    context_window_override: int | None = None,
 ) -> list:
     """Trim messages to fit within the model's context window.
 
@@ -53,10 +54,17 @@ def trim_messages_for_model(
     token counting. Always preserves the system message if present.
 
     Returns the original list unchanged if messages fit within budget.
+
+    Args:
+        context_window_override: When > 0, use this instead of auto-detected
+            window size. Useful for custom/self-hosted models.
     """
     from langchain_core.messages import trim_messages as lc_trim_messages
 
-    context_window = get_context_window(model_name)
+    if context_window_override and context_window_override > 0:
+        context_window = context_window_override
+    else:
+        context_window = get_context_window(model_name)
     completion_reserve = max_completion_tokens or min(16_384, context_window // 4)
     # 512 token safety margin
     budget = context_window - completion_reserve - 512

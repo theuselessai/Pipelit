@@ -553,6 +553,18 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
   const [conversationMemory, setConversationMemory] = useState<boolean>(Boolean(node.config.extra_config?.conversation_memory))
+  const [contextWindow, setContextWindow] = useState<string>(
+    (node.config.extra_config?.context_window as number)?.toString() ?? ""
+  )
+  const [compacting, setCompacting] = useState<string>(
+    (node.config.extra_config?.compacting as string) ?? ""
+  )
+  const [compactingTrigger, setCompactingTrigger] = useState<string>(
+    (node.config.extra_config?.compacting_trigger as number)?.toString() ?? "70"
+  )
+  const [compactingKeep, setCompactingKeep] = useState<string>(
+    (node.config.extra_config?.compacting_keep as number)?.toString() ?? "20"
+  )
 
   // Deep agent state
   const [enableFilesystem, setEnableFilesystem] = useState<boolean>(Boolean(node.config.extra_config?.enable_filesystem))
@@ -689,7 +701,14 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     let parsedExtra: Record<string, unknown> = {}
     try { parsedExtra = JSON.parse(extraConfig) } catch { /* keep empty */ }
     if (isAgentNode) {
-      parsedExtra = { ...parsedExtra, conversation_memory: conversationMemory }
+      parsedExtra = {
+        ...parsedExtra,
+        conversation_memory: conversationMemory,
+        context_window: contextWindow ? Number(contextWindow) : null,
+        compacting: compacting || null,
+        compacting_trigger: compacting === "summarize" ? Number(compactingTrigger) : null,
+        compacting_keep: compacting === "summarize" ? Number(compactingKeep) : null,
+      }
     }
     if (isDeepAgent) {
       parsedExtra = {
@@ -1045,6 +1064,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <Label className="text-xs">Pres. Penalty</Label>
               <Input type="number" step="0.1" min="-2" max="2" value={presencePenalty} onChange={(e) => setPresencePenalty(e.target.value)} className="text-xs" placeholder="default" />
             </div>
+            {isAgentNode && (
+              <div className="space-y-1">
+                <Label className="text-xs">Context Window</Label>
+                <Input type="number" min="1024" value={contextWindow} onChange={(e) => setContextWindow(e.target.value)} className="text-xs" placeholder="auto-detect" />
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1286,6 +1311,31 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             </div>
             <Switch checked={conversationMemory} onCheckedChange={setConversationMemory} />
           </div>
+          {!isDeepAgent && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Compacting Strategy</Label>
+                <p className="text-xs text-muted-foreground">Summarize old messages when context fills up</p>
+              </div>
+              <Switch checked={compacting === "summarize"} onCheckedChange={(v) => setCompacting(v ? "summarize" : "")} />
+            </div>
+          )}
+          {compacting === "summarize" && !isDeepAgent && (
+            <div className="grid grid-cols-2 gap-2 ml-0">
+              <div className="space-y-1">
+                <Label className="text-xs">Trigger at %</Label>
+                <Input type="number" min="10" max="100" value={compactingTrigger}
+                  onChange={(e) => setCompactingTrigger(e.target.value)}
+                  className="text-xs" placeholder="70" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Keep messages</Label>
+                <Input type="number" min="1" value={compactingKeep}
+                  onChange={(e) => setCompactingKeep(e.target.value)}
+                  className="text-xs" placeholder="20" />
+              </div>
+            </div>
+          )}
         </>
       )}
 
