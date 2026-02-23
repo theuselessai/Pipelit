@@ -109,6 +109,11 @@ def agent_factory(node):
 
         if _prompt_fallback:
             messages = [_prompt_fallback] + messages
+
+        # Trim messages as hard safety net against context overflow
+        from services.context import trim_messages_for_model
+        messages = trim_messages_for_model(messages, model_name)
+
         logger.info("Agent %s: sending %d messages (has_prompt=%s)", node_id, len(messages), bool(system_prompt))
 
         # Build thread config for checkpointer

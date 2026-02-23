@@ -128,6 +128,10 @@ def deep_agent_factory(node):
     # Build subagents
     subagents = _build_subagents(extra)
 
+    # Note: create_deep_agent already includes SummarizationMiddleware internally
+    # with sensible defaults (fraction-based if model has profile, absolute tokens otherwise).
+    # We only add trim_messages as a hard safety net below in deep_agent_node().
+
     agent_kwargs: dict = dict(
         model=llm,
         tools=tools or None,
@@ -161,6 +165,11 @@ def deep_agent_factory(node):
 
         if _prompt_fallback:
             messages = [_prompt_fallback] + messages
+
+        # Trim messages as hard safety net against context overflow
+        from services.context import trim_messages_for_model
+        messages = trim_messages_for_model(messages, model_name)
+
         logger.info("DeepAgent %s: sending %d messages", node_id, len(messages))
 
         # Build thread config for checkpointer
