@@ -242,6 +242,87 @@ class TestCheckpointerSelection:
         assert checkpointer is mock_sqlite
 
 
+class TestAgentFactoryInputValidation:
+    """Test that agent_factory handles invalid extra_config values gracefully."""
+
+    def _build_with_config(self, extra_config):
+        """Call agent_factory with given extra_config, all external deps mocked."""
+        from components.agent import agent_factory
+
+        node = _make_node("agent", workflow_id=1)
+        node.component_config.extra_config = extra_config
+        node.component_config.concrete.extra_config = extra_config
+
+        captured = {}
+
+        def capture_create_agent(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        with patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.agent._resolve_tools", return_value=([], {})), \
+             patch("components.agent.create_agent", side_effect=capture_create_agent), \
+             patch("components.agent._get_checkpointer", return_value=MagicMock()), \
+             patch("components.agent._get_redis_checkpointer", return_value=MagicMock()):
+            fn = agent_factory(node)
+
+        return fn, captured
+
+    def test_invalid_context_window_string_falls_back_to_none(self):
+        fn, _ = self._build_with_config({"context_window": "not-a-number"})
+        assert callable(fn)
+
+    def test_invalid_compacting_trigger_falls_back_to_default(self):
+        import sys
+
+        mock_summarization_cls = MagicMock()
+        mock_mw_module = MagicMock()
+        mock_mw_module.SummarizationMiddleware = mock_summarization_cls
+
+        extra = {"compacting": "summarize", "compacting_trigger": "bad"}
+        node = _make_node("agent", workflow_id=1)
+        node.component_config.extra_config = extra
+        node.component_config.concrete.extra_config = extra
+
+        with patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.agent._resolve_tools", return_value=([], {})), \
+             patch("components.agent.create_agent", return_value=MagicMock()), \
+             patch("components.agent._get_checkpointer", return_value=MagicMock()), \
+             patch("components.agent._get_redis_checkpointer", return_value=MagicMock()), \
+             patch.dict(sys.modules, {"langchain.agents.middleware": mock_mw_module}):
+            from components.agent import agent_factory
+            agent_factory(node)
+
+        mock_summarization_cls.assert_called_once()
+        call_kwargs = mock_summarization_cls.call_args[1]
+        assert call_kwargs["trigger"] == ("fraction", 0.7)
+
+    def test_invalid_compacting_keep_falls_back_to_default(self):
+        import sys
+
+        mock_summarization_cls = MagicMock()
+        mock_mw_module = MagicMock()
+        mock_mw_module.SummarizationMiddleware = mock_summarization_cls
+
+        extra = {"compacting": "summarize", "compacting_keep": "bad"}
+        node = _make_node("agent", workflow_id=1)
+        node.component_config.extra_config = extra
+        node.component_config.concrete.extra_config = extra
+
+        with patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.agent._resolve_tools", return_value=([], {})), \
+             patch("components.agent.create_agent", return_value=MagicMock()), \
+             patch("components.agent._get_checkpointer", return_value=MagicMock()), \
+             patch("components.agent._get_redis_checkpointer", return_value=MagicMock()), \
+             patch.dict(sys.modules, {"langchain.agents.middleware": mock_mw_module}):
+            from components.agent import agent_factory
+            agent_factory(node)
+
+        mock_summarization_cls.assert_called_once()
+        call_kwargs = mock_summarization_cls.call_args[1]
+        assert call_kwargs["keep"] == ("messages", 20)
+
+
 # ---------------------------------------------------------------------------
 # Interrupt flow — parallel spawn
 # ---------------------------------------------------------------------------

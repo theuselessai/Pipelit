@@ -44,7 +44,11 @@ def agent_factory(node):
     max_completion_tokens = getattr(concrete, "max_tokens", None)
     context_window_override = extra.get("context_window", None)
     if context_window_override is not None:
-        context_window_override = int(context_window_override)
+        try:
+            context_window_override = int(context_window_override)
+        except (ValueError, TypeError):
+            logger.warning("Invalid context_window value %r for agent %s, ignoring", context_window_override, node_id)
+            context_window_override = None
     compacting = extra.get("compacting", None)  # "summarize" | None
 
     logger.info(
@@ -75,12 +79,18 @@ def agent_factory(node):
     middlewares: list = []
     if compacting == "summarize":
         from langchain.agents.middleware import SummarizationMiddleware
-        compacting_trigger = extra.get("compacting_trigger", 70)  # percentage
-        compacting_keep = extra.get("compacting_keep", 20)  # message count
+        try:
+            compacting_trigger = max(1, min(100, int(extra.get("compacting_trigger", 70))))
+        except (ValueError, TypeError):
+            compacting_trigger = 70
+        try:
+            compacting_keep = max(1, int(extra.get("compacting_keep", 20)))
+        except (ValueError, TypeError):
+            compacting_keep = 20
         summarization_mw = SummarizationMiddleware(
             model=llm,
             trigger=("fraction", compacting_trigger / 100),
-            keep=("messages", int(compacting_keep)),
+            keep=("messages", compacting_keep),
         )
         middlewares.append(summarization_mw)
     middlewares.append(middleware)

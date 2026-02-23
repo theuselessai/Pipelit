@@ -93,7 +93,11 @@ def deep_agent_factory(node):
     max_completion_tokens = getattr(concrete, "max_tokens", None)
     context_window_override = extra.get("context_window", None)
     if context_window_override is not None:
-        context_window_override = int(context_window_override)
+        try:
+            context_window_override = int(context_window_override)
+        except (ValueError, TypeError):
+            logger.warning("Invalid context_window value %r for deep_agent %s, ignoring", context_window_override, node_id)
+            context_window_override = None
 
     enable_filesystem = extra.get("enable_filesystem", False)
     enable_todos = extra.get("enable_todos", False)
