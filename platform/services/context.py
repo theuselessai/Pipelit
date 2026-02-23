@@ -73,7 +73,7 @@ def trim_messages_for_model(
             messages,
             max_tokens=budget,
             strategy="last",
-            token_counter=len,  # approximate: 1 message ≈ 1 token unit
+            token_counter="approximate",
             include_system=True,
             start_on="human",
             allow_partial=False,

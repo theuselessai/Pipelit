@@ -55,13 +55,16 @@ class TestTrimMessagesForModel:
     def test_system_message_preserved(self):
         """System message should always be preserved even when trimming."""
         messages = [SystemMessage(content="System")]
-        # Add enough messages to potentially trigger trimming
+        # Use long messages to exceed gpt-4's small context budget (~5,632 tokens)
+        # with approximate token counting (~4 chars per token)
         for i in range(100):
-            messages.append(HumanMessage(content=f"Question {i}"))
-            messages.append(AIMessage(content=f"Answer {i}"))
+            messages.append(HumanMessage(content=f"Question {i} " + "x" * 200))
+            messages.append(AIMessage(content=f"Answer {i} " + "x" * 200))
         result = trim_messages_for_model(messages, "gpt-4")
         # System message should be first
         assert result[0].content == "System"
+        # Trimming should have removed some messages
+        assert len(result) < len(messages)
 
     def test_empty_messages(self):
         """Empty message list should return empty."""
@@ -76,3 +79,22 @@ class TestTrimMessagesForModel:
         ]
         result = trim_messages_for_model(messages, "unknown-model-xyz")
         assert len(result) == len(messages)
+
+    def test_non_positive_budget_returns_original(self):
+        """When max_completion_tokens exceeds context window, return original."""
+        messages = [HumanMessage(content="Hello")]
+        # gpt-4 has 8,192 window; reserve larger than that makes budget <= 0
+        result = trim_messages_for_model(messages, "gpt-4", max_completion_tokens=10_000)
+        assert result is messages
+
+    def test_trim_exception_returns_original(self):
+        """If trim_messages raises, return original messages."""
+        from unittest.mock import patch
+
+        messages = [HumanMessage(content="Hello")]
+        with patch(
+            "langchain_core.messages.trim_messages",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = trim_messages_for_model(messages, "gpt-4")
+        assert result is messages
