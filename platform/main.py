@@ -49,6 +49,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to recover scheduled jobs on startup")
 
+    # Ensure skills directory exists
+    try:
+        skills_dir = Path(settings.SKILLS_DIR) if settings.SKILLS_DIR else Path.home() / ".config" / "pipelit" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Skills directory: %s", skills_dir)
+    except Exception:
+        logger.exception("Failed to create skills directory")
+
     # Recover any executions stuck in "running" from a previous crash
     try:
         from services.execution_recovery import recover_zombie_executions

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     LOG_MAX_BYTES: int = 10_485_760       # 10 MB
     LOG_BACKUP_COUNT: int = 5
 
+    SKILLS_DIR: str = ""  # default: ~/.config/pipelit/skills/ (resolved at runtime)
+    WORKSPACE_DIR: str = ""  # default: ~/.config/pipelit/workspaces/default (resolved at runtime)
+
     model_config = ConfigDict(
         env_file=str(BASE_DIR.parent / ".env"),
         env_file_encoding="utf-8",

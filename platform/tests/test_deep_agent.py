@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -34,49 +35,46 @@ def _make_node(extra_config=None, system_prompt=None, node_id="deep_1", workflow
 
 
 class TestBuildBackend:
-    def test_filesystem_backend(self):
+    def test_always_returns_sandboxed_shell_backend(self, tmp_path):
+        from components.deep_agent import _build_backend
+        from components.sandboxed_backend import SandboxedShellBackend
+
+        workspace = str(tmp_path / "ws")
+        result = _build_backend({"filesystem_root_dir": workspace})
+
+        assert isinstance(result, SandboxedShellBackend)
+        assert result.virtual_mode is True
+        assert str(result.cwd) == workspace
+
+    def test_default_workspace_when_no_root_dir(self, tmp_path):
+        from components.deep_agent import _build_backend
+        from components.sandboxed_backend import SandboxedShellBackend
+
+        workspace = str(tmp_path / "default_ws")
+        with patch("components._agent_shared._get_workspace_dir", return_value=workspace):
+            result = _build_backend({})
+
+        assert isinstance(result, SandboxedShellBackend)
+        assert result.virtual_mode is True
+
+    def test_creates_directory(self, tmp_path):
         from components.deep_agent import _build_backend
 
-        mock_backend = MagicMock()
-        with patch("components.deep_agent.FilesystemBackend", mock_backend, create=True):
-            # Patch the lazy import inside _build_backend
-            import sys
-            mock_fs_mod = MagicMock()
-            mock_fs_mod.FilesystemBackend = mock_backend
-            with patch.dict(sys.modules, {"deepagents.backends.filesystem": mock_fs_mod}):
-                result = _build_backend({"filesystem_backend": "filesystem", "filesystem_root_dir": "/tmp/test"})
-        assert result is mock_backend.return_value
-        mock_backend.assert_called_once_with(root_dir="/tmp/test")
+        workspace = str(tmp_path / "new" / "dir")
+        assert not os.path.exists(workspace)
+        _build_backend({"filesystem_root_dir": workspace})
+        assert os.path.isdir(workspace)
 
-    def test_filesystem_backend_no_root_dir(self):
+    def test_expands_tilde(self, tmp_path):
         from components.deep_agent import _build_backend
+        from components.sandboxed_backend import SandboxedShellBackend
 
-        mock_backend = MagicMock()
-        import sys
-        mock_fs_mod = MagicMock()
-        mock_fs_mod.FilesystemBackend = mock_backend
-        with patch.dict(sys.modules, {"deepagents.backends.filesystem": mock_fs_mod}):
-            result = _build_backend({"filesystem_backend": "filesystem"})
-        assert result is mock_backend.return_value
-        mock_backend.assert_called_once_with(root_dir=None)
+        # Use a concrete path to avoid creating dirs in the real home
+        workspace = str(tmp_path / "tilde_test")
+        with patch("os.path.expanduser", return_value=workspace):
+            result = _build_backend({"filesystem_root_dir": "~/workspace"})
 
-    def test_store_backend(self):
-        from components.deep_agent import _build_backend
-
-        result = _build_backend({"filesystem_backend": "store"})
-        assert result is None
-
-    def test_state_backend_default(self):
-        from components.deep_agent import _build_backend
-
-        result = _build_backend({})
-        assert result is None
-
-    def test_state_backend_explicit(self):
-        from components.deep_agent import _build_backend
-
-        result = _build_backend({"filesystem_backend": "state"})
-        assert result is None
+        assert isinstance(result, SandboxedShellBackend)
 
 
 # ---------------------------------------------------------------------------
@@ -218,18 +216,14 @@ class TestDeepAgentFactory:
         assert "filesystem" in captured["memory"]
 
     def test_enable_filesystem_with_backend(self):
-        import sys
-        mock_fs_mod = MagicMock()
-        mock_backend_instance = MagicMock()
-        mock_fs_mod.FilesystemBackend.return_value = mock_backend_instance
+        from components.sandboxed_backend import SandboxedShellBackend
 
-        with patch.dict(sys.modules, {"deepagents.backends.filesystem": mock_fs_mod}):
-            _, captured, _, _ = self._build(extra_config={
-                "enable_filesystem": True,
-                "filesystem_backend": "filesystem",
-                "filesystem_root_dir": "/tmp/deep",
-            })
-        assert captured.get("backend") is mock_backend_instance
+        _, captured, _, _ = self._build(extra_config={
+            "enable_filesystem": True,
+            "filesystem_backend": "filesystem",
+            "filesystem_root_dir": "/tmp/deep",
+        })
+        assert isinstance(captured.get("backend"), SandboxedShellBackend)
 
     def test_with_subagents(self):
         _, captured, _, _ = self._build(extra_config={
@@ -263,9 +257,10 @@ class TestDeepAgentFactory:
         fn, captured, _, _ = self._build(system_prompt="")
         assert captured.get("system_prompt") is None
 
-    def test_no_memory_features_omits_key(self):
+    def test_filesystem_always_in_memory_features(self):
         _, captured, _, _ = self._build(extra_config={})
-        assert "memory" not in captured
+        assert "memory" in captured
+        assert "filesystem" in captured["memory"]
 
     def test_tools_passed_when_present(self):
         from components.deep_agent import deep_agent_factory

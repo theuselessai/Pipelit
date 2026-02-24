@@ -14,6 +14,7 @@ from components._agent_shared import (
     _get_checkpointer,
     _get_redis_checkpointer,
     _resolve_tools,
+    _resolve_skills,
 )
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
@@ -57,6 +58,7 @@ def agent_factory(node):
     )
 
     tools, tool_metadata = _resolve_tools(node)
+    skill_paths = _resolve_skills(node)
 
     # Detect spawn_and_await tool
     has_spawn_tool = any(
@@ -93,6 +95,16 @@ def agent_factory(node):
             keep=("messages", compacting_keep),
         )
         middlewares.append(summarization_mw)
+    if skill_paths:
+        try:
+            from deepagents.middleware.skills import SkillsMiddleware
+            from deepagents.backends.filesystem import FilesystemBackend
+            skills_backend = FilesystemBackend(root_dir=None)
+            skills_mw = SkillsMiddleware(backend=skills_backend, sources=skill_paths)
+            middlewares.append(skills_mw)
+            logger.info("Agent %s: added SkillsMiddleware with %d sources", node_id, len(skill_paths))
+        except Exception:
+            logger.exception("Agent %s: failed to add SkillsMiddleware", node_id)
     middlewares.append(middleware)
 
     agent_kwargs = dict(

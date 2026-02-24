@@ -93,7 +93,7 @@ platform/
 │   ├── telegram.py      # TelegramTriggerHandler
 │   ├── webhook.py       # Incoming webhook endpoint
 │   └── manual.py        # Manual execution endpoint
-├── components/          # LangGraph node component implementations (20 files)
+├── components/          # LangGraph node component implementations (20 files, incl. sandboxed_backend.py)
 ├── tasks/               # RQ job wrappers
 ├── triggers/            # Trigger resolver
 ├── validation/          # EdgeValidator (type compatibility checks)
@@ -212,6 +212,8 @@ Components no longer receive or use their own `node_id`. Legacy format (returnin
 **Jinja2 syntax highlighting:** All three CodeMirror modal editors (System Prompt, Code Snippet, Extra Config) apply Jinja2 template highlighting via a `ViewPlugin` (`lib/jinja2Highlight.ts`). The plugin regex-matches `{{ }}`, `{% %}`, and `{# #}` delimiters (including whitespace-control variants like `{{-`, `-%}}`) in visible ranges and applies `Decoration.mark` classes. Brackets get bold lighter green text; inner content gets bold amber/orange text. Styles are defined in `index.css` outside `@layer` with `!important` and descendant selectors to override CodeMirror's syntax theme. Light/dark variants are provided.
 
 **Scheduler (self-rescheduling via RQ):** Recurring workflow execution without external cron. A `ScheduledJob` row stores interval, repeat count, retry config, and state machine status (`active` → `paused`/`done`/`dead`). The `services/scheduler.py` `execute_scheduled_job()` function runs as an RQ job: it dispatches the workflow trigger, handles success/failure, and calls `_enqueue_next()` to schedule itself again via `Queue.enqueue_in()`. Each enqueued job gets a deterministic RQ job ID (`sched-{id}-n{repeat}-rc{retry}`) to prevent duplicate enqueues during recovery. Failure uses exponential backoff capped at 10x interval. On startup, `recover_scheduled_jobs()` re-enqueues any active jobs whose `next_run_at` is in the past (missed during downtime). Pause/resume is handled by setting status — the wrapper early-returns if status is not `active`. The scheduler has no frontend page yet — it's API-only. 29 tests in `tests/test_scheduler.py`.
+
+**Sandboxed shell execution:** Deep agent nodes use `SandboxedShellBackend` (`platform/components/sandboxed_backend.py`) which wraps shell `execute()` in OS-level sandboxing — `bwrap` (bubblewrap) on Linux, `sandbox-exec` on macOS. Only the workspace directory is writable; `/home`, platform venv, and other user directories are invisible. Each workspace gets its own `.venv` (created lazily). Falls back to unsandboxed execution if no sandbox tool is available. Install via `apt install bubblewrap` (most Linux distros ship it by default).
 
 ### Running Platform Tests
 

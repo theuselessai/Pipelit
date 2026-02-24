@@ -42,6 +42,7 @@ Pipelit is a self-hosted workflow automation platform for designing LLM agent pi
 - Python 3.10+
 - Redis 8.0+ (includes RediSearch natively — see [Redis Setup](#redis-setup))
 - Node.js 18+
+- Bubblewrap 0.4+ (Linux: `apt install bubblewrap` — macOS uses built-in `sandbox-exec`)
 
 ### 1. Install
 

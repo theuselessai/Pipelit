@@ -40,6 +40,7 @@ class NodeTypeSpec(BaseModel):
     requires_tools: bool = False
     requires_memory: bool = False
     requires_output_parser: bool = False
+    requires_skills: bool = False
     executable: bool = True
     config_schema: dict[str, Any] = {}
 

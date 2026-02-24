@@ -245,6 +245,10 @@ class _CodeExecuteConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "code_execute"}
 
 
+class _SkillConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "skill"}
+
+
 class TriggerComponentConfig(BaseComponentConfig):
     """Config for trigger nodes."""
     __mapper_args__ = {"polymorphic_identity": "trigger_telegram"}
@@ -308,6 +312,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "memory_write": OtherComponentConfig,
     "identify_user": OtherComponentConfig,
     "code_execute": OtherComponentConfig,
+    "skill": OtherComponentConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,
     "trigger_manual": TriggerComponentConfig,

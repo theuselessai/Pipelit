@@ -567,13 +567,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   )
 
   // Deep agent state
-  const [enableFilesystem, setEnableFilesystem] = useState<boolean>(Boolean(node.config.extra_config?.enable_filesystem))
-  const [filesystemBackend, setFilesystemBackend] = useState<string>((node.config.extra_config?.filesystem_backend as string) ?? "state")
   const [filesystemRootDir, setFilesystemRootDir] = useState<string>((node.config.extra_config?.filesystem_root_dir as string) ?? "")
   const [enableTodos, setEnableTodos] = useState<boolean>(Boolean(node.config.extra_config?.enable_todos))
   const [subagents, setSubagents] = useState<{ name: string; description: string; system_prompt: string; model: string }[]>(
     () => (node.config.extra_config?.subagents as { name: string; description: string; system_prompt: string; model: string }[]) ?? []
   )
+
+  // Skill state
+  const [skillPath, setSkillPath] = useState<string>((node.config.extra_config?.skill_path as string) ?? "")
+  const [skillSource, setSkillSource] = useState<string>((node.config.extra_config?.skill_source as string) ?? "filesystem")
 
   // Code editor state
   const [codeSnippet, setCodeSnippet] = useState<string>((node.config.extra_config?.code as string) ?? "")
@@ -713,12 +715,13 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     if (isDeepAgent) {
       parsedExtra = {
         ...parsedExtra,
-        enable_filesystem: enableFilesystem,
-        filesystem_backend: filesystemBackend,
         filesystem_root_dir: filesystemRootDir,
         enable_todos: enableTodos,
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
       }
+    }
+    if (node.component_type === "skill") {
+      parsedExtra = { ...parsedExtra, skill_path: skillPath, skill_source: skillSource }
     }
     if (node.component_type === "code") {
       parsedExtra = { ...parsedExtra, code: codeSnippet, language: codeLanguage }
@@ -1351,39 +1354,16 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </div>
               <Switch checked={enableTodos} onCheckedChange={setEnableTodos} />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs">Filesystem Tools</Label>
-                <p className="text-xs text-muted-foreground">Read, write, and manage files</p>
-              </div>
-              <Switch checked={enableFilesystem} onCheckedChange={setEnableFilesystem} />
+            <div className="space-y-1">
+              <Label className="text-xs">Workspace Directory</Label>
+              <p className="text-xs text-muted-foreground">Sandboxed directory for file read/write operations</p>
+              <Input
+                value={filesystemRootDir}
+                onChange={(e) => setFilesystemRootDir(e.target.value)}
+                className="text-xs h-7"
+                placeholder="~/.config/pipelit/workspaces/default"
+              />
             </div>
-            {enableFilesystem && (
-              <div className="space-y-2 pl-2 border-l-2 border-muted ml-1">
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Backend</Label>
-                  <Select value={filesystemBackend} onValueChange={setFilesystemBackend}>
-                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="state">State (in-memory)</SelectItem>
-                      <SelectItem value="filesystem">Filesystem (disk)</SelectItem>
-                      <SelectItem value="store">Store</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {filesystemBackend === "filesystem" && (
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Root Directory</Label>
-                    <Input
-                      value={filesystemRootDir}
-                      onChange={(e) => setFilesystemRootDir(e.target.value)}
-                      className="text-xs h-7"
-                      placeholder="/path/to/workspace"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           <Separator />
           <div className="space-y-3">
@@ -1469,6 +1449,37 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 </div>
               </div>
             ))}
+          </div>
+        </>
+      )}
+
+      {node.component_type === "skill" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Skill Configuration</Label>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Source Type</Label>
+              <Select value={skillSource} onValueChange={setSkillSource}>
+                <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="filesystem">Filesystem</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px]">Skill Path</Label>
+              <Input
+                value={skillPath}
+                onChange={(e) => setSkillPath(e.target.value)}
+                className="text-xs h-7"
+                placeholder="~/.config/pipelit/skills/"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Directory containing skill subdirectories, each with a SKILL.md file.
+                Leave empty to use the platform default. Connect multiple skill nodes to load from different directories.
+              </p>
+            </div>
           </div>
         </>
       )}
