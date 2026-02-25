@@ -234,8 +234,9 @@ class SandboxedShellBackend(LocalShellBackend):
 
             # Truncate if needed
             truncated = False
-            if len(output.encode("utf-8")) > self._max_output_bytes:
-                output = output[: self._max_output_bytes]
+            output_bytes = output.encode("utf-8")
+            if len(output_bytes) > self._max_output_bytes:
+                output = output_bytes[: self._max_output_bytes].decode("utf-8", errors="ignore")
                 truncated = True
 
             return ExecuteResponse(

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import shutil
-from unittest.mock import patch
+import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -498,3 +499,110 @@ class TestEnsureWorkspaceVenv:
 
         # Venv should not exist
         assert not os.path.isdir(os.path.join(workspace, ".venv"))
+
+
+# ---------------------------------------------------------------------------
+# Sandboxed execute() branch coverage (mocked subprocess.run)
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteBranches:
+    """Test execute() error handling, stderr combining, and truncation via mocked subprocess."""
+
+    def _make_backend(self, tmp_path, **kwargs):
+        from components.sandboxed_backend import SandboxedShellBackend
+
+        with patch("components.sandboxed_backend._detect_sandbox", return_value="bwrap"):
+            return SandboxedShellBackend(root_dir=str(tmp_path), **kwargs)
+
+    def test_execute_handles_generic_exception(self, tmp_path):
+        """Generic exception in execute() returns exit_code=1 with error message."""
+        backend = self._make_backend(tmp_path)
+
+        with patch("subprocess.run", side_effect=OSError("disk full")), \
+             patch("components.sandboxed_backend._build_bwrap_command", return_value=["bwrap"]):
+            result = backend.execute("echo hello")
+            assert result.exit_code == 1
+            assert "Sandbox execution error" in result.output
+            assert "disk full" in result.output
+            assert result.truncated is False
+
+    def test_execute_stderr_output(self, tmp_path):
+        """stderr lines are prefixed with [stderr] in output."""
+        backend = self._make_backend(tmp_path)
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"stdout line\n"
+        mock_result.stderr = b"warn: something\nerror: bad\n"
+        mock_result.returncode = 1
+
+        with patch("subprocess.run", return_value=mock_result), \
+             patch("components.sandboxed_backend._build_bwrap_command", return_value=["bwrap"]):
+            result = backend.execute("some command")
+            assert "[stderr] warn: something" in result.output
+            assert "[stderr] error: bad" in result.output
+            assert "stdout line" in result.output
+            assert result.exit_code == 1
+
+    def test_execute_stderr_only(self, tmp_path):
+        """Output with only stderr still works."""
+        backend = self._make_backend(tmp_path)
+
+        mock_result = MagicMock()
+        mock_result.stdout = b""
+        mock_result.stderr = b"error only\n"
+        mock_result.returncode = 2
+
+        with patch("subprocess.run", return_value=mock_result), \
+             patch("components.sandboxed_backend._build_bwrap_command", return_value=["bwrap"]):
+            result = backend.execute("bad command")
+            assert "[stderr] error only" in result.output
+            assert result.exit_code == 2
+
+    def test_output_truncation(self, tmp_path):
+        """Output exceeding max_output_bytes is truncated."""
+        backend = self._make_backend(tmp_path, max_output_bytes=50)
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"A" * 200
+        mock_result.stderr = b""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result), \
+             patch("components.sandboxed_backend._build_bwrap_command", return_value=["bwrap"]):
+            result = backend.execute("generate output")
+            assert result.truncated is True
+            assert len(result.output.encode("utf-8")) <= 50
+            assert result.exit_code == 0
+
+    def test_execute_no_truncation_when_under_limit(self, tmp_path):
+        """Output under max_output_bytes is not truncated."""
+        backend = self._make_backend(tmp_path, max_output_bytes=1000)
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"short output"
+        mock_result.stderr = b""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result), \
+             patch("components.sandboxed_backend._build_bwrap_command", return_value=["bwrap"]):
+            result = backend.execute("echo short")
+            assert result.truncated is False
+            assert result.output == "short output"
+            assert result.exit_code == 0
+
+    def test_execute_combined_stdout_stderr(self, tmp_path):
+        """Both stdout and stderr are combined in output."""
+        backend = self._make_backend(tmp_path)
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"normal output\n"
+        mock_result.stderr = b"debug info\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result), \
+             patch("components.sandboxed_backend._build_bwrap_command", return_value=["bwrap"]):
+            result = backend.execute("mixed output cmd")
+            assert "normal output" in result.output
+            assert "[stderr] debug info" in result.output
+            assert result.exit_code == 0

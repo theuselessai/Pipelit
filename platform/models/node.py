@@ -312,7 +312,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "memory_write": OtherComponentConfig,
     "identify_user": OtherComponentConfig,
     "code_execute": OtherComponentConfig,
-    "skill": OtherComponentConfig,
+    "skill": _SkillConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,
     "trigger_manual": TriggerComponentConfig,

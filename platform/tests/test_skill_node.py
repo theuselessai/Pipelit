@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -721,3 +721,187 @@ def test_workspace_dir_setting():
     s = Settings(FIELD_ENCRYPTION_KEY="dGVzdC1rZXktMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwPT0=")
     assert hasattr(s, "WORKSPACE_DIR")
     assert s.WORKSPACE_DIR == ""
+
+
+# ── Async SkillAwareBackend tests ──────────────────────────────────────────
+
+
+class TestSkillAwareBackendAsync:
+    """Tests for async methods on SkillAwareBackend."""
+
+    def _make_backend(self, skill_paths):
+        from components._agent_shared import SkillAwareBackend
+
+        default = MagicMock()
+        backend = SkillAwareBackend(default, skill_paths)
+        return backend, default
+
+    @pytest.mark.asyncio
+    async def test_als_info_routes_skill_path(self):
+        backend, default = self._make_backend(["/home/user/skills"])
+        with patch.object(
+            backend._fs, "als_info", new_callable=AsyncMock,
+            return_value=[{"path": "/home/user/skills/web"}],
+        ) as fs_als:
+            result = await backend.als_info("/home/user/skills")
+            fs_als.assert_called_once_with("/home/user/skills")
+            default.als_info.assert_not_called()
+            assert result == [{"path": "/home/user/skills/web"}]
+
+    @pytest.mark.asyncio
+    async def test_als_info_routes_non_skill(self):
+        backend, default = self._make_backend(["/home/user/skills"])
+        default.als_info = AsyncMock(return_value=[{"path": "/workspace/src"}])
+        result = await backend.als_info("/workspace")
+        default.als_info.assert_called_once_with("/workspace")
+        assert result == [{"path": "/workspace/src"}]
+
+    @pytest.mark.asyncio
+    async def test_aread_routes_skill_path(self):
+        backend, default = self._make_backend(["/skills"])
+        with patch.object(
+            backend._fs, "aread", new_callable=AsyncMock,
+            return_value="# SKILL.md content",
+        ) as fs_aread:
+            result = await backend.aread("/skills/web/SKILL.md")
+            fs_aread.assert_called_once_with("/skills/web/SKILL.md", 0, 2000)
+            default.aread.assert_not_called()
+            assert result == "# SKILL.md content"
+
+    @pytest.mark.asyncio
+    async def test_aread_routes_non_skill(self):
+        backend, default = self._make_backend(["/skills"])
+        default.aread = AsyncMock(return_value="file content")
+        result = await backend.aread("/workspace/main.py")
+        default.aread.assert_called_once_with("/workspace/main.py", 0, 2000)
+        assert result == "file content"
+
+    @pytest.mark.asyncio
+    async def test_adownload_files_splits_paths(self):
+        backend, default = self._make_backend(["/skills"])
+        skill_resp = MagicMock()
+        other_resp = MagicMock()
+        with patch.object(
+            backend._fs, "adownload_files", new_callable=AsyncMock,
+            return_value=[skill_resp],
+        ) as fs_dl:
+            default.adownload_files = AsyncMock(return_value=[other_resp])
+            result = await backend.adownload_files(
+                ["/skills/web/SKILL.md", "/workspace/file.py"]
+            )
+            fs_dl.assert_called_once_with(["/skills/web/SKILL.md"])
+            default.adownload_files.assert_called_once_with(["/workspace/file.py"])
+            assert result == [skill_resp, other_resp]
+
+    @pytest.mark.asyncio
+    async def test_adownload_files_all_skill_paths(self):
+        backend, default = self._make_backend(["/skills"])
+        r1, r2 = MagicMock(), MagicMock()
+        with patch.object(
+            backend._fs, "adownload_files", new_callable=AsyncMock,
+            return_value=[r1, r2],
+        ):
+            result = await backend.adownload_files(
+                ["/skills/a/SKILL.md", "/skills/b/SKILL.md"]
+            )
+            default.adownload_files.assert_not_called()
+            assert result == [r1, r2]
+
+    @pytest.mark.asyncio
+    async def test_adownload_files_all_default_paths(self):
+        backend, default = self._make_backend(["/skills"])
+        r1, r2 = MagicMock(), MagicMock()
+        default.adownload_files = AsyncMock(return_value=[r1, r2])
+        result = await backend.adownload_files(
+            ["/workspace/a.py", "/workspace/b.py"]
+        )
+        default.adownload_files.assert_called_once_with(
+            ["/workspace/a.py", "/workspace/b.py"]
+        )
+        assert result == [r1, r2]
+
+
+# ── Agent factory skill integration tests ──────────────────────────────────
+
+
+class TestAgentFactorySkills:
+    """Tests for agent_factory() with skill_paths."""
+
+    def test_agent_factory_with_skills(self):
+        """agent_factory appends SkillsMiddleware when skill_paths are resolved."""
+        mock_node = MagicMock()
+        mock_node.node_id = "agent_001"
+        mock_node.workflow_id = 1
+        mock_node.workflow.slug = "test-wf"
+        mock_node.component_config.concrete.system_prompt = "You are helpful."
+        mock_node.component_config.concrete.extra_config = {}
+        mock_node.component_config.concrete.max_tokens = None
+
+        mock_skills_mw_cls = MagicMock()
+        mock_skills_mw_instance = MagicMock()
+        mock_skills_mw_cls.return_value = mock_skills_mw_instance
+
+        mock_fs_backend_cls = MagicMock()
+        mock_fs_backend_instance = MagicMock()
+        mock_fs_backend_cls.return_value = mock_fs_backend_instance
+
+        with patch("components.agent._resolve_skills", return_value=["/skills/web"]), \
+             patch("components.agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.agent._resolve_tools", return_value=([], {})), \
+             patch("components.agent.get_model_name_for_node", return_value="test-model"), \
+             patch("deepagents.middleware.skills.SkillsMiddleware", mock_skills_mw_cls), \
+             patch("deepagents.backends.filesystem.FilesystemBackend", mock_fs_backend_cls), \
+             patch("components.agent.create_agent") as mock_create:
+            mock_create.return_value = MagicMock(invoke=MagicMock(return_value={"messages": []}))
+            from components.agent import agent_factory
+            agent_factory(mock_node)
+
+            # SkillsMiddleware should have been instantiated
+            mock_skills_mw_cls.assert_called_once()
+            call_kwargs = mock_skills_mw_cls.call_args
+            assert call_kwargs[1]["backend"] is mock_fs_backend_instance
+            assert call_kwargs[1]["sources"] == ["/skills/web"]
+
+            # create_agent should have received middlewares list including skills mw
+            create_call_kwargs = mock_create.call_args[1]
+            assert mock_skills_mw_instance in create_call_kwargs["middleware"]
+
+
+# ── Deep agent factory skill integration tests ─────────────────────────────
+
+
+class TestDeepAgentFactorySkills:
+    """Tests for deep_agent_factory() with skill_paths."""
+
+    def test_deep_agent_factory_with_skills(self):
+        """deep_agent_factory wraps backend with _make_skill_aware_backend when skills present."""
+        mock_node = MagicMock()
+        mock_node.node_id = "deep_agent_001"
+        mock_node.workflow_id = 1
+        mock_node.workflow.slug = "test-wf"
+        mock_node.component_config.concrete.system_prompt = "You are helpful."
+        mock_node.component_config.concrete.extra_config = {}
+        mock_node.component_config.concrete.max_tokens = None
+
+        mock_backend = MagicMock()
+        mock_skill_factory = MagicMock()
+
+        with patch("components.deep_agent._resolve_skills", return_value=["/skills/code"]), \
+             patch("components.deep_agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.deep_agent._resolve_tools", return_value=([], {})), \
+             patch("components.deep_agent.get_model_name_for_node", return_value="test-model"), \
+             patch("components.deep_agent._build_backend", return_value=mock_backend), \
+             patch("components.deep_agent._make_skill_aware_backend", return_value=mock_skill_factory) as mock_make_skill, \
+             patch("components.deep_agent._get_redis_checkpointer", return_value=MagicMock()), \
+             patch("components.deep_agent.create_deep_agent") as mock_create:
+            mock_create.return_value = MagicMock(invoke=MagicMock(return_value={"messages": []}))
+            from components.deep_agent import deep_agent_factory
+            deep_agent_factory(mock_node)
+
+            # _make_skill_aware_backend should have been called with the backend and paths
+            mock_make_skill.assert_called_once_with(mock_backend, ["/skills/code"])
+
+            # create_deep_agent should receive the skill-aware factory as backend and skill_paths
+            create_call_kwargs = mock_create.call_args[1]
+            assert create_call_kwargs["backend"] is mock_skill_factory
+            assert create_call_kwargs["skills"] == ["/skills/code"]
