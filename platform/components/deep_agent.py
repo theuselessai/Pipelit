@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from langchain_core.messages import HumanMessage
 from deepagents import create_deep_agent
@@ -13,7 +14,9 @@ from components._agent_shared import (
     PipelitAgentMiddleware,
     _get_checkpointer,
     _get_redis_checkpointer,
+    _make_skill_aware_backend,
     _resolve_tools,
+    _resolve_skills,
 )
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
@@ -25,21 +28,57 @@ from services.token_usage import (
 logger = logging.getLogger(__name__)
 
 
+def _ensure_workspace_venv(root_dir: str) -> None:
+    """Create a per-workspace Python venv if it doesn't already exist.
+
+    Installs common packages (reportlab, pillow) so agents can create PDFs
+    and images out of the box.  Runs lazily — ~5s one-time cost per workspace.
+    """
+    import subprocess as _sp
+
+    venv_path = os.path.join(root_dir, ".venv")
+    if os.path.isdir(venv_path):
+        return
+
+    logger.info("Creating workspace venv at %s", venv_path)
+    try:
+        _sp.run(
+            ["python3", "-m", "venv", venv_path],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        pip = os.path.join(venv_path, "bin", "pip")
+        _sp.run(
+            [pip, "install", "--quiet", "reportlab", "pillow"],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        logger.info("Workspace venv ready at %s", venv_path)
+    except Exception:
+        logger.exception("Failed to create workspace venv at %s", venv_path)
+
+
 def _build_backend(extra: dict):
-    """Build the filesystem backend from extra_config settings."""
-    backend_type = extra.get("filesystem_backend", "state")
+    """Build a sandboxed shell backend for deep agents.
 
-    if backend_type == "filesystem":
-        from deepagents.backends.filesystem import FilesystemBackend
-        root_dir = extra.get("filesystem_root_dir") or None
-        return FilesystemBackend(root_dir=root_dir)
-    elif backend_type == "store":
-        # StoreBackend requires a LangGraph store — return None to let
-        # create_deep_agent use the default if a store is provided separately.
-        return None
+    Returns a ``SandboxedShellBackend`` that wraps ``execute()`` in OS-level
+    sandboxing (bwrap on Linux, sandbox-exec on macOS) so shell commands are
+    confined to the workspace directory.  Filesystem tools are also sandboxed
+    via ``virtual_mode=True``.
+    """
+    from components.sandboxed_backend import SandboxedShellBackend
+    from components._agent_shared import _get_workspace_dir
 
-    # Default: StateBackend — returned by create_deep_agent when backend=None
-    return None
+    root_dir = extra.get("filesystem_root_dir") or _get_workspace_dir()
+    root_dir = os.path.expanduser(root_dir)
+    os.makedirs(root_dir, exist_ok=True)
+    _ensure_workspace_venv(root_dir)
+    return SandboxedShellBackend(
+        root_dir=root_dir,
+        allow_network=False,
+    )
 
 
 def _build_subagents(extra: dict) -> list[SubAgent] | None:
@@ -99,18 +138,18 @@ def deep_agent_factory(node):
             logger.warning("Invalid context_window value %r for deep_agent %s, ignoring", context_window_override, node_id)
             context_window_override = None
 
-    enable_filesystem = extra.get("enable_filesystem", False)
     enable_todos = extra.get("enable_todos", False)
 
     logger.info(
         "DeepAgent %s: system_prompt=%r, conversation_memory=%s, "
-        "filesystem=%s, todos=%s, extra_config=%r",
+        "todos=%s, extra_config=%r",
         node_id, system_prompt[:80] if system_prompt else None,
-        conversation_memory, enable_filesystem, enable_todos, extra,
+        conversation_memory, enable_todos, extra,
     )
 
     # Resolve canvas-connected external tools (same as regular agent)
     tools, tool_metadata = _resolve_tools(node)
+    skill_paths = _resolve_skills(node)
 
     # Checkpointer selection (same logic as regular agent)
     checkpointer = None
@@ -124,14 +163,12 @@ def deep_agent_factory(node):
     middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug)
 
     # Build memory list for create_deep_agent
-    memory_features: list[str] = []
+    memory_features: list[str] = ["filesystem"]  # always enabled (sandboxed)
     if enable_todos:
         memory_features.append("todos")
-    if enable_filesystem:
-        memory_features.append("filesystem")
 
-    # Build backend
-    backend = _build_backend(extra) if enable_filesystem else None
+    # Build backend — always sandboxed to workspace directory
+    backend = _build_backend(extra)
 
     # Build subagents
     subagents = _build_subagents(extra)
@@ -146,13 +183,17 @@ def deep_agent_factory(node):
         system_prompt=system_prompt or None,
         middleware=[middleware],
         checkpointer=checkpointer,
+        memory=memory_features,
+        backend=backend,
     )
-    if memory_features:
-        agent_kwargs["memory"] = memory_features
-    if backend is not None:
-        agent_kwargs["backend"] = backend
     if subagents:
         agent_kwargs["subagents"] = subagents
+    if skill_paths:
+        # Wrap the sandboxed backend so SkillsMiddleware reads skill files
+        # from real filesystem while agent writes stay sandboxed.
+        agent_kwargs["backend"] = _make_skill_aware_backend(backend, skill_paths)
+        agent_kwargs["skills"] = skill_paths
+        logger.info("DeepAgent %s: passing %d skill sources with SkillAwareBackend", node_id, len(skill_paths))
 
     agent = create_deep_agent(**agent_kwargs)
 

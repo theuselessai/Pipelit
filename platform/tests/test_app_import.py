@@ -33,6 +33,36 @@ class TestAppSetup:
         assert any("/api/" in p for p in route_paths)
 
 
+class TestLifespanSkillsDir:
+    @patch("main.engine")
+    @patch("main.Base")
+    def test_lifespan_handles_skills_dir_creation_failure(self, mock_base, mock_engine):
+        """The lifespan catches exceptions when creating the skills directory."""
+        from main import lifespan, app
+
+        async def _run():
+            with patch("main.Path.mkdir", side_effect=OSError("permission denied")), \
+                 patch("main.Path.home", return_value=__import__("pathlib").Path("/fake/home")):
+                async with lifespan(app):
+                    pass  # Should not raise despite mkdir failure
+
+        asyncio.run(_run())
+
+    @patch("main.engine")
+    @patch("main.Base")
+    def test_lifespan_creates_skills_dir(self, mock_base, mock_engine):
+        """The lifespan creates the skills directory on startup."""
+        from main import lifespan, app
+
+        async def _run():
+            with patch("main.Path.mkdir") as mock_mkdir:
+                async with lifespan(app):
+                    pass
+                mock_mkdir.assert_called()
+
+        asyncio.run(_run())
+
+
 class TestWsRouterImport:
     def test_ws_router_available(self):
         from ws import ws_router

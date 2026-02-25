@@ -68,7 +68,7 @@ register_node_type(NodeTypeSpec(
     display_name="Agent",
     description="LangGraph react agent with tools",
     category="ai",
-    requires_model=True, requires_tools=True,
+    requires_model=True, requires_tools=True, requires_skills=True,
     # NOTE: requires_memory is intentionally absent. It controlled the canvas memory
     # diamond handle, which was removed. The "conversation_memory" config below is
     # unrelated — it toggles SqliteSaver checkpointer persistence across executions.
@@ -94,7 +94,7 @@ register_node_type(NodeTypeSpec(
     display_name="Deep Agent",
     description="Advanced agent with built-in task planning, filesystem tools, and subagents",
     category="ai",
-    requires_model=True, requires_tools=True,
+    requires_model=True, requires_tools=True, requires_skills=True,
     inputs=[PortDefinition(name="messages", data_type=DataType.MESSAGES, required=True)],
     outputs=[
         PortDefinition(name="messages", data_type=DataType.MESSAGES),
@@ -354,6 +354,30 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="parsed", data_type=DataType.OBJECT)],
 ))
 
+register_node_type(NodeTypeSpec(
+    component_type="skill",
+    display_name="Skill",
+    description="SKILL.md behavioral instructions for agents via progressive disclosure",
+    category="sub_component",
+    outputs=[PortDefinition(name="skill_path", data_type=DataType.STRING, description="Path to skills directory")],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "skill_path": {
+                "type": "string",
+                "default": "",
+                "description": "Directory containing skill subdirectories with SKILL.md files. Empty = platform default (~/.config/pipelit/skills/)",
+            },
+            "skill_source": {
+                "type": "string",
+                "enum": ["filesystem"],
+                "default": "filesystem",
+                "description": "Skill source type (filesystem only for now; git and registry planned)",
+            },
+        },
+    },
+))
+
 # ── Memory ───────────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
@@ -567,7 +591,7 @@ register_node_type(NodeTypeSpec(
 
 from schemas.node_types import NODE_TYPE_REGISTRY
 
-NON_EXECUTABLE_TYPES = {"ai_model", "output_parser"}
+NON_EXECUTABLE_TYPES = {"ai_model", "output_parser", "skill"}
 
 for _ct, _spec in NODE_TYPE_REGISTRY.items():
     if _ct.startswith("trigger_") or _ct in NON_EXECUTABLE_TYPES:

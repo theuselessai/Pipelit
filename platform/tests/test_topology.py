@@ -242,5 +242,5 @@ class TestSubComponentTypes:
                     "memory_write", "code_execute", "create_agent_user",
                     "platform_api", "whoami", "epic_tools", "task_tools",
                     "spawn_and_await", "workflow_create", "workflow_discover",
-                    "scheduler_tools", "system_health"}
+                    "scheduler_tools", "system_health", "skill"}
         assert SUB_COMPONENT_TYPES == expected

@@ -445,7 +445,7 @@ def create_edge(
             from validation.edges import EdgeValidator
             # "memory" was intentionally removed — memory nodes now connect via "tool" handle.
             # See migration 0d301d48b86a which converted all memory edges to tool edges.
-            label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser"}
+            label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser", "skill": "skills"}
             target_handle = label_to_handle.get(payload.edge_label) if payload.edge_label else None
             errors = EdgeValidator.validate_edge(
                 src_node.component_type, tgt_node.component_type,

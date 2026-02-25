@@ -11,6 +11,7 @@ import {
   faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard, faLaptopCode,
   faClipboardList, faListCheck, faRocket, faPenRuler, faCompass, faBrain,
+  faGraduationCap,
 } from "@fortawesome/free-solid-svg-icons"
 import { faTelegram } from "@fortawesome/free-brands-svg-icons"
 import {
@@ -98,6 +99,7 @@ const COMPONENT_COLORS: Record<string, string> = {
   trigger_workflow: "#f97316",
   trigger_error: "#f97316",
   trigger_chat: "#f97316",
+  skill: "#a855f7",
   default: "#94a3b8",
 }
 
@@ -114,6 +116,7 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   trigger_telegram: faTelegram, trigger_schedule: faCalendarDays,
   trigger_manual: faHandPointer, trigger_workflow: faPlay, trigger_error: faBug,
   trigger_chat: faComments,
+  skill: faGraduationCap,
 }
 
 function formatDisplayName(s: string) {
@@ -132,10 +135,11 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isLoop = data.componentType === "loop"
   const isFixedWidth = ["router", "categorizer", "agent", "deep_agent", "extractor", "switch", "loop"].includes(data.componentType)
   const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"].includes(data.componentType)
-  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "skill"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "deep_agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent", "deep_agent"].includes(data.componentType)
+  const hasSkills = ["agent", "deep_agent"].includes(data.componentType)
   const hasOutputParser = ["categorizer", "router", "extractor"].includes(data.componentType)
   const displayType = isAiModel
     ? formatDisplayName(data.providerType || "ai_model")
@@ -224,6 +228,12 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
               <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#10b981", borderColor: "#10b981", borderWidth: 1, borderStyle: "solid" }} title="tools">
                 <FontAwesomeIcon icon={faWrench} className="w-3 h-3" />
                 <Handle type="target" position={Position.Bottom} id="tools" className="!w-2 !h-2 !rounded-none !rotate-45 !-bottom-1.5" style={{ backgroundColor: "#10b981", left: "calc(50% + 1px)" }} />
+              </div>
+            )}
+            {hasSkills && (
+              <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#a855f7", borderColor: "#a855f7", borderWidth: 1, borderStyle: "solid" }} title="skills">
+                <FontAwesomeIcon icon={faGraduationCap} className="w-3 h-3" />
+                <Handle type="target" position={Position.Bottom} id="skills" className="!w-2 !h-2 !rounded-none !rotate-45 !-bottom-1.5" style={{ backgroundColor: "#a855f7", left: "calc(50% + 1px)" }} />
               </div>
             )}
             {hasOutputParser && (
@@ -423,7 +433,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
-    const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", output_parser: "output_parser" }
+    const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", output_parser: "output_parser", skill: "skills" }
     const targetHandle = (e.edge_label && e.edge_label !== "loop_body" && e.edge_label !== "loop_return")
       ? LABEL_TO_HANDLE[e.edge_label]
       : e.edge_label === "loop_return" ? "loop_return" : undefined
@@ -495,7 +505,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
 
   const onConnect: OnConnect = useCallback((params) => {
     if (params.source && params.target) {
-      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", output_parser: "output_parser", loop_return: "loop_return" }
+      const HANDLE_TO_LABEL: Record<string, EdgeLabel> = { model: "llm", tools: "tool", output_parser: "output_parser", loop_return: "loop_return", skills: "skill" }
       const edge_label = (params.targetHandle && HANDLE_TO_LABEL[params.targetHandle]) || ""
 
       // Check if source is a loop node with loop_body handle

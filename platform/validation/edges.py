@@ -52,13 +52,14 @@ class EdgeValidator:
             # Unknown types — allow (forward compatibility)
             return errors
 
-        # Sub-component edges (llm, tool, output_parser) are always valid
+        # Sub-component edges (llm, tool, output_parser, skills) are always valid
         # if the target requires them
-        if target_handle in ("model", "tools", "output_parser"):
+        if target_handle in ("model", "tools", "output_parser", "skills"):
             handle_to_flag = {
                 "model": "requires_model",
                 "tools": "requires_tools",
                 "output_parser": "requires_output_parser",
+                "skills": "requires_skills",
             }
             flag = handle_to_flag.get(target_handle, "")
             if flag and not getattr(target_spec, flag, False):
@@ -120,7 +121,7 @@ class EdgeValidator:
                 continue
 
             # Map edge_label to target handle
-            label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser"}
+            label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser", "skill": "skills"}
             target_handle = label_to_handle.get(edge.edge_label) if edge.edge_label else None
 
             edge_errors = EdgeValidator.validate_edge(
