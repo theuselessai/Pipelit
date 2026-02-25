@@ -1,278 +1,298 @@
-# Plan: Configurable Sandbox Mode for Container Environments
+# Plan: Sandbox Mode, Setup Wizard & Platform Configuration
 
 > **Created:** 2026-02-25
+> **Updated:** 2026-02-25
 > **Status:** Draft
-> **Motivation:** bwrap requires user namespaces which are unavailable in Docker containers, GitHub Codespaces, Gitpod, and most container-based deployment platforms. In these environments the container itself already provides filesystem/network/PID isolation — bwrap is redundant and its absence triggers a misleading warning.
+> **Scope:** Environment detection, setup wizard, conf.json, workspace management, code node sandboxing
 
-## Problem
+---
 
-`SandboxedShellBackend` in `platform/components/sandboxed_backend.py` currently:
-1. Checks if `bwrap` binary exists
-2. If yes → full sandbox via Linux namespaces
-3. If no → falls back to unsandboxed `LocalShellBackend.execute()` with a `logger.warning()`
+## 1. Problem
 
-This means every deep agent execution in a container environment logs a scary "no sandbox tool found" warning, even though the container IS the sandbox.
+Multiple related issues with the current platform setup and sandboxing:
 
-## Design
+1. **bwrap warnings in containers** — `SandboxedShellBackend` logs a scary "no sandbox tool found" warning in Docker/Codespaces/Gitpod even though the container IS the sandbox.
+2. **No first-run setup wizard** — users must manually generate `FIELD_ENCRYPTION_KEY`, configure `.env`, and hit the setup API. No environment validation.
+3. **Config scattered across `.env`** — platform config, secrets, and legacy bot settings all mixed in one file. No `conf.json`.
+4. **macOS unsupported without guidance** — no bwrap on macOS, no `sandbox-exec` implementation, no docs pointing users to Docker.
+5. **Workspace paths hardcoded** — `~/.config/pipelit/workspaces/default` doesn't work in Docker, and users can freeform type paths in node config.
+6. **Code node has no sandboxing** — `code.py` runs `exec()` in the server process with zero isolation.
+7. **`code_execute` is redundant** — duplicates `run_command` with a regex blocklist that provides no real security.
 
-Add a `SANDBOX_MODE` environment variable with three values:
+---
+
+## 2. Environment Detection & Sandbox Modes
+
+### 2.1 `SANDBOX_MODE` values
 
 | Value | Behavior | Use case |
 |---|---|---|
-| `auto` (default) | Use bwrap if available, else detect container environment, else warn + fallback | Smart default for all environments |
-| `container` | Skip bwrap entirely, no warning — trust the container boundary | Explicit opt-in for Docker/Codespaces/Gitpod |
-| `bwrap` | Require bwrap, **raise an error** if missing instead of falling back | Bare metal deployments that require enforcement |
+| `auto` (default) | Use bwrap if available, else detect container, else warn + fallback | Smart default |
+| `container` | Skip bwrap, no warning — trust container boundary | Docker / Codespaces / Gitpod |
+| `bwrap` | Require bwrap, **error** if missing | Bare metal Linux enforcement |
 
-### Container Auto-Detection (`auto` mode)
-
-When bwrap is not found and mode is `auto`, check for container signals before warning:
+### 2.2 Container auto-detection (`auto` mode)
 
 ```python
 def _detect_container() -> str | None:
     """Detect if running inside a known container environment."""
-    # Docker
     if os.path.exists("/.dockerenv"):
         return "docker"
-    # GitHub Codespaces
     if os.environ.get("CODESPACES") == "true":
         return "codespaces"
-    # Gitpod
     if os.environ.get("GITPOD_WORKSPACE_ID"):
         return "gitpod"
-    # Generic container: check cgroup
     try:
         cgroup = Path("/proc/1/cgroup").read_text()
         if "docker" in cgroup or "kubepods" in cgroup or "containerd" in cgroup:
             return "container"
     except (FileNotFoundError, PermissionError):
         pass
-    # cgroup v2: check if containerenv exists (Podman)
     if os.path.exists("/run/.containerenv"):
         return "podman"
     return None
 ```
 
-### Behavior Matrix
+### 2.3 Behavior matrix
 
-```
-SANDBOX_MODE=auto (default):
-  bwrap found        → use bwrap sandbox
-  bwrap missing + container detected → unsandboxed, INFO log: "Running inside {env}, container provides isolation"
-  bwrap missing + no container       → unsandboxed, WARNING log: "No sandbox tool found" (current behavior)
+| Environment | bwrap | container | Result |
+|---|---|---|---|
+| Linux bare metal | yes | no | bwrap sandbox |
+| Linux bare metal | no | no | **Blocked at setup wizard** — must install bwrap |
+| Docker / k8s | no | yes | container-trusted, no warning |
+| macOS bare metal | no | no | **Blocked at setup wizard** — must use Docker |
 
-SANDBOX_MODE=container:
-  always              → unsandboxed, INFO log: "SANDBOX_MODE=container, trusting container boundary"
+### 2.4 macOS policy
 
-SANDBOX_MODE=bwrap:
-  bwrap found         → use bwrap sandbox
-  bwrap missing       → raise RuntimeError("SANDBOX_MODE=bwrap but bwrap not found. Install with: apt install bubblewrap")
-```
+No `sandbox-exec` implementation. Documentation recommends macOS users run Pipelit in Docker. The setup wizard blocks bare-metal macOS with a clear message.
 
 ---
 
-## Files to Change
+## 3. Setup Wizard
 
-### 1. `platform/components/sandboxed_backend.py`
+### 3.1 Flow
 
-**Add `_detect_container()` function** (after `_detect_sandbox()`):
-- Check `/.dockerenv`, env vars (`CODESPACES`, `GITPOD_WORKSPACE_ID`), `/proc/1/cgroup`, `/run/.containerenv`
-- Return a string label or `None`
+**Step 1: Environment Check (gate)**
+- Auto-detect: OS, bwrap availability, container environment
+- **Linux + bwrap** → pass
+- **Container detected** → pass (sandbox_mode = container)
+- **Linux bare metal + no bwrap** → **blocked**: "bwrap is required. Install with `apt install bubblewrap`" + Re-check button
+- **macOS bare metal** → **blocked**: "macOS requires Docker. See setup docs." + link
+- Advanced expandable section for overriding: `redis_url`, `database_url`, `log_level`, `platform_base_url`, etc.
 
-**Modify `_detect_sandbox()`** to return a richer result:
-```python
-@dataclass
-class SandboxInfo:
-    tool: str | None        # "bwrap" or None
-    container: str | None   # "docker", "codespaces", "gitpod", "container", "podman", or None
-    mode: str               # "auto", "container", "bwrap"
-```
+**Step 2: Create Admin Account**
+- Username + password
 
-Or simpler: keep `_detect_sandbox()` returning `str | None` and add a separate `_resolve_sandbox_mode()` that combines config + detection:
+**Step 3: Done**
+- Auto-generate `FIELD_ENCRYPTION_KEY` + `SECRET_KEY` → append to `.env`
+- Write `conf.json` to `{pipelit_dir}/conf.json`
+- Create admin user in database
+- Mark `setup_completed: true`
 
-```python
-def _resolve_sandbox_mode() -> tuple[str | None, bool]:
-    """Returns (sandbox_tool, is_container).
+### 3.2 Pre-flight (server startup)
 
-    sandbox_tool: "bwrap" if should use bwrap, None if unsandboxed
-    is_container: True if running in a detected/declared container (suppresses warning)
-    """
-    mode = os.environ.get("SANDBOX_MODE", "auto").lower()
+Before the wizard UI loads, the server checks:
+1. If `FIELD_ENCRYPTION_KEY` is empty → auto-generate Fernet key, append to `.env`, set in `os.environ`
+2. This must happen before SQLAlchemy model import since `EncryptedString` reads the env var at module load time
 
-    if mode == "container":
-        return None, True
+### 3.3 API changes
 
-    tool = _detect_sandbox()  # checks for bwrap binary
-
-    if mode == "bwrap":
-        if tool is None:
-            raise RuntimeError(
-                "SANDBOX_MODE=bwrap but bwrap is not available. "
-                "Install with: apt install bubblewrap"
-            )
-        return tool, False
-
-    # mode == "auto"
-    if tool:
-        return tool, False
-
-    container = _detect_container()
-    if container:
-        return None, True  # container provides isolation
-
-    return None, False  # genuine fallback, will warn
-```
-
-**Modify `SandboxedShellBackend.__init__()`**:
-- Call `_resolve_sandbox_mode()` instead of `_detect_sandbox()`
-- Store `self._is_container` alongside `self._sandbox_tool`
-- Adjust log messages:
-
-```python
-if self._sandbox_tool:
-    logger.info("SandboxedShellBackend: using %s for workspace %s", self._sandbox_tool, root_dir)
-elif self._is_container:
-    logger.info(
-        "SandboxedShellBackend: container environment detected, "
-        "trusting container isolation for workspace %s", root_dir,
-    )
-else:
-    logger.warning(
-        "SandboxedShellBackend: no sandbox tool found (install bwrap or use Docker). "
-        "Falling back to unsandboxed execution for workspace %s", root_dir,
-    )
-```
-
-**No changes to `execute()`** — it already checks `self._sandbox_tool is None` and falls back. The fallback path is identical for container and no-sandbox modes; only the log level differs.
-
-### 2. `platform/config.py`
-
-Add `SANDBOX_MODE` to the Pydantic Settings class:
-
-```python
-SANDBOX_MODE: str = "auto"  # "auto", "container", "bwrap"
-```
-
-Then in `sandboxed_backend.py`, read from `os.environ.get("SANDBOX_MODE", "auto")` directly (the backend is instantiated in component code, not via dependency injection, so reading the env var directly is simpler than threading the config through).
-
-### 3. `platform/tests/test_sandboxed_backend.py`
-
-**Add new test class `TestSandboxModeConfig`:**
-
-```python
-class TestSandboxModeConfig:
-    def test_auto_mode_with_bwrap(self, tmp_path):
-        """auto mode uses bwrap when available."""
-        with patch("components.sandboxed_backend.shutil.which", return_value="/usr/bin/bwrap"), \
-             patch.dict(os.environ, {"SANDBOX_MODE": "auto"}):
-            backend = SandboxedShellBackend(root_dir=str(tmp_path))
-            assert backend._sandbox_tool == "bwrap"
-
-    def test_auto_mode_detects_docker(self, tmp_path):
-        """auto mode detects Docker and suppresses warning."""
-        with patch("components.sandboxed_backend._detect_sandbox", return_value=None), \
-             patch("os.path.exists", side_effect=lambda p: p == "/.dockerenv"), \
-             patch.dict(os.environ, {"SANDBOX_MODE": "auto"}):
-            backend = SandboxedShellBackend(root_dir=str(tmp_path))
-            assert backend._sandbox_tool is None
-            assert backend._is_container is True
-
-    def test_auto_mode_detects_codespaces(self, tmp_path):
-        """auto mode detects GitHub Codespaces."""
-        with patch("components.sandboxed_backend._detect_sandbox", return_value=None), \
-             patch("components.sandboxed_backend._detect_container", return_value="codespaces"), \
-             patch.dict(os.environ, {"SANDBOX_MODE": "auto"}):
-            backend = SandboxedShellBackend(root_dir=str(tmp_path))
-            assert backend._is_container is True
-
-    def test_container_mode_skips_bwrap(self, tmp_path):
-        """container mode skips bwrap even if available."""
-        with patch.dict(os.environ, {"SANDBOX_MODE": "container"}):
-            backend = SandboxedShellBackend(root_dir=str(tmp_path))
-            assert backend._sandbox_tool is None
-            assert backend._is_container is True
-
-    def test_bwrap_mode_raises_when_missing(self, tmp_path):
-        """bwrap mode raises RuntimeError if bwrap not found."""
-        with patch("components.sandboxed_backend._detect_sandbox", return_value=None), \
-             patch.dict(os.environ, {"SANDBOX_MODE": "bwrap"}):
-            with pytest.raises(RuntimeError, match="bwrap is not available"):
-                SandboxedShellBackend(root_dir=str(tmp_path))
-
-    def test_bwrap_mode_works_when_present(self, tmp_path):
-        """bwrap mode succeeds when bwrap is available."""
-        with patch("components.sandboxed_backend.shutil.which", return_value="/usr/bin/bwrap"), \
-             patch.dict(os.environ, {"SANDBOX_MODE": "bwrap"}):
-            backend = SandboxedShellBackend(root_dir=str(tmp_path))
-            assert backend._sandbox_tool == "bwrap"
-```
-
-**Add new test class `TestContainerDetection`:**
-
-```python
-class TestContainerDetection:
-    def test_detect_dockerenv(self):
-        with patch("os.path.exists", side_effect=lambda p: p == "/.dockerenv"):
-            assert _detect_container() == "docker"
-
-    def test_detect_codespaces_env(self):
-        with patch("os.path.exists", return_value=False), \
-             patch.dict(os.environ, {"CODESPACES": "true"}):
-            assert _detect_container() == "codespaces"
-
-    def test_detect_gitpod_env(self):
-        with patch("os.path.exists", return_value=False), \
-             patch.dict(os.environ, {"GITPOD_WORKSPACE_ID": "abc123"}):
-            assert _detect_container() == "gitpod"
-
-    def test_detect_cgroup_docker(self, tmp_path):
-        cgroup_file = tmp_path / "cgroup"
-        cgroup_file.write_text("0::/docker/abc123\n")
-        with patch("os.path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", return_value=cgroup_file.read_text()):
-            assert _detect_container() == "container"
-
-    def test_detect_podman(self):
-        def exists_check(p):
-            return p == "/run/.containerenv"
-        with patch("os.path.exists", side_effect=exists_check), \
-             patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
-            assert _detect_container() == "podman"
-
-    def test_detect_none_on_bare_metal(self):
-        with patch("os.path.exists", return_value=False), \
-             patch("pathlib.Path.read_text", side_effect=FileNotFoundError):
-            # Clear container-related env vars
-            env = {k: v for k, v in os.environ.items()
-                   if k not in ("CODESPACES", "GITPOD_WORKSPACE_ID")}
-            with patch.dict(os.environ, env, clear=True):
-                assert _detect_container() is None
-```
-
-**Update existing tests:**
-- `TestSandboxDetection` — existing tests still pass (they mock `_detect_sandbox` directly)
-- `TestFallback` — add `_is_container` assertion (should be `False` when using `_detect_sandbox=None` mock without container signals)
+- `GET /auth/setup-status/` — extended to return `{ needs_setup: bool, environment: { os, container, bwrap_available } }`
+- `POST /auth/setup/` — expanded to accept `sandbox_mode`, `pipelit_dir`, and optional config overrides alongside `username`/`password`
 
 ---
 
-## Implementation Order
+## 4. Configuration Architecture
 
-1. **Add `_detect_container()` function** — pure function, easy to test in isolation
-2. **Add `_resolve_sandbox_mode()` function** — combines env var + bwrap detection + container detection
-3. **Update `SandboxedShellBackend.__init__()`** — use `_resolve_sandbox_mode()`, store `_is_container`, adjust logs
-4. **Add `SANDBOX_MODE` to `platform/config.py`** — documentation only, the backend reads env var directly
-5. **Write tests** — `TestContainerDetection`, `TestSandboxModeConfig`
-6. **Update existing tests** — ensure mocks still work, add `_is_container` assertions where relevant
+### 4.1 `conf.json` — platform runtime config
 
-## What Does NOT Change
+Location: `{pipelit_dir}/conf.json` (default `~/.config/pipelit/conf.json`)
 
-- `_build_bwrap_command()` — untouched
-- `_prepare_sandbox_root()` — untouched
-- `execute()` method — untouched (the `if self._sandbox_tool is None` fallback already does the right thing)
-- `deep_agent.py` — untouched (it instantiates `SandboxedShellBackend` which handles mode internally)
-- Frontend — no changes
-- No new dependencies
-- No migration
+Written by the setup wizard, editable via the Settings page.
 
-## Estimated Scope
+```json
+{
+  "setup_completed": true,
+  "pipelit_dir": "~/.config/pipelit",
+  "sandbox_mode": "auto",
+  "database_url": "sqlite:///~/.config/pipelit/db.sqlite3",
+  "redis_url": "redis://localhost:6379/0",
+  "log_level": "INFO",
+  "log_file": "",
+  "platform_base_url": "http://localhost:8000",
+  "cors_allow_all_origins": true,
+  "zombie_execution_threshold_seconds": 900,
+  "detected_environment": {
+    "os": "linux",
+    "container": "docker",
+    "bwrap_available": false
+  }
+}
+```
 
-~60 lines of new code in `sandboxed_backend.py`, ~80 lines of new tests, ~5 lines in `config.py`. One file to edit, one file to add tests to, one config line. No architectural changes.
+### 4.2 `.env` — secrets only
+
+```
+FIELD_ENCRYPTION_KEY=<auto-generated Fernet key>
+SECRET_KEY=<auto-generated random string>
+```
+
+Both auto-generated by the wizard on first run.
+
+### 4.3 Settings load order
+
+1. `conf.json` (platform config)
+2. `.env` (secrets)
+3. Environment variables (override everything)
+
+### 4.4 Paths derived from `pipelit_dir`
+
+| Path | Derived as |
+|---|---|
+| Config file | `{pipelit_dir}/conf.json` |
+| Skills directory | `{pipelit_dir}/skills/` |
+| Default workspace parent | `{pipelit_dir}/workspaces/` |
+| Default database | `{pipelit_dir}/db.sqlite3` |
+| Checkpoints DB | per-workspace or `{pipelit_dir}/checkpoints.db` |
+| MCP config | `{pipelit_dir}/mcp_config.json` (unify from `~/.config/aichat-platform/`) |
+
+### 4.5 Removed config
+
+- `ALLOWED_HOSTS` — dead config, never used (Django-ism). Delete from Settings.
+- `WORKSPACE_DIR` — replaced by per-workspace DB records. Default workspace path derived from `pipelit_dir`.
+- `SKILLS_DIR` — derived from `pipelit_dir/skills/`.
+
+---
+
+## 5. Workspace Management
+
+### 5.1 Database model
+
+```python
+class Workspace(Base):
+    __tablename__ = "workspace"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)  # e.g. "default", "data-pipeline"
+    path: Mapped[str] = mapped_column(String(500))               # resolved absolute path
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
+    user_profile_id: Mapped[int] = mapped_column(ForeignKey("user_profile.id"))
+```
+
+### 5.2 Workspace page (new sidebar item)
+
+- List registered workspaces (name, path, created date)
+- Create workspace — name required, path auto-derived as `{pipelit_dir}/workspaces/{name}` (overridable)
+- Delete workspace (with confirmation)
+- A "default" workspace is auto-created during setup wizard
+
+### 5.3 Node config integration
+
+- `deep_agent`, `code`, and future sandbox-using nodes get a **workspace dropdown** instead of freeform text
+- `extra_config.workspace_id` references the `Workspace.id`
+- Workspace path resolved at execution time from the DB record
+
+### 5.4 Future extensions
+
+Workspaces are the unit of isolation that grows over time:
+- Filesystem + venv (current)
+- Git repo initialization
+- GitHub auth (per-workspace `gh` config)
+- Per-workspace credentials
+- Per-workspace environment variables
+
+---
+
+## 6. Code Node Sandboxing
+
+### 6.1 Current state
+
+- **`code.py`** — in-process `exec()`, zero isolation, category `logic`
+- **`code_execute.py`** — subprocess + regex blocklist, category `sub_component` (tool for agents)
+- **`run_command.py`** — subprocess `shell=True`, category `sub_component` (tool for agents)
+
+### 6.2 Changes
+
+**Remove `code_execute`** — redundant with `run_command`. The regex blocklist is security theater since `run_command` has no such restrictions. Remove:
+- `platform/components/code_execute.py`
+- `platform/schemas/node_type_defs.py` — remove `code_execute` registration
+- `platform/frontend/` — remove any `code_execute` references in types/palette
+
+**Sandbox the `code` node** — rewrite from in-process `exec()` to subprocess execution:
+1. Write code to a temp file in the workspace
+2. Run via `subprocess.run()` (like `code_execute` does today)
+3. Wrap in bwrap when available (reuse `_build_bwrap_command()`)
+4. In container mode, subprocess alone is sufficient
+
+**Sandbox `run_command`** — wrap subprocess calls in bwrap when available, using the workspace assigned to the parent agent node.
+
+---
+
+## 7. Settings Page Expansion
+
+### 7.1 Current state
+
+`/settings` only has theme selection.
+
+### 7.2 New sections
+
+- **Environment** (read-only) — OS, container detection, bwrap status
+- **Sandbox mode** — dropdown: auto / container / bwrap
+- **Data directory** (`pipelit_dir`)
+- **Database URL**
+- **Redis URL**
+- **Platform base URL**
+- **CORS allow all origins**
+- **Logging** — level dropdown, file path
+- **Zombie threshold**
+
+### 7.3 Hot-reload vs restart
+
+| Hot-reloadable | Restart required |
+|---|---|
+| `log_level` | `database_url` |
+| `zombie_execution_threshold_seconds` | `redis_url` |
+| | `pipelit_dir` |
+| | `platform_base_url` |
+| | `sandbox_mode` |
+| | `cors_allow_all_origins` |
+
+Settings page shows a "Restart required for changes to take effect" banner when restart-required fields are modified.
+
+---
+
+## 8. Implementation Order
+
+### Phase 1: Config Foundation
+1. Create `conf.json` schema and loader
+2. Update `Settings` class to load from `conf.json` → `.env` → env vars
+3. Remove `ALLOWED_HOSTS` from Settings
+4. Auto-generate `FIELD_ENCRYPTION_KEY` + `SECRET_KEY` on first startup
+
+### Phase 2: Environment Detection & Sandbox Mode
+5. Add `_detect_container()` to `sandboxed_backend.py`
+6. Add `_resolve_sandbox_mode()` combining config + detection
+7. Update `SandboxedShellBackend.__init__()` to use resolved mode
+8. Tests for container detection and sandbox mode config
+
+### Phase 3: Setup Wizard
+9. Extend `GET /auth/setup-status/` with environment info
+10. Extend `POST /auth/setup/` to accept config + write `conf.json`
+11. Frontend: setup wizard page (environment gate → admin account → done)
+
+### Phase 4: Workspace Management
+12. `Workspace` SQLAlchemy model + Alembic migration
+13. Workspace CRUD API endpoints
+14. Frontend: Workspaces page (sidebar item)
+15. Update node config to use workspace dropdown instead of freeform text
+16. Create "default" workspace during setup wizard
+
+### Phase 5: Code Node Sandboxing
+17. Remove `code_execute` component, node type registration, and frontend references
+18. Rewrite `code.py` to use subprocess execution
+19. Wrap `code` and `run_command` subprocess calls in bwrap when available
+
+### Phase 6: Settings Page
+20. Expand `/settings` with all `conf.json` fields
+21. Implement save → write `conf.json` + hot-reload where possible
+22. Restart-required banner for non-hot-reloadable fields
