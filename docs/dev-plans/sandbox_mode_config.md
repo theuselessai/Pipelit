@@ -162,7 +162,34 @@ def detect_capabilities(workspace_path: str | None = None) -> dict:
 
 Checks ~30 binaries via `shutil.which()` + version subprocesses. Runs once at startup (~2-3s), not per-execute.
 
-### 4.3 Where capabilities are used
+### 4.3 Tool tiers
+
+Tools are classified into tiers for setup wizard gating and agent context:
+
+**Tier 1 — Required** (agent is useless without these, setup wizard blocks if missing):
+
+| Category | Tools |
+|---|---|
+| Shell | `bash` or `sh` |
+| Runtime | `python3` |
+| Package manager | `pip` or `pip3` |
+| File basics | `cat`, `ls`, `cp`, `mv`, `mkdir`, `rm`, `chmod` |
+| Text processing | `grep`, `sed`, `head`, `tail`, `wc` |
+
+**Tier 2 — Recommended** (agent works without these but is significantly limited, setup wizard warns):
+
+| Category | Tools |
+|---|---|
+| File operations | `find`, `sort`, `awk`, `xargs`, `tee` |
+| Network | `curl` or `wget` (if network is allowed on workspace) |
+| Version control | `git` |
+| Archives | `tar`, `unzip` |
+| Data processing | `jq` |
+| JS runtime | `node` + `npm` (if JS support needed) |
+
+The setup wizard environment check displays both tiers. Tier 1 missing → **blocked** (cannot proceed). Tier 2 missing → **warning** with list of missing tools (can proceed).
+
+### 4.4 Where capabilities are used
 
 | Consumer | When | Purpose |
 |---|---|---|
@@ -566,6 +593,36 @@ Replaces the current single-card setup page. Multi-step flow with a step indicat
 │  │                    [ Re-check ]  [ Next → ] (disabled)│
 ```
 
+**Blocked state (Tier 1 tool missing):**
+```
+│  │  OS            Linux x86_64                      ✓    │
+│  │  Sandbox       bwrap                             ✓    │
+│  │  Python        Not found                         ✗    │
+│  │                                                       │
+│  │  ┌─ ✗ Error ──────────────────────────────────────┐   │
+│  │  │ Required tools missing:                        │   │
+│  │  │   • python3 — Install with: apt install python3│   │
+│  │  └────────────────────────────────────────────────┘   │
+│  │                                                       │
+│  │                    [ Re-check ]  [ Next → ] (disabled)│
+```
+
+**Warning state (Tier 2 tools missing, can proceed):**
+```
+│  │  OS            Linux x86_64                      ✓    │
+│  │  Sandbox       bwrap                             ✓    │
+│  │  Python        3.11.6                            ✓    │
+│  │  Node.js       Not found                         ⚠    │
+│  │  jq            Not found                         ⚠    │
+│  │                                                       │
+│  │  ┌─ ⚠ Warning ────────────────────────────────────┐   │
+│  │  │ Optional tools not found: node, jq             │   │
+│  │  │ Agents will have limited capabilities.         │   │
+│  │  └────────────────────────────────────────────────┘   │
+│  │                                                       │
+│  │                    [ Re-check ]  [ Next → ]           │
+```
+
 **Blocked state (macOS):**
 ```
 │  │  OS            macOS arm64                       ✓    │
@@ -927,10 +984,14 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_setup_with_config_overrides` — pass `redis_url`, `database_url` overrides → reflected in `conf.json`
 
 **`TestEnvironmentGate`** (unit tests for gate logic)
-- `test_gate_passes_linux_bwrap` — Linux + bwrap → gate passes
-- `test_gate_passes_container` — container detected → gate passes
+- `test_gate_passes_linux_bwrap` — Linux + bwrap + all Tier 1 → gate passes
+- `test_gate_passes_container` — container detected + all Tier 1 → gate passes
 - `test_gate_blocks_linux_no_bwrap` — Linux + no bwrap + no container → gate blocks with message
 - `test_gate_blocks_macos` — macOS + no container → gate blocks with Docker recommendation
+- `test_gate_blocks_missing_tier1_python` — bwrap present but no python3 → gate blocks
+- `test_gate_blocks_missing_tier1_bash` — no bash or sh → gate blocks
+- `test_gate_warns_missing_tier2` — bwrap + all Tier 1 but no jq/node → gate passes with warnings
+- `test_gate_tier1_all_present` — verify all Tier 1 tools checked (bash, python3, pip, cat, ls, cp, mv, mkdir, rm, chmod, grep, sed, head, tail, wc)
 
 ### Phase 4: Workspace Management — `test_workspace.py`
 
