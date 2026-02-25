@@ -516,7 +516,268 @@ Settings page shows a "Restart required for changes to take effect" banner when 
 
 ---
 
-## 12. Implementation Order
+## 12. Frontend Design
+
+All new pages follow existing patterns: Shadcn/ui components, Lucide React icons, `space-y-*` vertical spacing, `Card` sections, `Select` dropdowns, `Table` for lists, `Dialog` for create/edit forms.
+
+### 12.1 Setup Wizard (`/setup`)
+
+Replaces the current single-card setup page. Multi-step flow with a step indicator.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Set Up Pipelit                          │
+│                                                             │
+│          ● Environment ─── ○ Account ─── ○ Done             │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Environment Check                                    │  │
+│  │                                                       │  │
+│  │  OS            Linux x86_64                      ✓    │  │
+│  │  Sandbox       bwrap (/usr/bin/bwrap)            ✓    │  │
+│  │  Container     Not detected                      —    │  │
+│  │  Python        3.11.6                            ✓    │  │
+│  │  Node.js       Not found                         ✗    │  │
+│  │  Redis         localhost:6379 (connected)        ✓    │  │
+│  │                                                       │  │
+│  │  ▸ Advanced Configuration                             │  │
+│  │  ┌─────────────────────────────────────────────────┐  │  │
+│  │  │  Database URL   [sqlite:///~/.config/pipelit/db]│  │  │
+│  │  │  Redis URL      [redis://localhost:6379/0     ] │  │  │
+│  │  │  Log Level      [INFO ▾]                        │  │  │
+│  │  │  Platform URL   [http://localhost:8000        ] │  │  │
+│  │  └─────────────────────────────────────────────────┘  │  │
+│  │                                                       │  │
+│  │                                      [ Next → ]       │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Blocked state (Linux no bwrap):**
+```
+│  │  OS            Linux x86_64                      ✓    │
+│  │  Sandbox       Not found                         ✗    │
+│  │                                                       │
+│  │  ┌─ ⚠ Alert ──────────────────────────────────────┐   │
+│  │  │ bwrap is required for sandboxed execution.     │   │
+│  │  │ Install with: apt install bubblewrap           │   │
+│  │  └────────────────────────────────────────────────┘   │
+│  │                                                       │
+│  │                    [ Re-check ]  [ Next → ] (disabled)│
+```
+
+**Blocked state (macOS):**
+```
+│  │  OS            macOS arm64                       ✓    │
+│  │  Sandbox       Not supported on macOS            ✗    │
+│  │                                                       │
+│  │  ┌─ ⚠ Alert ──────────────────────────────────────┐   │
+│  │  │ macOS is not supported for bare metal installs.│   │
+│  │  │ Please run Pipelit in Docker.                  │   │
+│  │  │ → Docker Setup Guide                           │   │
+│  │  └────────────────────────────────────────────────┘   │
+```
+
+**Step 2: Account**
+```
+│          ✓ Environment ─── ● Account ─── ○ Done             │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Create Admin Account                                 │  │
+│  │                                                       │  │
+│  │  Username       [                              ]      │  │
+│  │  Password       [                              ]      │  │
+│  │  Confirm        [                              ]      │  │
+│  │                                                       │  │
+│  │                          [ ← Back ]  [ Create → ]     │  │
+│  └───────────────────────────────────────────────────────┘  │
+```
+
+**Step 3: Done**
+```
+│          ✓ Environment ─── ✓ Account ─── ● Done             │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  ✓  Setup Complete                                    │  │
+│  │                                                       │  │
+│  │  Admin account created.                               │  │
+│  │  Default workspace created at:                        │  │
+│  │    ~/.config/pipelit/workspaces/default                │  │
+│  │  Configuration saved to:                              │  │
+│  │    ~/.config/pipelit/conf.json                         │  │
+│  │                                                       │  │
+│  │                              [ Go to Dashboard → ]    │  │
+│  └───────────────────────────────────────────────────────┘  │
+```
+
+**Components used:** `Card`, `Button`, `Input`, `Label`, `Select`, `Alert`, `Badge` (for ✓/✗ status), step indicator (custom, three dots with connecting lines).
+
+### 12.2 Workspaces Page (`/workspaces`)
+
+Follows the CredentialsPage pattern: table + create dialog.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Workspaces                                    [ + Add Workspace]│
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  ☐  Name           Path                      Network  Date│  │
+│  │  ── ────────────── ──────────────────────── ──────── ─────│  │
+│  │  ☐  default        ~/.config/pipelit/works…  Off      Feb │  │
+│  │  ☐  data-pipeline  ~/.config/pipelit/works…  On       Feb │  │
+│  │  ☐  research       /mnt/data/research         Off      Feb │  │
+│  │                                                            │  │
+│  │  ─────────────────────────────────────────────────────────│  │
+│  │  Page 1 of 1                                              │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Create dialog:**
+```
+┌─────────────────────────────────────────┐
+│  Add Workspace                          │
+│                                         │
+│  Name          [                    ]   │
+│                                         │
+│  Path          [auto-derived       ]   │
+│  (auto-filled from pipelit_dir/         │
+│   workspaces/{name}, editable)          │
+│                                         │
+│  Network Access                         │
+│  Allow outbound network   [ toggle ]    │
+│  in sandboxed execution                 │
+│                                         │
+│              [ Cancel ]  [ Create ]     │
+└─────────────────────────────────────────┘
+```
+
+**Row actions:** Edit (toggle network), Delete (with confirmation dialog, "default" workspace cannot be deleted).
+
+**Components used:** `Table`, `Card`, `Dialog`, `Input`, `Label`, `Switch`, `Button`, `Checkbox`, `Badge` (for network On/Off), `PaginationControls`.
+
+### 12.3 Settings Page Expansion (`/settings`)
+
+Adds new Card sections below existing Appearance/Theme/MFA cards.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Settings                                                        │
+│                                                                  │
+│  ┌── Appearance ──────────────────────────────────────────────┐  │
+│  │  (existing: System/Light/Dark theme buttons)               │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌── System Theme ────────────────────────────────────────────┐  │
+│  │  (existing: color theme dropdown)                          │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌── Two-Factor Authentication ───────────────────────────────┐  │
+│  │  (existing: MFA enable/disable)                            │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌── Environment ─────────────────────────────────────────────┐  │
+│  │                                                             │  │
+│  │  OS              linux / x86_64                             │  │
+│  │  Container       docker                    [Badge: docker]  │  │
+│  │  Sandbox Mode    bwrap                     [Badge: active]  │  │
+│  │  bwrap           /usr/bin/bwrap            [Badge: ✓]       │  │
+│  │                                                             │  │
+│  │  Runtimes        python3 3.11.6  ✓                          │  │
+│  │                  node            ✗  not found               │  │
+│  │                  pip3 23.2.1     ✓                          │  │
+│  │                                                             │  │
+│  │  Shell Tools     ls ✓  grep ✓  curl ✓  git ✓  jq ✗        │  │
+│  │                  (27 of 30 available)                       │  │
+│  │                                                             │  │
+│  │  Network         DNS ✓  HTTP ✓                              │  │
+│  │                                                             │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌── Platform Configuration ──────────────────────────────────┐  │
+│  │                                              ⚠ Restart     │  │
+│  │                                                required    │  │
+│  │  Data Directory    [~/.config/pipelit              ]       │  │
+│  │  Database URL      [sqlite:///~/.config/pipelit/db ]       │  │
+│  │  Redis URL         [redis://localhost:6379/0       ]       │  │
+│  │  Platform URL      [http://localhost:8000          ]       │  │
+│  │  CORS Allow All    [ toggle on ]                           │  │
+│  │                                                             │  │
+│  │  Sandbox Mode      [auto ▾]                                │  │
+│  │                                                             │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌── Logging ─────────────────────────────────────────────────┐  │
+│  │  Log Level         [INFO ▾]                                │  │
+│  │  Log File          [                               ]       │  │
+│  │                    (empty = console only)                  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌── Advanced ────────────────────────────────────────────────┐  │
+│  │  Zombie Threshold  [900         ] seconds                  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│                                              [ Save Changes ]    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Restart banner:** An `Alert` with `variant="warning"` appears at the top of the "Platform Configuration" card when any restart-required field is modified. Shown after save, not during editing.
+
+**Components used:** Existing `Card` pattern with multiple sections, `Select` for dropdowns (sandbox mode, log level), `Input` for text fields, `Switch` for boolean toggles, `Badge` for status indicators, `Alert` for restart warning.
+
+### 12.4 Node Details Panel — Workspace Dropdown
+
+In `NodeDetailsPanel.tsx`, for `deep_agent`, `code`, and future sandboxed node types, the freeform `filesystem_root_dir` text field is replaced with a workspace dropdown.
+
+```
+┌── Node Config ─────────────────────┐
+│                                    │
+│  Label         [deep_agent_a1b2]   │
+│  System Prompt [Edit ↗]            │
+│                                    │
+│  Workspace     [default         ▾] │
+│                ┌────────────────┐  │
+│                │ default        │  │
+│                │ data-pipeline  │  │
+│                │ research       │  │
+│                └────────────────┘  │
+│                                    │
+│  Conversation Memory  [ toggle ]   │
+│  ...                               │
+└────────────────────────────────────┘
+```
+
+Uses the standard `<Select>` pattern. Workspace list fetched via a `useWorkspaces()` TanStack Query hook. Saves as `extra_config.workspace_id` (integer).
+
+### 12.5 Sidebar Navigation Update
+
+Add "Workspaces" to the nav items in `AppLayout.tsx`:
+
+```
+  Workflows       (existing)
+  Credentials     (existing)
+  Executions      (existing)
+  Workspaces      ← NEW (HardDrive icon)
+  Epics           (existing)
+  Memories        (existing)
+  Agent Users     (existing)
+```
+
+Positioned after Executions since workspaces are infrastructure-level, similar to credentials.
+
+### 12.6 Routes Update
+
+Add to `App.tsx`:
+
+```
+/setup          → SetupWizardPage (replaces current SetupPage)
+/workspaces     → WorkspacesPage (new, protected)
+/settings       → SettingsPage (expanded)
+```
+
+---
+
+## 13. Implementation Order
 
 ### Phase 1: Config Foundation
 1. Create `conf.json` schema and loader
