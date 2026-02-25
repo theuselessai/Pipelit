@@ -556,3 +556,200 @@ Settings page shows a "Restart required for changes to take effect" banner when 
 25. Expand `/settings` with all `conf.json` fields + capabilities display
 26. Implement save → write `conf.json` + hot-reload where possible
 27. Restart-required banner for non-hot-reloadable fields
+
+---
+
+## 13. Testing Plan
+
+Testing follows existing project patterns: in-memory SQLite for DB tests, `SimpleNamespace` mocks for component factories, `@patch` for external services, `@pytest.mark.skipif` for bwrap-dependent tests. Target: 92% coverage on all new code (matching `codecov.yml`).
+
+### Phase 1: Config Foundation — `test_config.py`
+
+**`TestConfJsonLoader`**
+- `test_load_conf_json_defaults` — no `conf.json` exists → Settings uses built-in defaults
+- `test_load_conf_json_overrides` — write a `conf.json` to `tmp_path`, verify Settings picks up values (`sandbox_mode`, `database_url`, `redis_url`, etc.)
+- `test_env_var_overrides_conf_json` — set env var + `conf.json` → env var wins
+- `test_conf_json_missing_keys_uses_defaults` — partial `conf.json` (only `sandbox_mode`) → other fields use defaults
+- `test_conf_json_invalid_json_raises` — malformed JSON → clear error, not silent fallback
+- `test_settings_load_order` — verify: `conf.json` < `.env` < env vars
+
+**`TestSecretAutoGeneration`**
+- `test_auto_generate_encryption_key` — start with no `FIELD_ENCRYPTION_KEY` → server startup generates and writes to `.env`
+- `test_auto_generate_secret_key` — same for `SECRET_KEY`
+- `test_existing_key_not_overwritten` — `.env` already has a key → startup doesn't regenerate
+- `test_generated_key_is_valid_fernet` — auto-generated key can encrypt/decrypt roundtrip
+
+**`TestRemovedConfig`**
+- `test_allowed_hosts_removed` — `Settings` no longer has `ALLOWED_HOSTS` attribute
+- `test_workspace_dir_removed` — `Settings` no longer has `WORKSPACE_DIR`
+- `test_skills_dir_removed` — `Settings` no longer has `SKILLS_DIR`
+
+### Phase 2: Environment Detection & Sandbox — `test_sandboxed_backend.py` (extend existing)
+
+**`TestContainerDetection`**
+- `test_detect_dockerenv` — mock `os.path.exists("/.dockerenv")` → returns `"docker"`
+- `test_detect_codespaces` — mock `CODESPACES=true` env var → returns `"codespaces"`
+- `test_detect_gitpod` — mock `GITPOD_WORKSPACE_ID` env var → returns `"gitpod"`
+- `test_detect_cgroup_docker` — mock `/proc/1/cgroup` with `docker` content → returns `"container"`
+- `test_detect_cgroup_kubepods` — mock `/proc/1/cgroup` with `kubepods` → returns `"container"`
+- `test_detect_podman` — mock `/run/.containerenv` exists → returns `"podman"`
+- `test_detect_none_bare_metal` — nothing present → returns `None`
+- `test_detection_order_priority` — both `/.dockerenv` and `CODESPACES` set → returns `"docker"` (first check wins)
+
+**`TestSandboxResolution`**
+- `test_auto_mode_with_bwrap` → `SandboxResolution(mode="bwrap", can_execute=True)`
+- `test_auto_mode_container_no_bwrap` → `SandboxResolution(mode="container", can_execute=True)`
+- `test_auto_mode_nothing_available` → `SandboxResolution(mode="none", can_execute=False)`
+- `test_bwrap_mode_with_bwrap` → `SandboxResolution(mode="bwrap", can_execute=True)`
+- `test_bwrap_mode_missing_bwrap` → `can_execute=False`, reason contains "not installed"
+- `test_container_mode_in_container` → `SandboxResolution(mode="container", can_execute=True)`
+- `test_container_mode_not_in_container` → `can_execute=False`, reason contains "not detected"
+
+**`TestClearenvSecurity`** (skipif no bwrap)
+- `test_clearenv_no_inherited_env` — set `SECRET_TEST_VAR=leaked` in host env, execute `echo $SECRET_TEST_VAR` in sandbox → empty output
+- `test_clearenv_explicit_vars_set` — execute `echo $HOME:$PATH:$TMPDIR` → verify `/`, venv path, `/tmp`
+- `test_field_encryption_key_not_leaked` — set `FIELD_ENCRYPTION_KEY` in host, verify not visible inside sandbox
+- `test_database_url_not_leaked` — same for `DATABASE_URL`
+
+**`TestContainerModeEnvScrubbing`**
+- `test_build_sandbox_env_clean` — verify `_build_sandbox_env()` returns only `PATH`, `HOME`, `TMPDIR`, `LANG`
+- `test_build_sandbox_env_no_secrets` — verify none of `FIELD_ENCRYPTION_KEY`, `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL` present
+
+**`TestStartupRevalidation`**
+- `test_revalidation_bwrap_still_present` — stored bwrap_available=True, bwrap still exists → no warnings
+- `test_revalidation_bwrap_disappeared` — stored bwrap_available=True, bwrap gone → warning logged
+- `test_revalidation_container_disappeared` — stored container="docker", no longer in container → warning logged
+- `test_revalidation_updates_stored_state` — after re-validation, `detected_environment` in conf.json reflects current state
+
+### Phase 2 (cont): Capability Detection — `test_capabilities.py`
+
+**`TestDetectRuntimes`**
+- `test_python3_available` — mock `shutil.which("python3")` + version subprocess → `{"available": True, "version": "..."}`
+- `test_node_not_available` — mock `shutil.which("node")` returns None → `{"available": False}`
+- `test_version_timeout` — mock subprocess timeout → `{"available": True, "version": "unknown"}`
+- `test_all_runtimes_checked` — verify all expected keys present (python3, python, node, npm, pip3, pip, ruby, go, java, cargo)
+
+**`TestDetectShellTools`**
+- `test_common_tools_detected` — mock several tools present → all show `available: True`
+- `test_missing_tool` — mock `shutil.which` returns None for `jq` → `{"available": False}`
+- `test_busybox_detection` — mock symlink target contains "busybox" → `{"busybox": True}`
+
+**`TestDetectNetwork`**
+- `test_dns_available` — mock nslookup success → `{"dns": True}`
+- `test_dns_unavailable` — mock nslookup timeout → `{"dns": False}`
+- `test_http_available` — mock curl returns 200 → `{"http": True}`
+- `test_http_blocked` — mock curl timeout → `{"http": False}`
+- `test_curl_not_installed` — mock FileNotFoundError → `{"http": False}`
+
+**`TestDetectFilesystem`**
+- `test_workspace_writable` — real `tmp_path` → readable and writable
+- `test_tmp_writable` — `/tmp` check (always True in CI)
+
+**`TestCapabilitiesCache`**
+- `test_cached_at_startup` — call `detect_capabilities()` twice → subprocess only spawned once (cached)
+- `test_re_check_refreshes_cache` — explicit re-check call → subprocess spawned again
+
+### Phase 3: Setup Wizard — `test_setup_wizard.py`
+
+**`TestSetupStatusAPI`** (uses `TestClient` + `dependency_overrides`)
+- `test_setup_status_needs_setup` — no users in DB → `{"needs_setup": true, "environment": {...}}`
+- `test_setup_status_already_setup` — user exists → `{"needs_setup": false}`
+- `test_setup_status_includes_environment` — verify response has `os`, `container`, `bwrap_available`, `capabilities`
+- `test_setup_status_unauthenticated` — no bearer token required
+
+**`TestSetupAPI`**
+- `test_setup_creates_user_and_config` — POST with username/password/sandbox_mode → user created, `conf.json` written, 201
+- `test_setup_writes_conf_json` — verify `conf.json` contents match request params
+- `test_setup_creates_default_workspace` — after setup, a "default" workspace exists in DB
+- `test_setup_generates_secrets` — `.env` file has `FIELD_ENCRYPTION_KEY` and `SECRET_KEY` after setup
+- `test_setup_rejects_second_call` — second POST → 409 Conflict
+- `test_setup_with_config_overrides` — pass `redis_url`, `database_url` overrides → reflected in `conf.json`
+
+**`TestEnvironmentGate`** (unit tests for gate logic)
+- `test_gate_passes_linux_bwrap` — Linux + bwrap → gate passes
+- `test_gate_passes_container` — container detected → gate passes
+- `test_gate_blocks_linux_no_bwrap` — Linux + no bwrap + no container → gate blocks with message
+- `test_gate_blocks_macos` — macOS + no container → gate blocks with Docker recommendation
+
+### Phase 4: Workspace Management — `test_workspace.py`
+
+**`TestWorkspaceModel`**
+- `test_create_workspace` — insert workspace row → verify name, path, allow_network defaults
+- `test_unique_name_constraint` — duplicate name → IntegrityError
+- `test_venv_path_derived` — workspace.path + "/.venv" (no separate column)
+
+**`TestWorkspaceAPI`** (uses `auth_client` fixture)
+- `test_list_workspaces` — GET → `{"items": [...], "total": N}`
+- `test_create_workspace` — POST with name → 201, path auto-derived from `pipelit_dir`
+- `test_create_workspace_custom_path` — POST with name + path → path used as-is
+- `test_create_workspace_duplicate_name` — POST duplicate → 409
+- `test_delete_workspace` — DELETE → 204, workspace gone from DB
+- `test_delete_default_workspace_blocked` — DELETE "default" → 403 (cannot delete default)
+- `test_update_workspace_network_toggle` — PATCH allow_network=True → updated
+
+**`TestWorkspaceNodeIntegration`**
+- `test_node_config_workspace_id` — create node with `extra_config.workspace_id` → resolves to correct path at execution
+- `test_node_config_invalid_workspace_id` — nonexistent workspace_id → validation error
+- `test_default_workspace_used_when_unset` — node without workspace_id → uses "default" workspace
+
+### Phase 5: Code Node Sandboxing — `test_code_sandbox.py`
+
+**`TestCodeExecuteRemoval`**
+- `test_code_execute_component_removed` — verify `code_execute` not in component registry
+- `test_code_execute_node_type_removed` — verify `code_execute` not in `NODE_TYPE_REGISTRY`
+
+**`TestCodeNodeSubprocess`**
+- `test_python_code_runs_in_subprocess` — code node output matches expected result (not in-process exec)
+- `test_code_node_cannot_access_server_env` — code that reads `os.environ["FIELD_ENCRYPTION_KEY"]` → fails or empty
+- `test_code_node_timeout` — long-running code → timeout error
+- `test_code_node_state_access` — code can access `state` and `node_outputs` (passed via serialization)
+- `test_code_node_error_handling` — code raises exception → error returned, not server crash
+
+**`TestCodeNodeBwrap`** (skipif no bwrap)
+- `test_code_runs_inside_bwrap` — verify sandbox boundary (cannot read outside workspace)
+- `test_code_writes_persist_in_workspace` — file written by code → exists in workspace dir
+
+**`TestRunCommandSandbox`** (skipif no bwrap)
+- `test_run_command_uses_bwrap` — command runs inside sandbox
+- `test_run_command_no_host_access` — `cat /etc/shadow` → fails in sandbox
+- `test_run_command_workspace_writable` — can create files in workspace
+
+**`TestRunCommandContainerMode`**
+- `test_run_command_scrubbed_env` — in container mode, subprocess env doesn't contain secrets
+
+### Phase 6: Settings Page — `test_settings_api.py`
+
+**`TestSettingsReadAPI`**
+- `test_get_settings` — GET → returns current `conf.json` values
+- `test_get_settings_includes_capabilities` — response includes `detected_environment.capabilities`
+- `test_get_settings_requires_auth` — no bearer token → 401
+
+**`TestSettingsWriteAPI`**
+- `test_update_log_level` — PATCH `log_level=DEBUG` → conf.json updated, takes effect immediately
+- `test_update_database_url` — PATCH `database_url` → conf.json updated, response includes restart warning
+- `test_update_sandbox_mode` — PATCH `sandbox_mode=bwrap` → conf.json updated, restart required
+- `test_invalid_sandbox_mode_rejected` — PATCH `sandbox_mode=invalid` → 422
+- `test_settings_persist_across_restart` — write to conf.json → re-load Settings → values match
+
+### Cross-Cutting: Integration Tests — `test_sandbox_integration.py`
+
+**`TestEndToEndBwrap`** (skipif no bwrap)
+- `test_deep_agent_uses_clearenv` — full deep_agent execution with bwrap → no secrets in sandbox env
+- `test_workspace_isolation` — two workspaces, agent in workspace A cannot read workspace B
+- `test_network_blocked_by_default` — agent tries `curl` → network unreachable
+- `test_network_allowed_when_enabled` — workspace with `allow_network=True` → curl succeeds
+
+**`TestEndToEndContainerMode`**
+- `test_container_mode_no_bwrap_no_warning` — mock container detected, no bwrap → INFO log (not WARNING)
+- `test_container_mode_env_scrubbed` — subprocess doesn't have server secrets
+
+**`TestSetupToExecution`** (full flow)
+- `test_fresh_setup_to_agent_run` — setup wizard → create workspace → create workflow with deep_agent → execute → verify sandboxed output
+
+### CI Considerations
+
+- **bwrap tests**: Run on ubuntu-latest (bwrap available by default). Marked `skipif` for local macOS dev.
+- **Container detection tests**: All mocked — no real container needed.
+- **Capability detection tests**: All mocked — no real network probes in CI.
+- **Config file tests**: Use `tmp_path` for `conf.json` and `.env` — no host filesystem side effects.
+- **Frontend**: No test runner (existing pattern). Covered by TypeScript build + lint. Setup wizard page verified via API tests + manual QA.
