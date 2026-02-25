@@ -877,7 +877,7 @@ Add to `App.tsx`:
 
 ---
 
-## 13. Testing Plan
+## 14. Testing Plan
 
 Testing follows existing project patterns: in-memory SQLite for DB tests, `SimpleNamespace` mocks for component factories, `@patch` for external services, `@pytest.mark.skipif` for bwrap-dependent tests. Target: 92% coverage on all new code (matching `codecov.yml`).
 
