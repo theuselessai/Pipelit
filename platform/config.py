@@ -1,4 +1,4 @@
-"""Pydantic settings loaded from .env."""
+"""Pydantic settings loaded from .env, with conf.json overlay."""
 
 from __future__ import annotations
 
@@ -6,34 +6,117 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Load .env from the repository root (one level above platform/)
-load_dotenv(BASE_DIR.parent / ".env")
+# ---------------------------------------------------------------------------
+# conf.json: platform runtime config (separate from .env secrets)
+# ---------------------------------------------------------------------------
+
+
+def get_pipelit_dir() -> Path:
+    """Resolve the pipelit data directory. PIPELIT_DIR env var or ~/.config/pipelit."""
+    d = os.environ.get("PIPELIT_DIR", "")
+    return Path(d).expanduser() if d else Path.home() / ".config" / "pipelit"
+
+
+class PipelitConfig(BaseModel):
+    setup_completed: bool = False
+    pipelit_dir: str = ""
+    sandbox_mode: str = "auto"  # auto | container | bwrap
+    database_url: str = ""
+    redis_url: str = ""
+    log_level: str = ""
+    log_file: str = ""
+    platform_base_url: str = ""
+    cors_allow_all_origins: bool | None = None  # None = use Settings default
+    zombie_execution_threshold_seconds: int | None = None
+    detected_environment: dict = {}
+
+
+def load_conf() -> PipelitConfig:
+    """Load conf.json from the pipelit data directory."""
+    conf_path = get_pipelit_dir() / "conf.json"
+    if conf_path.exists():
+        return PipelitConfig.model_validate_json(conf_path.read_text())
+    return PipelitConfig()
+
+
+def save_conf(config: PipelitConfig) -> None:
+    """Save conf.json to the pipelit data directory."""
+    pipelit_dir = get_pipelit_dir()
+    pipelit_dir.mkdir(parents=True, exist_ok=True)
+    (pipelit_dir / "conf.json").write_text(config.model_dump_json(indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Secret auto-generation
+# ---------------------------------------------------------------------------
+
+
+def _ensure_secrets(env_file: Path) -> None:
+    """Generate FIELD_ENCRYPTION_KEY and SECRET_KEY if missing, append to .env."""
+    from cryptography.fernet import Fernet
+    import secrets as _secrets
+
+    lines_to_append: list[str] = []
+
+    if not os.environ.get("FIELD_ENCRYPTION_KEY"):
+        key = Fernet.generate_key().decode()
+        os.environ["FIELD_ENCRYPTION_KEY"] = key
+        lines_to_append.append(f"FIELD_ENCRYPTION_KEY={key}")
+
+    if not os.environ.get("SECRET_KEY"):
+        key = _secrets.token_urlsafe(32)
+        os.environ["SECRET_KEY"] = key
+        lines_to_append.append(f"SECRET_KEY={key}")
+
+    if lines_to_append:
+        env_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(env_file, "a") as f:
+            f.write("\n" + "\n".join(lines_to_append) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap: load .env, generate secrets, load conf.json
+# ---------------------------------------------------------------------------
+
+_env_file = BASE_DIR.parent / ".env"
+load_dotenv(_env_file)
+_ensure_secrets(_env_file)
+_conf = load_conf()
+
+# ---------------------------------------------------------------------------
+# Settings (pydantic-settings): .env / env vars override conf.json defaults
+# ---------------------------------------------------------------------------
 
 
 class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     DEBUG: bool = False
-    ALLOWED_HOSTS: str = "localhost"
 
-    DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
-
-    REDIS_URL: str = "redis://localhost:6379/0"
+    DATABASE_URL: str = _conf.database_url or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    REDIS_URL: str = _conf.redis_url or "redis://localhost:6379/0"
 
     FIELD_ENCRYPTION_KEY: str = ""
 
-    CORS_ALLOW_ALL_ORIGINS: bool = True
+    CORS_ALLOW_ALL_ORIGINS: bool = (
+        _conf.cors_allow_all_origins if _conf.cors_allow_all_origins is not None else True
+    )
 
-    ZOMBIE_EXECUTION_THRESHOLD_SECONDS: int = 900  # 15 min
+    ZOMBIE_EXECUTION_THRESHOLD_SECONDS: int = (
+        _conf.zombie_execution_threshold_seconds or 900
+    )
 
-    LOG_LEVEL: str = "INFO"
-    LOG_FILE: str = ""                    # empty = console only; set to e.g. "logs/pipelit.log"
-    LOG_MAX_BYTES: int = 10_485_760       # 10 MB
+    LOG_LEVEL: str = _conf.log_level or "INFO"
+    LOG_FILE: str = _conf.log_file or ""
+    LOG_MAX_BYTES: int = 10_485_760
     LOG_BACKUP_COUNT: int = 5
+
+    SANDBOX_MODE: str = _conf.sandbox_mode or "auto"
+    PLATFORM_BASE_URL: str = _conf.platform_base_url or "http://localhost:8000"
 
     SKILLS_DIR: str = ""  # default: ~/.config/pipelit/skills/ (resolved at runtime)
     WORKSPACE_DIR: str = ""  # default: ~/.config/pipelit/workspaces/default (resolved at runtime)
