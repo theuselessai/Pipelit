@@ -64,7 +64,7 @@ The system has two distinct trust zones:
 │  │  Sandboxed Process                     │ │
 │  │  - --unshare-all (full NS isolation)   │ │
 │  │  - --clearenv    (no secrets leaked)   │ │
-│  │  - Alpine rootfs as / (read-only)      │ │
+│  │  - Per-workspace Alpine rootfs as / (rw)│ │
 │  │  - Workspace at /workspace (rw)        │ │
 │  │  - UID 0 in user namespace             │ │
 │  │  - No Redis, no DB, no config access   │ │
@@ -84,9 +84,9 @@ n8n's experience validates this architecture. Their Pyodide approach (Python in 
 
 | Concern | Mitigation |
 |---|---|
-| Filesystem access | Alpine rootfs as `/` (ro). Workspace at `/workspace` (rw). No access to `pipelit_dir`, database, other workspaces |
+| Filesystem access | Per-workspace Alpine rootfs copy as `/` (rw). Workspace data at `/workspace` (rw). No access to `pipelit_dir`, database, other workspaces |
 | Temp files | `workspace/.tmp` backs `/tmp` inside sandbox. `/var/tmp` symlinked to `/tmp` in rootfs during setup. Prevents agent file loss between commands |
-| UID | Root (UID 0) inside user namespace — unprivileged outside. Simpler than mapping UIDs, matches Docker conventions, rootfs is read-only anyway |
+| UID | Root (UID 0) inside user namespace — unprivileged outside. Simpler than mapping UIDs, matches Docker conventions. Agents can `apk add` within their workspace rootfs |
 | Network access | `--unshare-all` isolates network by default. `--share-net` opt-in per workspace |
 | Environment variables | `--clearenv` wipes all env vars. Only `PATH`, `HOME`, `TMPDIR`, `LANG` set explicitly |
 | Process visibility | `--unshare-all` includes PID namespace — cannot see host processes |
@@ -215,16 +215,18 @@ The setup wizard environment check displays both tiers. Tier 1 missing → **blo
 At the start of a `deep_agent` session, the cached capability report is injected as a system message:
 
 ```
-You are operating in a sandboxed environment with the following capabilities:
+You are operating in a sandboxed Alpine Linux environment with the following capabilities:
 
 Runtimes: python3 (3.11.6), pip3 (23.2.1). Node.js is NOT available.
 Shell tools: ls, grep, sed, awk, cat, head, tail, find, curl, git, tar, jq.
   Missing: wget, unzip.
 Network: DNS available, HTTP outbound available.
 Filesystem: /workspace is read-write. /tmp is writable (backed by workspace/.tmp).
+Package managers: apk (Alpine), pip3 (Python).
 
-Plan your approach using only available tools. Do not attempt to install
-packages or runtimes that are not present.
+You can install additional system packages with `apk add <package>` (requires network).
+You can install Python packages with `pip install <package>`.
+Installed packages persist across executions.
 ```
 
 ---
@@ -321,16 +323,16 @@ bwrap --bind workspace / --ro-bind /usr /usr --ro-bind /etc/ssl /etc/ssl ...
   → Complex _prepare_sandbox_root() for merged-usr detection
 ```
 
-**New (Alpine rootfs):**
+**New (per-workspace Alpine rootfs):**
 ```
 bwrap \
   --unshare-all \
-  --ro-bind {pipelit_dir}/rootfs/alpine-{version} /   # Alpine is root (ro)
-  --bind {workspace_path} /workspace                    # workspace (rw)
-  --bind {workspace_path}/.tmp /tmp                     # persistent temp
+  --bind {workspace_path}/.rootfs /                      # per-workspace rootfs (rw)
+  --bind {workspace_path} /workspace                     # workspace data (rw)
+  --bind {workspace_path}/.tmp /tmp                      # persistent temp
   # /var/tmp → /tmp symlink created in rootfs during setup
   --proc /proc --dev /dev \
-  --ro-bind /etc/resolv.conf /etc/resolv.conf \         # DNS (when network allowed)
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \          # DNS (when network allowed)
   --clearenv \
   --setenv HOME /workspace \
   --setenv PATH /usr/local/bin:/usr/bin:/bin:/workspace/.packages/bin \
@@ -345,23 +347,26 @@ bwrap \
 ```
 
 **Key design decisions:**
-- **UID 0 inside sandbox** — root inside user namespace, unprivileged outside. Simpler than UID mapping, matches Docker conventions, rootfs is read-only anyway
+- **Per-workspace rootfs copy** — each workspace gets its own mutable copy of the Alpine rootfs (~50-100MB). Agents can `apk add` packages freely — mutations only affect that workspace. Golden image at `{pipelit_dir}/rootfs/alpine-{version}/` is never mounted directly.
+- **UID 0 inside sandbox** — root inside user namespace, unprivileged outside. Simpler than UID mapping, matches Docker conventions. Agents have root to install packages via `apk add`.
 - **Flat workspace mount** — entire host workspace dir mounted as `/workspace` (rw)
 - **`/tmp` backed by `workspace/.tmp`** — persists temp files between commands within an execution. Prevents agent file loss when tools write to `/tmp`. `/var/tmp` symlinked to `/tmp` in rootfs during setup for tools that use it
 - **`--clearenv`** — no host secrets leak
 - **No venv** — Python3 from Alpine, pip packages via `PIP_TARGET`
 - **No `_prepare_sandbox_root()`** — no merged-usr detection, no symlinks
 
-### 6.3 No-venv approach
+### 6.3 Package installation
 
-Python3 comes from the Alpine rootfs (read-only). When agents `pip install` packages:
+**System packages (apk):** Since each workspace has its own mutable rootfs copy, agents can run `apk add <package>` directly. Installed packages persist across executions and only affect that workspace. This is the preferred way to install system tools (e.g., `apk add nodejs`, `apk add imagemagick`).
+
+**Python packages (pip):** Python3 comes from the Alpine rootfs. When agents `pip install` packages:
 
 - `PIP_TARGET=/workspace/.packages` — pip writes packages here
 - `PYTHONPATH=/workspace/.packages` — Python imports from here
 - `PATH` includes `/workspace/.packages/bin` — executable scripts found here
 - `PYTHONDONTWRITEBYTECODE=1` — avoids `.pyc` clutter
 
-Packages persist across executions because `/workspace` is the host workspace directory.
+Both apk-installed and pip-installed packages persist across executions because the rootfs copy and `/workspace` are both workspace-local.
 
 ### 6.4 Rootfs provisioning
 
@@ -410,7 +415,23 @@ bwrap \
   -- /sbin/apk add --no-cache {packages}
 ```
 
-After package installation, `/var/tmp` is symlinked to `/tmp` inside the rootfs. Then the rootfs is only ever mounted read-only.
+After package installation, `/var/tmp` is symlinked to `/tmp` inside the rootfs. This produces the **golden image** — a prepared rootfs that is never mounted directly but serves as the template for per-workspace copies.
+
+#### Per-workspace rootfs copy
+
+When a workspace is created (or lazily on first execution), the golden image is copied to `{workspace_path}/.rootfs/`:
+
+```python
+def copy_rootfs_to_workspace(golden_dir: Path, workspace_path: Path) -> Path:
+    """Copy the golden rootfs image to a workspace for mutable use."""
+    workspace_rootfs = workspace_path / ".rootfs"
+    if workspace_rootfs.exists():
+        return workspace_rootfs  # already provisioned
+    shutil.copytree(golden_dir, workspace_rootfs, symlinks=True)
+    return workspace_rootfs
+```
+
+This copy is the workspace's own mutable rootfs. Agents can `apk add` packages, and mutations only affect that workspace. At ~50-100MB per copy, disk usage is negligible for self-hosted deployments (10 workspaces = ~1GB).
 
 #### Tier 1 packages (required)
 
@@ -440,13 +461,13 @@ After package installation, `/var/tmp` is symlinked to `/tmp` inside the rootfs.
 
 ### 6.5 Deployment modes
 
-**Docker image:** Rootfs is pre-baked during `docker build`. No download needed at runtime. `ROOTFS_DIR` env var points to the baked location.
+**Docker image:** Golden image is pre-baked during `docker build`. No download needed at runtime. `ROOTFS_DIR` env var points to the baked location. Per-workspace copies are still created from this golden image.
 
-**Bare metal:** Rootfs downloaded during setup wizard (Step 1: Environment Check). Requires internet access during setup. Stored at `{pipelit_dir}/rootfs/alpine-{version}/`.
+**Bare metal:** Golden image downloaded during setup wizard (Step 1: Environment Check). Requires internet access during setup. Stored at `{pipelit_dir}/rootfs/alpine-{version}/`. Per-workspace copies created on workspace creation or first execution.
 
 ### 6.6 Concurrency safety
 
-Multiple RQ workers may start simultaneously. `prepare_rootfs()` uses `fcntl.flock()` on a lock file:
+Multiple RQ workers may start simultaneously. `prepare_golden_image()` uses `fcntl.flock()` on a lock file:
 
 ```python
 with open(rootfs_dir.parent / ".rootfs.lock", "w") as lock_file:
@@ -458,7 +479,7 @@ with open(rootfs_dir.parent / ".rootfs.lock", "w") as lock_file:
 
 ### 6.7 Version upgrades
 
-A `.alpine-version` file in the rootfs dir records the installed version. When `get_latest_version()` returns a newer version, `is_rootfs_ready()` returns False, triggering re-preparation.
+A `.alpine-version` file in the golden image dir records the installed version. When `get_latest_version()` returns a newer version, `is_rootfs_ready()` returns False, triggering re-preparation of the golden image. Existing per-workspace rootfs copies are **not** automatically upgraded — they keep their current packages and state. A "Reset rootfs" action on the Workspaces page can re-copy from the updated golden image if needed.
 
 ---
 
@@ -471,7 +492,7 @@ The current implementation already uses `--unshare-all`. The key addition is `--
 ```python
 # Core bwrap args:
 args = ["bwrap", "--unshare-all"]
-args += ["--ro-bind", rootfs_dir, "/"]          # Alpine rootfs read-only
+args += ["--bind", workspace_rootfs, "/"]         # per-workspace rootfs (rw)
 args += ["--bind", workspace_path, "/workspace"]     # workspace read-write
 args += ["--bind", f"{workspace_path}/.tmp", "/tmp"] # persistent temp
 args += ["--proc", "/proc"]
@@ -651,14 +672,17 @@ class Workspace(Base):
     user_profile_id: Mapped[int] = mapped_column(ForeignKey("user_profile.id"))
 ```
 
-Workspace path is mounted as `/workspace` inside bwrap. A `.tmp` subdirectory is created automatically and mounted as `/tmp` in the sandbox.
+Workspace path is mounted as `/workspace` inside bwrap. On creation, the workspace directory is initialized with:
+- `.rootfs/` — mutable copy of the Alpine golden image (per-workspace, agents can `apk add`)
+- `.tmp/` — persistent temp directory, mounted as `/tmp` in the sandbox
 
 ### 10.2 Workspace page (new sidebar item)
 
 - List registered workspaces (name, path, network access, created date)
 - Create workspace — name required, path auto-derived as `{pipelit_dir}/workspaces/{name}` (overridable)
 - Toggle network access per workspace
-- Delete workspace (with confirmation)
+- Reset rootfs — re-copy golden image to workspace (destroys agent-installed packages)
+- Delete workspace (with confirmation, deletes `.rootfs`, `.tmp`, `.packages`)
 - A "default" workspace is auto-created during setup wizard
 
 ### 10.3 Node config integration
@@ -1053,14 +1077,15 @@ ARCH_MAP = {
 Functions:
 - `detect_arch()` → mapped architecture string or RuntimeError
 - `get_latest_version(arch)` → `(version, filename, sha256)` from `latest-releases.yaml`
-- `get_rootfs_dir()` → `Path` to rootfs directory
+- `get_golden_dir()` → `Path` to golden image directory
 - `is_rootfs_ready(rootfs_dir)` → bool (checks `/bin/sh`, `/usr/bin/python3`, `.alpine-version`)
 - `download_rootfs(target_dir, arch)` → downloads tarball with SHA-256 verification
 - `extract_rootfs(tarball, target_dir)` → `tar xzf`
 - `install_packages(rootfs_dir, packages)` → `apk add` inside bwrap
-- `prepare_rootfs(tier=1)` → orchestrates everything, idempotent, file-locked
+- `prepare_golden_image(tier=1)` → orchestrates golden image preparation, idempotent, file-locked
   - Creates `/var/tmp → /tmp` symlink in rootfs after package installation
-  - Creates `workspace/.tmp` directory on first use
+- `copy_rootfs_to_workspace(golden_dir, workspace_path)` → copies golden image to `{workspace_path}/.rootfs/`, idempotent
+  - Creates `workspace/.tmp` directory
 
 ### 14.2 Files to modify
 
@@ -1070,9 +1095,9 @@ Functions:
 - `_prepare_sandbox_root()` function
 
 **Rewrite `_build_bwrap_command()`:**
-- New required param: `rootfs_dir: str`
-- `--ro-bind rootfs_dir /` replaces `--bind workspace /` + all host binds
-- `--bind workspace /workspace` for workspace
+- New required param: `workspace_rootfs: str` (per-workspace rootfs path)
+- `--bind workspace_rootfs /` (rw) replaces `--bind workspace /` + all host binds
+- `--bind workspace /workspace` for workspace data
 - `--bind workspace/.tmp /tmp` for persistent temp
 - `--clearenv` + explicit env vars (HOME=/workspace, PIP_TARGET, PYTHONPATH)
 - UID 0 inside sandbox via user namespace (default bwrap behavior with `--unshare-user`)
@@ -1081,12 +1106,12 @@ Functions:
 - No merged-usr handling, no /etc entries, no /lib64 checks
 
 **Modify `SandboxedShellBackend.__init__()`:**
-- Add `self._rootfs_dir: str | None = None`
+- Add `self._workspace_rootfs: str | None = None`
 
 **Modify `SandboxedShellBackend.execute()`:**
-- Lazy rootfs init on first call
+- Lazy rootfs copy on first call (copy golden image to workspace if not present)
 - Ensure `workspace/.tmp` directory exists
-- Pass `rootfs_dir` to `_build_bwrap_command()`
+- Pass `workspace_rootfs` to `_build_bwrap_command()`
 
 #### `platform/components/deep_agent.py`
 
@@ -1106,17 +1131,19 @@ Functions:
 - Tests expecting writes to arbitrary paths to persist
 
 **Rewrite `TestBwrapCommand`:**
-- Verify `--ro-bind rootfs /` + `--bind workspace /workspace`
+- Verify `--bind workspace_rootfs /` + `--bind workspace /workspace`
 - Verify `--bind workspace/.tmp /tmp`
 - Verify `--clearenv`
 - Verify env vars: HOME=/workspace, PIP_TARGET, PYTHONPATH
 
 **Rewrite `TestSandboxedExecution`** (skipif no bwrap):
 - Write to `/workspace/test.txt` → persists
-- Write to `/root/evil` → fails (read-only rootfs)
+- Write to `/usr/local/bin/test` → succeeds (per-workspace rootfs is writable)
 - Write to `/tmp/test.txt` → persists (backed by workspace/.tmp)
 - `python3 --version` → works (Alpine's musl python)
 - `pip install` → goes to `/workspace/.packages`
+- `apk add jq` → succeeds, `jq --version` works after install
+- Rootfs mutations in workspace A not visible in workspace B
 
 #### `platform/tests/test_deep_agent.py`
 
@@ -1129,7 +1156,8 @@ Functions:
 
 | Before | After |
 |---|---|
-| Workspace is `/` — writes to ANY path persist | Only `/workspace` is writable |
+| Workspace is `/` — writes to ANY path persist | `/workspace` for data, per-workspace rootfs for system |
+| Shared host binaries | Per-workspace Alpine rootfs copy (~50-100MB), agents can `apk add` |
 | `/tmp` is tmpfs, ephemeral | `/tmp` backed by `workspace/.tmp`, persistent within workspace |
 | `/var/tmp` not addressed | `/var/tmp` symlinked to `/tmp` in rootfs |
 | HOME=/ | HOME=/workspace |
@@ -1153,11 +1181,11 @@ Functions:
 5. Implement `detect_capabilities()` (Python, cached at startup)
 6. Add `_detect_container()` to `sandboxed_backend.py`
 7. Implement `_resolve_sandbox_mode()` returning `SandboxResolution`
-8. Implement `platform/services/rootfs.py` (Alpine rootfs provisioning)
-9. Rewrite `_build_bwrap_command()` for Alpine rootfs (ro-bind rootfs, /workspace mount, /tmp mount, --clearenv, UID 0)
+8. Implement `platform/services/rootfs.py` (golden image provisioning + per-workspace copy)
+9. Rewrite `_build_bwrap_command()` for per-workspace rootfs (--bind workspace_rootfs /, /workspace mount, /tmp mount, --clearenv, UID 0)
 10. Delete `_prepare_sandbox_root()` and venv-related code
 11. Add `_build_sandbox_env()` for container mode env scrubbing
-12. Update `SandboxedShellBackend.__init__()` to use resolved mode + lazy rootfs
+12. Update `SandboxedShellBackend.__init__()` to use resolved mode + lazy rootfs copy
 13. Add startup re-validation (`validate_environment_on_startup()`, including rootfs readiness)
 14. Tests for container detection, capability detection, rootfs provisioning, sandbox mode config
 
@@ -1171,8 +1199,8 @@ Functions:
 19. Workspace CRUD API endpoints
 20. Frontend: Workspaces page (sidebar item)
 21. Update node config to use workspace dropdown instead of freeform text
-22. Create "default" workspace during setup wizard
-23. Ensure `workspace/.tmp` directory creation on workspace create
+22. Create "default" workspace during setup wizard (includes rootfs copy)
+23. Ensure `workspace/.tmp` and `workspace/.rootfs` directory creation on workspace create
 
 ### Phase 5: Code Node Sandboxing
 24. Remove `code_execute` component, node type registration, and frontend references
@@ -1291,7 +1319,7 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_get_latest_version_no_minirootfs` — YAML without minirootfs → clear error
 
 **`TestRootfsReadiness`**
-- `test_get_rootfs_dir_default` — derives from pipelit_dir
+- `test_get_golden_dir_default` — derives from pipelit_dir
 - `test_is_rootfs_ready_true` — prepared rootfs → True
 - `test_is_rootfs_ready_false` — empty dir → False
 - `test_version_upgrade` — old version file → re-prepares
@@ -1300,11 +1328,17 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_download_rootfs` — mocked HTTP, verifies tarball saved
 - `test_download_rootfs_checksum_mismatch` — bad SHA-256 → raises error
 
-**`TestRootfsSetup`**
-- `test_prepare_rootfs_idempotent` — second call skips download
+**`TestGoldenImageSetup`**
+- `test_prepare_golden_image_idempotent` — second call skips download
 - `test_install_packages` — mocked subprocess
 - `test_var_tmp_symlink_created` — after prepare, `/var/tmp` → `/tmp` symlink exists in rootfs
-- `test_workspace_tmp_dir_created` — `workspace/.tmp` directory created on first use
+
+**`TestPerWorkspaceCopy`**
+- `test_copy_rootfs_to_workspace` — golden image copied to `workspace/.rootfs/`
+- `test_copy_rootfs_idempotent` — second call skips copy
+- `test_workspace_tmp_dir_created` — `workspace/.tmp` directory created
+- `test_workspace_rootfs_isolated` — mutations in workspace A's rootfs not visible in workspace B
+- `test_apk_add_in_workspace_rootfs` — (skipif no bwrap) `apk add jq` succeeds in workspace rootfs
 
 ### Phase 3: Setup Wizard — `test_setup_wizard.py`
 
@@ -1338,6 +1372,7 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_create_workspace` — insert workspace row → verify name, path, allow_network defaults
 - `test_unique_name_constraint` — duplicate name → IntegrityError
 - `test_tmp_dir_created` — workspace creation ensures `.tmp` subdirectory exists
+- `test_rootfs_copied_on_create` — workspace creation copies golden image to `.rootfs/`
 
 **`TestWorkspaceAPI`** (uses `auth_client` fixture)
 - `test_list_workspaces` — GET → `{"items": [...], "total": N}`
@@ -1405,7 +1440,8 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_workspace_isolation` — two workspaces, agent in workspace A cannot read workspace B
 - `test_network_blocked_by_default` — agent tries `curl` → network unreachable
 - `test_network_allowed_when_enabled` — workspace with `allow_network=True` → curl succeeds
-- `test_alpine_rootfs_readonly` — write to `/usr/bin/evil` → fails (read-only rootfs)
+- `test_apk_add_persists` — `apk add jq` in sandbox → `jq --version` works in subsequent execution
+- `test_rootfs_isolation_between_workspaces` — `apk add` in workspace A → package not available in workspace B
 - `test_workspace_tmp_backing` — write to `/tmp/test` inside sandbox → exists at `workspace/.tmp/test` on host
 
 **`TestEndToEndContainerMode`**
@@ -1428,11 +1464,12 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 
 ## 18. Potential Issues
 
-1. **musl vs glibc** — Some pip packages with C extensions may lack musl wheels. Mitigation: pre-install common ones via `apk add py3-numpy` etc. in rootfs Tier 2.
-2. **Skill path mounting** — bwrap needs mount points to exist in rootfs. `prepare_rootfs()` creates `/skills` and `/home` dirs. Skill dirs mounted at their absolute host path via `--ro-bind`.
-3. **Agent prompt updates** — Deep agent system prompts should mention HOME=/workspace. The capability context injection (Section 4.5) handles this.
-4. **Network during rootfs setup** — `apk add` needs internet. Setup wizard must have network access. In Docker, rootfs is pre-baked so no runtime download needed.
-5. **Rootfs disk space** — ~50-100MB after Tier 1+2 packages installed. Shared across all workspaces (read-only). Negligible compared to workspace contents.
-6. **First execution latency** — On bare metal, first sandbox execution triggers rootfs download (~10s). Subsequent executions use cached rootfs. Setup wizard pre-triggers this.
+1. **musl vs glibc** — Some pip packages with C extensions may lack musl wheels. Mitigation: agents can `apk add py3-numpy` etc. in their workspace rootfs, or pre-install common ones in the golden image Tier 2.
+2. **Skill path mounting** — bwrap needs mount points to exist in rootfs. `prepare_golden_image()` creates `/skills` and `/home` dirs. Skill dirs mounted at their absolute host path via `--ro-bind`.
+3. **Agent prompt updates** — Deep agent system prompts should mention HOME=/workspace and that `apk add` is available. The capability context injection (Section 4.5) handles this.
+4. **Network during rootfs setup** — `apk add` during golden image provisioning needs internet. Setup wizard must have network access. In Docker, golden image is pre-baked so no runtime download needed. Agent `apk add` at execution time requires `allow_network=True` on the workspace.
+5. **Rootfs disk space** — ~50-100MB per workspace (copy of golden image). 10 workspaces ≈ 1GB. Negligible for self-hosted deployments. Workspace deletion cleans up the rootfs copy. A "Reset rootfs" action can re-copy from the golden image.
+6. **First execution latency** — On bare metal, first sandbox execution triggers golden image download (~10s) + workspace rootfs copy (~1-2s). Subsequent executions use the existing workspace copy. Setup wizard pre-triggers golden image preparation.
 7. **`/tmp` disk usage** — Since `/tmp` is backed by `workspace/.tmp` (not tmpfs), large temp files consume workspace disk. This is intentional — ephemeral tmpfs caused agent file loss between commands. Workspace cleanup can purge `.tmp` if needed.
 8. **`/var/tmp` symlink** — Some tools expect `/var/tmp` to survive reboots (unlike `/tmp`). Since both point to the same persistent `workspace/.tmp`, this is fine for our use case. The sandbox doesn't "reboot."
+9. **Agent `apk add` needs network** — if `allow_network=False` on a workspace, `apk add` will fail (no network). This is by design — network-isolated workspaces use only pre-provisioned tools. The agent capability injection tells the agent whether network is available.
