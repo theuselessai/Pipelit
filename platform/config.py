@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -36,11 +37,17 @@ class PipelitConfig(BaseModel):
     detected_environment: dict = {}
 
 
+_logger = logging.getLogger(__name__)
+
+
 def load_conf() -> PipelitConfig:
     """Load conf.json from the pipelit data directory."""
     conf_path = get_pipelit_dir() / "conf.json"
     if conf_path.exists():
-        return PipelitConfig.model_validate_json(conf_path.read_text())
+        try:
+            return PipelitConfig.model_validate_json(conf_path.read_text())
+        except Exception:
+            _logger.warning("Failed to parse %s, using defaults", conf_path, exc_info=True)
     return PipelitConfig()
 
 
@@ -107,7 +114,7 @@ class Settings(BaseSettings):
     )
 
     ZOMBIE_EXECUTION_THRESHOLD_SECONDS: int = (
-        _conf.zombie_execution_threshold_seconds or 900
+        _conf.zombie_execution_threshold_seconds if _conf.zombie_execution_threshold_seconds is not None else 900
     )
 
     LOG_LEVEL: str = _conf.log_level or "INFO"

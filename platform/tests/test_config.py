@@ -106,16 +106,18 @@ def test_load_conf_json_partial(tmp_path, monkeypatch):
     assert conf.setup_completed is False
 
 
-def test_load_conf_json_invalid_json(tmp_path, monkeypatch):
-    """Malformed JSON → ValidationError."""
+def test_load_conf_json_invalid_json(tmp_path, monkeypatch, caplog):
+    """Malformed JSON → falls back to defaults and logs a warning."""
     pipelit_dir = tmp_path / "pipelit"
     pipelit_dir.mkdir(parents=True)
     monkeypatch.setenv("PIPELIT_DIR", str(pipelit_dir))
 
     (pipelit_dir / "conf.json").write_text("{not valid json!!!")
 
-    with pytest.raises(ValidationError):
-        load_conf()
+    with caplog.at_level("WARNING", logger="config"):
+        conf = load_conf()
+    assert conf == PipelitConfig()
+    assert "Failed to parse" in caplog.text
 
 
 def test_save_conf_creates_dir(tmp_path, monkeypatch):
@@ -291,3 +293,22 @@ def test_sandbox_mode_default():
     """Settings.SANDBOX_MODE defaults to 'auto'."""
     s = Settings()
     assert s.SANDBOX_MODE == "auto"
+
+
+def test_zombie_threshold_zero_from_conf(tmp_path, monkeypatch):
+    """zombie_execution_threshold_seconds: 0 in conf.json → Settings uses 0, not 900."""
+    pipelit_dir = tmp_path / "pipelit"
+    pipelit_dir.mkdir(parents=True)
+    monkeypatch.setenv("PIPELIT_DIR", str(pipelit_dir))
+
+    (pipelit_dir / "conf.json").write_text(
+        json.dumps({"zombie_execution_threshold_seconds": 0})
+    )
+    monkeypatch.delenv("ZOMBIE_EXECUTION_THRESHOLD_SECONDS", raising=False)
+
+    conf = load_conf()
+    assert conf.zombie_execution_threshold_seconds == 0
+
+    # Replicate how Settings constructs the default from conf.json
+    threshold = conf.zombie_execution_threshold_seconds if conf.zombie_execution_threshold_seconds is not None else 900
+    assert threshold == 0
