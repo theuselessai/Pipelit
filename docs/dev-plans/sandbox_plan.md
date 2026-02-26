@@ -472,8 +472,8 @@ The current implementation already uses `--unshare-all`. The key addition is `--
 # Core bwrap args:
 args = ["bwrap", "--unshare-all"]
 args += ["--ro-bind", rootfs_dir, "/"]          # Alpine rootfs read-only
-args += ["--bind", workspace, "/workspace"]     # workspace read-write
-args += ["--bind", f"{workspace}/.tmp", "/tmp"] # persistent temp
+args += ["--bind", workspace_path, "/workspace"]     # workspace read-write
+args += ["--bind", f"{workspace_path}/.tmp", "/tmp"] # persistent temp
 args += ["--proc", "/proc"]
 args += ["--dev", "/dev"]
 args += ["--die-with-parent"]
@@ -506,10 +506,13 @@ In container mode, bwrap is not used but we still scrub the environment for subp
 def _build_sandbox_env(self, workspace_path: str) -> dict:
     """Build a clean environment for container-mode subprocess execution."""
     return {
-        "PATH": f"{workspace_path}/.venv/bin:/usr/local/bin:/usr/bin:/bin",
-        "HOME": "/tmp",
+        "PATH": f"{workspace_path}/.packages/bin:/usr/local/bin:/usr/bin:/bin",
+        "HOME": workspace_path,
         "TMPDIR": "/tmp",
         "LANG": "C.UTF-8",
+        "PIP_TARGET": f"{workspace_path}/.packages",
+        "PYTHONPATH": f"{workspace_path}/.packages",
+        "PYTHONDONTWRITEBYTECODE": "1",
         # Explicitly DO NOT include:
         # FIELD_ENCRYPTION_KEY, SECRET_KEY, DATABASE_URL, REDIS_URL
     }
