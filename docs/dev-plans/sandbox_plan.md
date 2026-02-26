@@ -333,7 +333,7 @@ bwrap \
   --ro-bind /etc/resolv.conf /etc/resolv.conf \         # DNS (when network allowed)
   --clearenv \
   --setenv HOME /workspace \
-  --setenv PATH /usr/bin:/bin:/usr/local/bin:/workspace/.packages/bin \
+  --setenv PATH /usr/local/bin:/usr/bin:/bin:/workspace/.packages/bin \
   --setenv PIP_TARGET /workspace/.packages \
   --setenv PYTHONPATH /workspace/.packages \
   --setenv PYTHONDONTWRITEBYTECODE 1 \
@@ -483,7 +483,7 @@ args += ["--chdir", "/workspace"]
 args += ["--clearenv"]                   # wipe ALL inherited env vars
 args += [
     "--setenv", "HOME", "/workspace",
-    "--setenv", "PATH", "/usr/bin:/bin:/usr/local/bin:/workspace/.packages/bin",
+    "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin:/workspace/.packages/bin",
     "--setenv", "PIP_TARGET", "/workspace/.packages",
     "--setenv", "PYTHONPATH", "/workspace/.packages",
     "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
@@ -506,7 +506,7 @@ In container mode, bwrap is not used but we still scrub the environment for subp
 def _build_sandbox_env(self, workspace_path: str) -> dict:
     """Build a clean environment for container-mode subprocess execution."""
     return {
-        "PATH": f"{workspace_path}/.packages/bin:/usr/local/bin:/usr/bin:/bin",
+        "PATH": f"/usr/local/bin:/usr/bin:/bin:{workspace_path}/.packages/bin",
         "HOME": workspace_path,
         "TMPDIR": "/tmp",
         "LANG": "C.UTF-8",
