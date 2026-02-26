@@ -3,7 +3,7 @@
 > **Created:** 2026-02-25
 > **Updated:** 2026-02-26
 > **Status:** Draft
-> **Scope:** Environment detection, setup wizard, conf.json, workspace management, code node sandboxing, security architecture
+> **Scope:** Security architecture, Alpine rootfs sandbox, environment detection, setup wizard, conf.json, workspace management, code node sandboxing
 
 ---
 
@@ -11,15 +11,20 @@
 
 Multiple related issues with the current platform setup and sandboxing:
 
-1. **bwrap warnings in containers** — `SandboxedShellBackend` logs a scary "no sandbox tool found" warning in Docker/Codespaces/Gitpod even though the container IS the sandbox.
-2. **No first-run setup wizard** — users must manually generate `FIELD_ENCRYPTION_KEY`, configure `.env`, and hit the setup API. No environment validation.
-3. **Config scattered across `.env`** — platform config, secrets, and legacy bot settings all mixed in one file. No `conf.json`.
-4. **macOS unsupported without guidance** — no bwrap on macOS, no `sandbox-exec` implementation, no docs pointing users to Docker.
-5. **Workspace paths hardcoded** — `~/.config/pipelit/workspaces/default` doesn't work in Docker, and users can freeform type paths in node config.
-6. **Code node has no sandboxing** — `code.py` runs `exec()` in the server process with zero isolation.
-7. **`code_execute` is redundant** — duplicates `run_command` with a regex blocklist that provides no real security.
-8. **No runtime capability detection** — `deep_agent` discovers missing tools (Node, Python, grep, etc.) only at execution time, leading to cryptic failures.
-9. **No pre-flight validation** — `SandboxedShellBackend` doesn't verify the sandbox is still valid at startup if conditions change after setup (e.g., bwrap uninstalled).
+1. **Unpredictable sandbox environment** — the current bwrap sandbox ro-binds host `/usr`, `/bin`, `/lib` into the sandbox. Tools vary by host distro (Debian, Ubuntu, Fedora, Arch, etc.), making agent behavior inconsistent across deployments.
+2. **Complex host-specific code** — `_prepare_sandbox_root()` has 45 lines of merged-usr detection, symlink creation, and mount-point scaffolding.
+3. **Exposes all host binaries** — the agent sees every binary in `/usr/bin`, not a controlled subset.
+4. **glibc venv coupling** — venv created with host python3 ties the sandbox to the host's libc.
+5. **Capability detection becomes guessing** — we don't control what's available in the sandbox, we can only discover it.
+6. **bwrap warnings in containers** — `SandboxedShellBackend` logs a scary "no sandbox tool found" warning in Docker/Codespaces/Gitpod even though the container IS the sandbox.
+7. **No first-run setup wizard** — users must manually generate `FIELD_ENCRYPTION_KEY`, configure `.env`, and hit the setup API. No environment validation.
+8. **Config scattered across `.env`** — platform config, secrets, and legacy bot settings all mixed in one file. No `conf.json`.
+9. **macOS unsupported without guidance** — no bwrap on macOS, no `sandbox-exec` implementation, no docs pointing users to Docker.
+10. **Workspace paths hardcoded** — `~/.config/pipelit/workspaces/default` doesn't work in Docker, and users can freeform type paths in node config.
+11. **Code node has no sandboxing** — `code.py` runs `exec()` in the server process with zero isolation.
+12. **`code_execute` is redundant** — duplicates `run_command` with a regex blocklist that provides no real security.
+13. **No runtime capability detection** — `deep_agent` discovers missing tools (Node, Python, grep, etc.) only at execution time, leading to cryptic failures.
+14. **No pre-flight validation** — `SandboxedShellBackend` doesn't verify the sandbox is still valid at startup if conditions change after setup (e.g., bwrap uninstalled).
 
 ---
 
@@ -59,8 +64,9 @@ The system has two distinct trust zones:
 │  │  Sandboxed Process                     │ │
 │  │  - --unshare-all (full NS isolation)   │ │
 │  │  - --clearenv    (no secrets leaked)   │ │
-│  │  - Workspace as / (read-write)         │ │
-│  │  - /usr ro-bind  (system binaries)     │ │
+│  │  - Alpine rootfs as / (read-only)      │ │
+│  │  - Workspace at /workspace (rw)        │ │
+│  │  - UID 0 in user namespace             │ │
 │  │  - No Redis, no DB, no config access   │ │
 │  └────────────────────────────────────────┘ │
 └─────────────────────────────────────────────┘
@@ -78,9 +84,11 @@ n8n's experience validates this architecture. Their Pyodide approach (Python in 
 
 | Concern | Mitigation |
 |---|---|
-| Filesystem access | Workspace mounted as `/` (rw). `/usr` ro-bind for system binaries. No access to `pipelit_dir`, database, other workspaces |
+| Filesystem access | Alpine rootfs as `/` (ro). Workspace at `/workspace` (rw). No access to `pipelit_dir`, database, other workspaces |
+| Temp files | `workspace/.tmp` backs `/tmp` inside sandbox. `/var/tmp` symlinked to `/tmp` in rootfs during setup. Prevents agent file loss between commands |
+| UID | Root (UID 0) inside user namespace — unprivileged outside. Simpler than mapping UIDs, matches Docker conventions, rootfs is read-only anyway |
 | Network access | `--unshare-all` isolates network by default. `--share-net` opt-in per workspace |
-| Environment variables | `--clearenv` wipes all env vars. Only `PATH`, `HOME`, `TMPDIR` set explicitly |
+| Environment variables | `--clearenv` wipes all env vars. Only `PATH`, `HOME`, `TMPDIR`, `LANG` set explicitly |
 | Process visibility | `--unshare-all` includes PID namespace — cannot see host processes |
 | IPC | `--unshare-all` includes IPC namespace — isolated shared memory and semaphores |
 | Secret leakage | Worker never passes `FIELD_ENCRYPTION_KEY`, `SECRET_KEY`, `DATABASE_URL`, or `REDIS_URL` to subprocess |
@@ -139,11 +147,14 @@ No `sandbox-exec` implementation. Documentation recommends macOS users run Pipel
 
 ### 4.1 Purpose
 
-Both the setup wizard and the agent need to know what tools are available in the execution environment. A GitHub Codespace might have Python but not Node. A minimal Docker image might lack `jq` or `curl`. Rather than discovering failures mid-pipeline, we detect capabilities upfront.
+With Alpine rootfs, capabilities in bwrap mode are controlled via `apk` packages (Tier 1/2) rather than discovered from the host. Detection is still needed for:
+- **Container mode** — capabilities depend on the container image
+- **Verifying rootfs readiness** — confirming the rootfs is prepared and packages installed
+- **Agent context injection** — telling the agent what tools are available
 
 ### 4.2 Implementation
 
-A single Python `detect_capabilities()` function runs at **server startup** and caches results in memory. Since `/usr` is ro-bind mounted into the sandbox, host-side detection accurately reflects what's available inside the sandbox.
+A single Python `detect_capabilities()` function runs at **server startup** and caches results in memory. In bwrap mode with Alpine rootfs, capabilities are known from the package list. In container mode, host-side detection reflects what's available.
 
 ```python
 def detect_capabilities(workspace_path: str | None = None) -> dict:
@@ -164,28 +175,28 @@ Checks ~30 binaries via `shutil.which()` + version subprocesses. Runs once at st
 
 ### 4.3 Tool tiers
 
-Tools are classified into tiers for setup wizard gating and agent context:
+Tools are classified into tiers for setup wizard gating and agent context. In bwrap mode, these map directly to Alpine `apk` packages installed during rootfs provisioning (see Section 6.4).
 
 **Tier 1 — Required** (agent is useless without these, setup wizard blocks if missing):
 
-| Category | Tools |
-|---|---|
-| Shell | `bash` or `sh` |
-| Runtime | `python3` |
-| Package manager | `pip` or `pip3` |
-| File basics | `cat`, `ls`, `cp`, `mv`, `mkdir`, `rm`, `chmod` |
-| Text processing | `grep`, `sed`, `head`, `tail`, `wc` |
+| Category | Tools | Alpine package |
+|---|---|---|
+| Shell | `bash` or `sh` | `bash` |
+| Runtime | `python3` | `python3` |
+| Package manager | `pip` or `pip3` | `py3-pip` |
+| File basics | `cat`, `ls`, `cp`, `mv`, `mkdir`, `rm`, `chmod` | `coreutils` |
+| Text processing | `grep`, `sed`, `head`, `tail`, `wc` | `grep`, `sed`, `coreutils` |
 
 **Tier 2 — Recommended** (agent works without these but is significantly limited, setup wizard warns):
 
-| Category | Tools |
-|---|---|
-| File operations | `find`, `sort`, `awk`, `xargs`, `tee` |
-| Network | `curl` or `wget` (if network is allowed on workspace) |
-| Version control | `git` |
-| Archives | `tar`, `unzip` |
-| Data processing | `jq` |
-| JS runtime | `node` + `npm` (if JS support needed) |
+| Category | Tools | Alpine package |
+|---|---|---|
+| File operations | `find`, `sort`, `awk`, `xargs`, `tee` | `findutils`, `coreutils`, `gawk` |
+| Network | `curl` or `wget` (if network is allowed on workspace) | `curl`, `wget` |
+| Version control | `git` | `git` |
+| Archives | `tar`, `unzip` | `tar`, `unzip` |
+| Data processing | `jq` | `jq` |
+| JS runtime | `node` + `npm` (if JS support needed) | `nodejs`, `npm` |
 
 The setup wizard environment check displays both tiers. Tier 1 missing → **blocked** (cannot proceed). Tier 2 missing → **warning** with list of missing tools (can proceed).
 
@@ -199,7 +210,7 @@ The setup wizard environment check displays both tiers. Tier 1 missing → **blo
 | Agent session | Session start | Inject into system context so agent knows what it can use |
 | Node config UI | Editor load | Show warnings if selected language/runtime unavailable |
 
-### 4.4 Agent context injection
+### 4.5 Agent context injection
 
 At the start of a `deep_agent` session, the cached capability report is injected as a system message:
 
@@ -210,7 +221,7 @@ Runtimes: python3 (3.11.6), pip3 (23.2.1). Node.js is NOT available.
 Shell tools: ls, grep, sed, awk, cat, head, tail, find, curl, git, tar, jq.
   Missing: wget, unzip.
 Network: DNS available, HTTP outbound available.
-Filesystem: Workspace is read-write. /tmp is writable.
+Filesystem: /workspace is read-write. /tmp is writable (backed by workspace/.tmp).
 
 Plan your approach using only available tools. Do not attempt to install
 packages or runtimes that are not present.
@@ -277,40 +288,217 @@ def _resolve_sandbox_mode(config_mode: str) -> SandboxResolution:
 
 On server startup, the stored `detected_environment` in `conf.json` is compared against a fresh detection. If conditions have changed (e.g., bwrap was available at setup but is now missing), the server logs a warning and updates the cached state.
 
+Additionally, rootfs readiness is checked: if `sandbox_mode` resolves to `bwrap`, verify that the Alpine rootfs is prepared and the version hasn't changed.
+
 ---
 
-## 6. bwrap Command Hardening
+## 6. Alpine Linux Rootfs
 
-### 6.1 Changes to existing `_build_bwrap_command()`
+### 6.1 Why Alpine
 
-The current implementation already uses workspace-as-root (`--bind workspace /`) and `--unshare-all`. The key addition is `--clearenv` to prevent secret leakage:
+Replace all host system binds with Alpine Linux's mini root filesystem (~3MB compressed, ~8MB extracted) as the sandbox root.
+
+**Alpine provides:**
+- musl libc (small, self-contained)
+- `apk` package manager to install exactly the tools we want
+- Consistent environment across all host distros
+- x86_64, aarch64, armv7, x86 architecture support
+- Used by Docker containers everywhere — battle-tested
+
+**What this eliminates:**
+- `_prepare_sandbox_root()` — no more merged-usr detection, symlink creation, or mount-point scaffolding
+- Host binary exposure — agent sees only controlled Alpine packages, not every binary in host `/usr/bin`
+- glibc venv coupling — Alpine's musl python is self-contained
+- Capability guesswork — we install exactly what we want via `apk`
+
+### 6.2 Architecture overview
+
+**Current (host-binding):**
+```
+bwrap --bind workspace / --ro-bind /usr /usr --ro-bind /etc/ssl /etc/ssl ...
+  → Agent sees: / = workspace (rw), /usr = HOST binaries (ro)
+  → Writes to ANY path persist in workspace
+  → Complex _prepare_sandbox_root() for merged-usr detection
+```
+
+**New (Alpine rootfs):**
+```
+bwrap \
+  --unshare-all \
+  --ro-bind {pipelit_dir}/rootfs/alpine-{version} /   # Alpine is root (ro)
+  --bind {workspace_path} /workspace                    # workspace (rw)
+  --bind {workspace_path}/.tmp /tmp                     # persistent temp
+  # /var/tmp → /tmp symlink created in rootfs during setup
+  --proc /proc --dev /dev \
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \         # DNS (when network allowed)
+  --clearenv \
+  --setenv HOME /workspace \
+  --setenv PATH /usr/bin:/bin:/usr/local/bin:/workspace/.packages/bin \
+  --setenv PIP_TARGET /workspace/.packages \
+  --setenv PYTHONPATH /workspace/.packages \
+  --setenv PYTHONDONTWRITEBYTECODE 1 \
+  --setenv TMPDIR /tmp \
+  --setenv LANG C.UTF-8 \
+  --die-with-parent \
+  --chdir /workspace \
+  -- bash -c "{command}"
+```
+
+**Key design decisions:**
+- **UID 0 inside sandbox** — root inside user namespace, unprivileged outside. Simpler than UID mapping, matches Docker conventions, rootfs is read-only anyway
+- **Flat workspace mount** — entire host workspace dir mounted as `/workspace` (rw)
+- **`/tmp` backed by `workspace/.tmp`** — persists temp files between commands within an execution. Prevents agent file loss when tools write to `/tmp`. `/var/tmp` symlinked to `/tmp` in rootfs during setup for tools that use it
+- **`--clearenv`** — no host secrets leak
+- **No venv** — Python3 from Alpine, pip packages via `PIP_TARGET`
+- **No `_prepare_sandbox_root()`** — no merged-usr detection, no symlinks
+
+### 6.3 No-venv approach
+
+Python3 comes from the Alpine rootfs (read-only). When agents `pip install` packages:
+
+- `PIP_TARGET=/workspace/.packages` — pip writes packages here
+- `PYTHONPATH=/workspace/.packages` — Python imports from here
+- `PATH` includes `/workspace/.packages/bin` — executable scripts found here
+- `PYTHONDONTWRITEBYTECODE=1` — avoids `.pyc` clutter
+
+Packages persist across executions because `/workspace` is the host workspace directory.
+
+### 6.4 Rootfs provisioning
+
+#### Version discovery
+
+Instead of hardcoding Alpine versions, we fetch the latest:
+
+```
+GET https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/{arch}/latest-releases.yaml
+
+→ Parse YAML, find entry with flavor="alpine-minirootfs"
+→ Extract: version, file (filename), sha256
+→ Download URL: https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/{arch}/{file}
+→ Verify SHA-256 after download
+```
+
+The rootfs dir is named by the discovered version (e.g., `rootfs/alpine-3.23.3`).
+
+#### Architecture detection
 
 ```python
-# Current (keep):
-args = ["bwrap", "--unshare-all"]
-args += ["--bind", workspace, "/"]       # workspace as root filesystem
-args += ["--ro-bind", "/usr", "/usr"]    # system binaries read-only
-# ... existing /etc, /proc, /dev mounts ...
-args += ["--die-with-parent"]
-args += ["--chdir", "/"]
+ARCH_MAP = {
+    "x86_64": "x86_64",       # Most Linux servers
+    "aarch64": "aarch64",     # ARM64 Linux (Graviton, Ampere)
+    "arm64": "aarch64",       # Docker on Apple Silicon reports arm64
+    "armv7l": "armv7",        # Raspberry Pi 32-bit
+    "i686": "x86",            # Legacy 32-bit
+    "i386": "x86",
+}
+```
 
-# NEW — add --clearenv and explicit env vars:
+`detect_arch()` maps `platform.machine()` through `ARCH_MAP`. Unsupported architectures raise `RuntimeError` at setup time.
+
+#### Package installation
+
+After extracting the rootfs tarball, install packages using bwrap with the rootfs temporarily writable:
+
+```bash
+bwrap \
+  --bind {rootfs_dir} / \          # rootfs WRITABLE during setup
+  --proc /proc --dev /dev \
+  --share-net \                     # network needed for apk
+  --tmpfs /tmp \
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \
+  --die-with-parent \
+  -- /sbin/apk add --no-cache {packages}
+```
+
+After package installation, `/var/tmp` is symlinked to `/tmp` inside the rootfs. Then the rootfs is only ever mounted read-only.
+
+#### Tier 1 packages (required)
+
+| Alpine package | Provides |
+|---|---|
+| `bash` | bash shell |
+| `python3` | python3 runtime |
+| `py3-pip` | pip package manager |
+| `coreutils` | cat, ls, cp, mv, mkdir, rm, chmod, head, tail, wc, sort, tee |
+| `grep` | grep |
+| `sed` | sed |
+
+#### Tier 2 packages (recommended)
+
+| Alpine package | Provides |
+|---|---|
+| `findutils` | find, xargs |
+| `curl` | curl |
+| `wget` | wget |
+| `git` | git |
+| `tar` | tar |
+| `unzip` | unzip |
+| `jq` | jq |
+| `gawk` | awk (GNU awk, not busybox) |
+| `nodejs` | node |
+| `npm` | npm |
+
+### 6.5 Deployment modes
+
+**Docker image:** Rootfs is pre-baked during `docker build`. No download needed at runtime. `ROOTFS_DIR` env var points to the baked location.
+
+**Bare metal:** Rootfs downloaded during setup wizard (Step 1: Environment Check). Requires internet access during setup. Stored at `{pipelit_dir}/rootfs/alpine-{version}/`.
+
+### 6.6 Concurrency safety
+
+Multiple RQ workers may start simultaneously. `prepare_rootfs()` uses `fcntl.flock()` on a lock file:
+
+```python
+with open(rootfs_dir.parent / ".rootfs.lock", "w") as lock_file:
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+    if is_rootfs_ready(rootfs_dir):
+        return rootfs_dir  # another worker finished first
+    # ... download, extract, install ...
+```
+
+### 6.7 Version upgrades
+
+A `.alpine-version` file in the rootfs dir records the installed version. When `get_latest_version()` returns a newer version, `is_rootfs_ready()` returns False, triggering re-preparation.
+
+---
+
+## 7. bwrap Command Hardening
+
+### 7.1 `--clearenv` and explicit env vars
+
+The current implementation already uses `--unshare-all`. The key addition is `--clearenv` to prevent secret leakage:
+
+```python
+# Core bwrap args:
+args = ["bwrap", "--unshare-all"]
+args += ["--ro-bind", rootfs_dir, "/"]          # Alpine rootfs read-only
+args += ["--bind", workspace, "/workspace"]     # workspace read-write
+args += ["--bind", f"{workspace}/.tmp", "/tmp"] # persistent temp
+args += ["--proc", "/proc"]
+args += ["--dev", "/dev"]
+args += ["--die-with-parent"]
+args += ["--chdir", "/workspace"]
+
+# Clean environment:
 args += ["--clearenv"]                   # wipe ALL inherited env vars
 args += [
-    "--setenv", "HOME", "/",
-    "--setenv", "PATH", f"/.venv/bin:/usr/bin:/bin",
+    "--setenv", "HOME", "/workspace",
+    "--setenv", "PATH", "/usr/bin:/bin:/usr/local/bin:/workspace/.packages/bin",
+    "--setenv", "PIP_TARGET", "/workspace/.packages",
+    "--setenv", "PYTHONPATH", "/workspace/.packages",
+    "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
     "--setenv", "TMPDIR", "/tmp",
     "--setenv", "LANG", "C.UTF-8",
 ]
 ```
 
-This replaces the current `--setenv` calls (which add to the inherited env) with `--clearenv` + explicit vars (which starts clean). The worker's `FIELD_ENCRYPTION_KEY`, `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL` etc. are never passed to the subprocess.
+This replaces any `--setenv` calls (which add to the inherited env) with `--clearenv` + explicit vars (which starts clean). The worker's `FIELD_ENCRYPTION_KEY`, `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL` etc. are never passed to the subprocess.
 
-### 6.2 Network access toggle
+### 7.2 Network access toggle
 
 Some legitimate pipelines need HTTP access (API calls, web scraping). Network access is configurable per-workspace via `allow_network` (default `False`). When enabled, `--share-net` is added to the bwrap command (already supported in current code).
 
-### 6.3 Container mode environment scrubbing
+### 7.3 Container mode environment scrubbing
 
 In container mode, bwrap is not used but we still scrub the environment for subprocess calls:
 
@@ -329,14 +517,14 @@ def _build_sandbox_env(self, workspace_path: str) -> dict:
 
 ---
 
-## 7. Setup Wizard
+## 8. Setup Wizard
 
-### 7.1 Flow
+### 8.1 Flow
 
 **Step 1: Environment Check (gate)**
 - Auto-detect: OS, bwrap availability, container environment, runtime capabilities
-- **Linux + bwrap** → pass
-- **Container detected** → pass (sandbox_mode = container)
+- **Linux + bwrap** → pass, trigger rootfs download in background
+- **Container detected** → pass (sandbox_mode = container, no rootfs needed)
 - **Linux bare metal + no bwrap** → **blocked**: "bwrap is required. Install with `apt install bubblewrap`" + Re-check button
 - **macOS bare metal** → **blocked**: "macOS requires Docker. See setup docs." + link
 - Display detected runtimes and tools (informational, not blocking)
@@ -352,23 +540,23 @@ def _build_sandbox_env(self, workspace_path: str) -> dict:
 - Create "default" workspace
 - Mark `setup_completed: true`
 
-### 7.2 Pre-flight (server startup)
+### 8.2 Pre-flight (server startup)
 
 Before the wizard UI loads, the server checks:
 1. If `FIELD_ENCRYPTION_KEY` is empty → auto-generate Fernet key, append to `.env`, set in `os.environ`
 2. This must happen before SQLAlchemy model import since `EncryptedString` reads the env var at module load time
 3. Re-validate `detected_environment` against current state (see Section 5.3)
 
-### 7.3 API changes
+### 8.3 API changes
 
-- `GET /auth/setup-status/` — extended to return `{ needs_setup: bool, environment: { os, container, bwrap_available, capabilities } }`
+- `GET /auth/setup-status/` — extended to return `{ needs_setup: bool, environment: { os, container, bwrap_available, rootfs_ready, capabilities } }`
 - `POST /auth/setup/` — expanded to accept `sandbox_mode`, `pipelit_dir`, and optional config overrides alongside `username`/`password`
 
 ---
 
-## 8. Configuration Architecture
+## 9. Configuration Architecture
 
-### 8.1 `conf.json` — platform runtime config
+### 9.1 `conf.json` — platform runtime config
 
 Location: `{pipelit_dir}/conf.json` (default `~/.config/pipelit/conf.json`)
 
@@ -390,6 +578,7 @@ Written by the setup wizard, editable via the Settings page.
     "os": "linux",
     "container": "docker",
     "bwrap_available": false,
+    "rootfs_ready": false,
     "capabilities": {
       "runtimes": {
         "python3": {"available": true, "version": "Python 3.11.6"},
@@ -408,7 +597,7 @@ Written by the setup wizard, editable via the Settings page.
 }
 ```
 
-### 8.2 `.env` — secrets only
+### 9.2 `.env` — secrets only
 
 ```
 FIELD_ENCRYPTION_KEY=<auto-generated Fernet key>
@@ -417,24 +606,25 @@ SECRET_KEY=<auto-generated random string>
 
 Both auto-generated by the wizard on first run.
 
-### 8.3 Settings load order
+### 9.3 Settings load order
 
 1. `conf.json` (platform config)
 2. `.env` (secrets)
 3. Environment variables (override everything)
 
-### 8.4 Paths derived from `pipelit_dir`
+### 9.4 Paths derived from `pipelit_dir`
 
 | Path | Derived as |
 |---|---|
 | Config file | `{pipelit_dir}/conf.json` |
+| Rootfs directory | `{pipelit_dir}/rootfs/alpine-{version}/` |
 | Skills directory | `{pipelit_dir}/skills/` |
 | Default workspace parent | `{pipelit_dir}/workspaces/` |
 | Default database | `{pipelit_dir}/db.sqlite3` |
 | Checkpoints DB | per-workspace or `{pipelit_dir}/checkpoints.db` |
 | MCP config | `{pipelit_dir}/mcp_config.json` (unify from `~/.config/aichat-platform/`) |
 
-### 8.5 Removed config
+### 9.5 Removed config
 
 - `ALLOWED_HOSTS` — dead config, never used (Django-ism). Delete from Settings.
 - `WORKSPACE_DIR` — replaced by per-workspace DB records. Default workspace path derived from `pipelit_dir`.
@@ -442,9 +632,9 @@ Both auto-generated by the wizard on first run.
 
 ---
 
-## 9. Workspace Management
+## 10. Workspace Management
 
-### 9.1 Database model
+### 10.1 Database model
 
 ```python
 class Workspace(Base):
@@ -458,9 +648,9 @@ class Workspace(Base):
     user_profile_id: Mapped[int] = mapped_column(ForeignKey("user_profile.id"))
 ```
 
-Venv is always at `{workspace.path}/.venv` — no separate column needed.
+Workspace path is mounted as `/workspace` inside bwrap. A `.tmp` subdirectory is created automatically and mounted as `/tmp` in the sandbox.
 
-### 9.2 Workspace page (new sidebar item)
+### 10.2 Workspace page (new sidebar item)
 
 - List registered workspaces (name, path, network access, created date)
 - Create workspace — name required, path auto-derived as `{pipelit_dir}/workspaces/{name}` (overridable)
@@ -468,16 +658,16 @@ Venv is always at `{workspace.path}/.venv` — no separate column needed.
 - Delete workspace (with confirmation)
 - A "default" workspace is auto-created during setup wizard
 
-### 9.3 Node config integration
+### 10.3 Node config integration
 
 - `deep_agent`, `code`, and future sandbox-using nodes get a **workspace dropdown** instead of freeform text
 - `extra_config.workspace_id` references the `Workspace.id`
 - Workspace path resolved at execution time from the DB record
 
-### 9.4 Future extensions
+### 10.4 Future extensions
 
 Workspaces are the unit of isolation that grows over time:
-- Filesystem + venv (current)
+- Filesystem + packages (current — `/workspace/.packages` via PIP_TARGET)
 - Git repo initialization
 - GitHub auth (per-workspace `gh` config)
 - Per-workspace credentials
@@ -485,15 +675,15 @@ Workspaces are the unit of isolation that grows over time:
 
 ---
 
-## 10. Code Node Sandboxing
+## 11. Code Node Sandboxing
 
-### 10.1 Current state
+### 11.1 Current state
 
 - **`code.py`** — in-process `exec()`, zero isolation, category `logic`
 - **`code_execute.py`** — subprocess + regex blocklist, category `sub_component` (tool for agents)
 - **`run_command.py`** — subprocess `shell=True`, category `sub_component` (tool for agents)
 
-### 10.2 Changes
+### 11.2 Changes
 
 **Remove `code_execute`** — redundant with `run_command`. The regex blocklist is security theater since `run_command` has no such restrictions. Remove:
 - `platform/components/code_execute.py`
@@ -510,15 +700,15 @@ Workspaces are the unit of isolation that grows over time:
 
 ---
 
-## 11. Settings Page Expansion
+## 12. Settings Page Expansion
 
-### 11.1 Current state
+### 12.1 Current state
 
 `/settings` only has theme selection.
 
-### 11.2 New sections
+### 12.2 New sections
 
-- **Environment** (read-only) — OS, container detection, bwrap status, runtime capabilities, tool availability
+- **Environment** (read-only) — OS, container detection, bwrap status, rootfs status, runtime capabilities, tool availability
 - **Sandbox mode** — dropdown: auto / container / bwrap
 - **Data directory** (`pipelit_dir`)
 - **Database URL**
@@ -528,7 +718,7 @@ Workspaces are the unit of isolation that grows over time:
 - **Logging** — level dropdown, file path
 - **Zombie threshold**
 
-### 11.3 Hot-reload vs restart
+### 12.3 Hot-reload vs restart
 
 | Hot-reloadable | Restart required |
 |---|---|
@@ -543,11 +733,11 @@ Settings page shows a "Restart required for changes to take effect" banner when 
 
 ---
 
-## 12. Frontend Design
+## 13. Frontend Design
 
 All new pages follow existing patterns: Shadcn/ui components, Lucide React icons, `space-y-*` vertical spacing, `Card` sections, `Select` dropdowns, `Table` for lists, `Dialog` for create/edit forms.
 
-### 12.1 Setup Wizard (`/setup`)
+### 13.1 Setup Wizard (`/setup`)
 
 Replaces the current single-card setup page. Multi-step flow with a step indicator.
 
@@ -562,6 +752,7 @@ Replaces the current single-card setup page. Multi-step flow with a step indicat
 │  │                                                       │  │
 │  │  OS            Linux x86_64                      ✓    │  │
 │  │  Sandbox       bwrap (/usr/bin/bwrap)            ✓    │  │
+│  │  Rootfs        Alpine 3.23.3 (downloading...)    ⟳    │  │
 │  │  Container     Not detected                      —    │  │
 │  │  Python        3.11.6                            ✓    │  │
 │  │  Node.js       Not found                         ✗    │  │
@@ -667,9 +858,9 @@ Replaces the current single-card setup page. Multi-step flow with a step indicat
 │  └───────────────────────────────────────────────────────┘  │
 ```
 
-**Components used:** `Card`, `Button`, `Input`, `Label`, `Select`, `Alert`, `Badge` (for ✓/✗ status), step indicator (custom, three dots with connecting lines).
+**Components used:** `Card`, `Button`, `Input`, `Label`, `Select`, `Alert`, `Badge` (for status indicators), step indicator (custom, three dots with connecting lines).
 
-### 12.2 Workspaces Page (`/workspaces`)
+### 13.2 Workspaces Page (`/workspaces`)
 
 Follows the CredentialsPage pattern: table + create dialog.
 
@@ -713,7 +904,7 @@ Follows the CredentialsPage pattern: table + create dialog.
 
 **Components used:** `Table`, `Card`, `Dialog`, `Input`, `Label`, `Switch`, `Button`, `Checkbox`, `Badge` (for network On/Off), `PaginationControls`.
 
-### 12.3 Settings Page Expansion (`/settings`)
+### 13.3 Settings Page Expansion (`/settings`)
 
 Adds new Card sections below existing Appearance/Theme/MFA cards.
 
@@ -739,6 +930,7 @@ Adds new Card sections below existing Appearance/Theme/MFA cards.
 │  │  Container       docker                    [Badge: docker]  │  │
 │  │  Sandbox Mode    bwrap                     [Badge: active]  │  │
 │  │  bwrap           /usr/bin/bwrap            [Badge: ✓]       │  │
+│  │  Alpine Rootfs   3.23.3                    [Badge: ready]   │  │
 │  │                                                             │  │
 │  │  Runtimes        python3 3.11.6  ✓                          │  │
 │  │                  node            ✗  not found               │  │
@@ -782,7 +974,7 @@ Adds new Card sections below existing Appearance/Theme/MFA cards.
 
 **Components used:** Existing `Card` pattern with multiple sections, `Select` for dropdowns (sandbox mode, log level), `Input` for text fields, `Switch` for boolean toggles, `Badge` for status indicators, `Alert` for restart warning.
 
-### 12.4 Node Details Panel — Workspace Dropdown
+### 13.4 Node Details Panel — Workspace Dropdown
 
 In `NodeDetailsPanel.tsx`, for `deep_agent`, `code`, and future sandboxed node types, the freeform `filesystem_root_dir` text field is replaced with a workspace dropdown.
 
@@ -806,7 +998,7 @@ In `NodeDetailsPanel.tsx`, for `deep_agent`, `code`, and future sandboxed node t
 
 Uses the standard `<Select>` pattern. Workspace list fetched via a `useWorkspaces()` TanStack Query hook. Saves as `extra_config.workspace_id` (integer).
 
-### 12.5 Sidebar Navigation Update
+### 13.5 Sidebar Navigation Update
 
 Add "Workspaces" to the nav items in `AppLayout.tsx`:
 
@@ -822,7 +1014,7 @@ Add "Workspaces" to the nav items in `AppLayout.tsx`:
 
 Positioned after Executions since workspaces are infrastructure-level, similar to credentials.
 
-### 12.6 Routes Update
+### 13.6 Routes Update
 
 Add to `App.tsx`:
 
@@ -834,7 +1026,119 @@ Add to `App.tsx`:
 
 ---
 
-## 13. Implementation Order
+## 14. Files to Create/Modify
+
+### 14.1 New files
+
+#### `platform/services/rootfs.py` (~150 lines)
+
+```python
+ALPINE_BRANCH = "latest-stable"
+TIER1_PACKAGES = ["bash", "python3", "py3-pip", "coreutils", "grep", "sed"]
+TIER2_PACKAGES = ["findutils", "curl", "wget", "git", "tar", "unzip", "jq", "gawk", "nodejs", "npm"]
+
+ARCH_MAP = {
+    "x86_64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+    "armv7l": "armv7",
+    "i686": "x86",
+    "i386": "x86",
+}
+```
+
+Functions:
+- `detect_arch()` → mapped architecture string or RuntimeError
+- `get_latest_version(arch)` → `(version, filename, sha256)` from `latest-releases.yaml`
+- `get_rootfs_dir()` → `Path` to rootfs directory
+- `is_rootfs_ready(rootfs_dir)` → bool (checks `/bin/sh`, `/usr/bin/python3`, `.alpine-version`)
+- `download_rootfs(target_dir, arch)` → downloads tarball with SHA-256 verification
+- `extract_rootfs(tarball, target_dir)` → `tar xzf`
+- `install_packages(rootfs_dir, packages)` → `apk add` inside bwrap
+- `prepare_rootfs(tier=1)` → orchestrates everything, idempotent, file-locked
+  - Creates `/var/tmp → /tmp` symlink in rootfs after package installation
+  - Creates `workspace/.tmp` directory on first use
+
+### 14.2 Files to modify
+
+#### `platform/components/sandboxed_backend.py`
+
+**Delete entirely:**
+- `_prepare_sandbox_root()` function
+
+**Rewrite `_build_bwrap_command()`:**
+- New required param: `rootfs_dir: str`
+- `--ro-bind rootfs_dir /` replaces `--bind workspace /` + all host binds
+- `--bind workspace /workspace` for workspace
+- `--bind workspace/.tmp /tmp` for persistent temp
+- `--clearenv` + explicit env vars (HOME=/workspace, PIP_TARGET, PYTHONPATH)
+- UID 0 inside sandbox via user namespace (default bwrap behavior with `--unshare-user`)
+- `/etc/resolv.conf` ro-bind only when `allow_network=True`
+- Skill paths via `extra_ro_binds` — bwrap overlays on top of rootfs
+- No merged-usr handling, no /etc entries, no /lib64 checks
+
+**Modify `SandboxedShellBackend.__init__()`:**
+- Add `self._rootfs_dir: str | None = None`
+
+**Modify `SandboxedShellBackend.execute()`:**
+- Lazy rootfs init on first call
+- Ensure `workspace/.tmp` directory exists
+- Pass `rootfs_dir` to `_build_bwrap_command()`
+
+#### `platform/components/deep_agent.py`
+
+- **Delete** `_ensure_workspace_venv()` function
+- **Remove** `_ensure_workspace_venv(root_dir)` call from `_build_backend()`
+
+#### `platform/config.py`
+
+- Add: `ROOTFS_DIR: str = ""` (resolved at runtime from `pipelit_dir`)
+
+#### `platform/tests/test_sandboxed_backend.py`
+
+**Delete:**
+- `TestPrepareSandboxRoot` class
+- `TestPythonExecution._setup_venv` fixture
+- `TestEnsureWorkspaceVenv` class
+- Tests expecting writes to arbitrary paths to persist
+
+**Rewrite `TestBwrapCommand`:**
+- Verify `--ro-bind rootfs /` + `--bind workspace /workspace`
+- Verify `--bind workspace/.tmp /tmp`
+- Verify `--clearenv`
+- Verify env vars: HOME=/workspace, PIP_TARGET, PYTHONPATH
+
+**Rewrite `TestSandboxedExecution`** (skipif no bwrap):
+- Write to `/workspace/test.txt` → persists
+- Write to `/root/evil` → fails (read-only rootfs)
+- Write to `/tmp/test.txt` → persists (backed by workspace/.tmp)
+- `python3 --version` → works (Alpine's musl python)
+- `pip install` → goes to `/workspace/.packages`
+
+#### `platform/tests/test_deep_agent.py`
+
+- Remove references to `_ensure_workspace_venv`
+- Remove assertions checking `.venv` directory creation
+
+---
+
+## 15. Breaking Changes
+
+| Before | After |
+|---|---|
+| Workspace is `/` — writes to ANY path persist | Only `/workspace` is writable |
+| `/tmp` is tmpfs, ephemeral | `/tmp` backed by `workspace/.tmp`, persistent within workspace |
+| `/var/tmp` not addressed | `/var/tmp` symlinked to `/tmp` in rootfs |
+| HOME=/ | HOME=/workspace |
+| Host glibc python3 + venv | Alpine musl python3, no venv |
+| PATH includes `/.venv/bin` | PATH includes `/workspace/.packages/bin` |
+| UID matches host user | UID 0 (root) inside user namespace |
+| `_prepare_sandbox_root()` scaffolding | No scaffolding needed |
+| Hardcoded Alpine version | Dynamic version from `latest-releases.yaml` |
+
+---
+
+## 16. Implementation Order
 
 ### Phase 1: Config Foundation
 1. Create `conf.json` schema and loader
@@ -842,42 +1146,45 @@ Add to `App.tsx`:
 3. Remove `ALLOWED_HOSTS` from Settings
 4. Auto-generate `FIELD_ENCRYPTION_KEY` + `SECRET_KEY` on first startup
 
-### Phase 2: Environment Detection, Capabilities & Sandbox Mode
+### Phase 2: Environment Detection + Alpine Rootfs
 5. Implement `detect_capabilities()` (Python, cached at startup)
 6. Add `_detect_container()` to `sandboxed_backend.py`
 7. Implement `_resolve_sandbox_mode()` returning `SandboxResolution`
-8. Add `--clearenv` to existing `_build_bwrap_command()`
-9. Add `_build_sandbox_env()` for container mode env scrubbing
-10. Update `SandboxedShellBackend.__init__()` to use resolved mode
-11. Add startup re-validation (`validate_environment_on_startup()`)
-12. Tests for container detection, capability detection, sandbox mode config
+8. Implement `platform/services/rootfs.py` (Alpine rootfs provisioning)
+9. Rewrite `_build_bwrap_command()` for Alpine rootfs (ro-bind rootfs, /workspace mount, /tmp mount, --clearenv, UID 0)
+10. Delete `_prepare_sandbox_root()` and venv-related code
+11. Add `_build_sandbox_env()` for container mode env scrubbing
+12. Update `SandboxedShellBackend.__init__()` to use resolved mode + lazy rootfs
+13. Add startup re-validation (`validate_environment_on_startup()`, including rootfs readiness)
+14. Tests for container detection, capability detection, rootfs provisioning, sandbox mode config
 
 ### Phase 3: Setup Wizard
-13. Extend `GET /auth/setup-status/` with environment info and capabilities
-14. Extend `POST /auth/setup/` to accept config + write `conf.json` with capabilities
-15. Frontend: setup wizard page (environment gate → admin account → done)
+15. Extend `GET /auth/setup-status/` with environment info, capabilities, and rootfs status
+16. Extend `POST /auth/setup/` to accept config + write `conf.json` + trigger rootfs download
+17. Frontend: setup wizard page (environment gate → admin account → done)
 
 ### Phase 4: Workspace Management
-16. `Workspace` SQLAlchemy model (with `allow_network`) + Alembic migration
-17. Workspace CRUD API endpoints
-18. Frontend: Workspaces page (sidebar item)
-19. Update node config to use workspace dropdown instead of freeform text
-20. Create "default" workspace during setup wizard
+18. `Workspace` SQLAlchemy model (with `allow_network`) + Alembic migration
+19. Workspace CRUD API endpoints
+20. Frontend: Workspaces page (sidebar item)
+21. Update node config to use workspace dropdown instead of freeform text
+22. Create "default" workspace during setup wizard
+23. Ensure `workspace/.tmp` directory creation on workspace create
 
 ### Phase 5: Code Node Sandboxing
-21. Remove `code_execute` component, node type registration, and frontend references
-22. Rewrite `code.py` to use subprocess execution
-23. Wrap `code` and `run_command` subprocess calls in bwrap when available
-24. Inject capability report into `deep_agent` system context at session start
+24. Remove `code_execute` component, node type registration, and frontend references
+25. Rewrite `code.py` to use subprocess execution
+26. Wrap `code` and `run_command` subprocess calls in bwrap when available
+27. Inject capability report into `deep_agent` system context at session start
 
 ### Phase 6: Settings Page
-25. Expand `/settings` with all `conf.json` fields + capabilities display
-26. Implement save → write `conf.json` + hot-reload where possible
-27. Restart-required banner for non-hot-reloadable fields
+28. Expand `/settings` with all `conf.json` fields + capabilities display + rootfs status
+29. Implement save → write `conf.json` + hot-reload where possible
+30. Restart-required banner for non-hot-reloadable fields
 
 ---
 
-## 14. Testing Plan
+## 17. Testing Plan
 
 Testing follows existing project patterns: in-memory SQLite for DB tests, `SimpleNamespace` mocks for component factories, `@patch` for external services, `@pytest.mark.skipif` for bwrap-dependent tests. Target: 92% coverage on all new code (matching `codecov.yml`).
 
@@ -925,7 +1232,7 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 
 **`TestClearenvSecurity`** (skipif no bwrap)
 - `test_clearenv_no_inherited_env` — set `SECRET_TEST_VAR=leaked` in host env, execute `echo $SECRET_TEST_VAR` in sandbox → empty output
-- `test_clearenv_explicit_vars_set` — execute `echo $HOME:$PATH:$TMPDIR` → verify `/`, venv path, `/tmp`
+- `test_clearenv_explicit_vars_set` — execute `echo $HOME:$PATH:$TMPDIR` → verify `/workspace`, packages path, `/tmp`
 - `test_field_encryption_key_not_leaked` — set `FIELD_ENCRYPTION_KEY` in host, verify not visible inside sandbox
 - `test_database_url_not_leaked` — same for `DATABASE_URL`
 
@@ -938,6 +1245,7 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_revalidation_bwrap_disappeared` — stored bwrap_available=True, bwrap gone → warning logged
 - `test_revalidation_container_disappeared` — stored container="docker", no longer in container → warning logged
 - `test_revalidation_updates_stored_state` — after re-validation, `detected_environment` in conf.json reflects current state
+- `test_revalidation_rootfs_missing` — rootfs was ready, now directory gone → warning logged
 
 ### Phase 2 (cont): Capability Detection — `test_capabilities.py`
 
@@ -967,12 +1275,40 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_cached_at_startup` — call `detect_capabilities()` twice → subprocess only spawned once (cached)
 - `test_re_check_refreshes_cache` — explicit re-check call → subprocess spawned again
 
+### Phase 2 (cont): Rootfs Provisioning — `test_rootfs.py`
+
+**`TestDetectArch`**
+- `test_detect_arch_x86_64` — maps correctly
+- `test_detect_arch_aarch64` — maps correctly
+- `test_detect_arch_arm64_maps_to_aarch64` — Docker Apple Silicon
+- `test_detect_arch_unsupported_raises` — unknown arch → RuntimeError
+
+**`TestGetLatestVersion`**
+- `test_get_latest_version` — mocked YAML fetch → version + filename + sha256
+- `test_get_latest_version_no_minirootfs` — YAML without minirootfs → clear error
+
+**`TestRootfsReadiness`**
+- `test_get_rootfs_dir_default` — derives from pipelit_dir
+- `test_is_rootfs_ready_true` — prepared rootfs → True
+- `test_is_rootfs_ready_false` — empty dir → False
+- `test_version_upgrade` — old version file → re-prepares
+
+**`TestRootfsDownload`**
+- `test_download_rootfs` — mocked HTTP, verifies tarball saved
+- `test_download_rootfs_checksum_mismatch` — bad SHA-256 → raises error
+
+**`TestRootfsSetup`**
+- `test_prepare_rootfs_idempotent` — second call skips download
+- `test_install_packages` — mocked subprocess
+- `test_var_tmp_symlink_created` — after prepare, `/var/tmp` → `/tmp` symlink exists in rootfs
+- `test_workspace_tmp_dir_created` — `workspace/.tmp` directory created on first use
+
 ### Phase 3: Setup Wizard — `test_setup_wizard.py`
 
 **`TestSetupStatusAPI`** (uses `TestClient` + `dependency_overrides`)
 - `test_setup_status_needs_setup` — no users in DB → `{"needs_setup": true, "environment": {...}}`
 - `test_setup_status_already_setup` — user exists → `{"needs_setup": false}`
-- `test_setup_status_includes_environment` — verify response has `os`, `container`, `bwrap_available`, `capabilities`
+- `test_setup_status_includes_environment` — verify response has `os`, `container`, `bwrap_available`, `rootfs_ready`, `capabilities`
 - `test_setup_status_unauthenticated` — no bearer token required
 
 **`TestSetupAPI`**
@@ -998,7 +1334,7 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 **`TestWorkspaceModel`**
 - `test_create_workspace` — insert workspace row → verify name, path, allow_network defaults
 - `test_unique_name_constraint` — duplicate name → IntegrityError
-- `test_venv_path_derived` — workspace.path + "/.venv" (no separate column)
+- `test_tmp_dir_created` — workspace creation ensures `.tmp` subdirectory exists
 
 **`TestWorkspaceAPI`** (uses `auth_client` fixture)
 - `test_list_workspaces` — GET → `{"items": [...], "total": N}`
@@ -1034,16 +1370,22 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 **`TestRunCommandSandbox`** (skipif no bwrap)
 - `test_run_command_uses_bwrap` — command runs inside sandbox
 - `test_run_command_no_host_access` — `cat /etc/shadow` → fails in sandbox
-- `test_run_command_workspace_writable` — can create files in workspace
+- `test_run_command_workspace_writable` — can create files in /workspace
 
 **`TestRunCommandContainerMode`**
 - `test_run_command_scrubbed_env` — in container mode, subprocess env doesn't contain secrets
+
+**`TestTmpPersistence`** (skipif no bwrap)
+- `test_tmp_files_persist_within_workspace` — write to `/tmp/foo.txt` in sandbox → file exists at `workspace/.tmp/foo.txt` on host
+- `test_var_tmp_resolves_to_tmp` — write to `/var/tmp/bar.txt` → file exists at `workspace/.tmp/bar.txt` on host
+- `test_tmp_isolated_between_workspaces` — workspace A's /tmp is not visible to workspace B
 
 ### Phase 6: Settings Page — `test_settings_api.py`
 
 **`TestSettingsReadAPI`**
 - `test_get_settings` — GET → returns current `conf.json` values
 - `test_get_settings_includes_capabilities` — response includes `detected_environment.capabilities`
+- `test_get_settings_includes_rootfs_status` — response includes rootfs readiness and version
 - `test_get_settings_requires_auth` — no bearer token → 401
 
 **`TestSettingsWriteAPI`**
@@ -1060,6 +1402,8 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - `test_workspace_isolation` — two workspaces, agent in workspace A cannot read workspace B
 - `test_network_blocked_by_default` — agent tries `curl` → network unreachable
 - `test_network_allowed_when_enabled` — workspace with `allow_network=True` → curl succeeds
+- `test_alpine_rootfs_readonly` — write to `/usr/bin/evil` → fails (read-only rootfs)
+- `test_workspace_tmp_backing` — write to `/tmp/test` inside sandbox → exists at `workspace/.tmp/test` on host
 
 **`TestEndToEndContainerMode`**
 - `test_container_mode_no_bwrap_no_warning` — mock container detected, no bwrap → INFO log (not WARNING)
@@ -1073,5 +1417,19 @@ Testing follows existing project patterns: in-memory SQLite for DB tests, `Simpl
 - **bwrap tests**: Run on ubuntu-latest (bwrap available by default). Marked `skipif` for local macOS dev.
 - **Container detection tests**: All mocked — no real container needed.
 - **Capability detection tests**: All mocked — no real network probes in CI.
+- **Rootfs tests**: All mocked — no real Alpine download in CI. Integration tests with real rootfs are `skipif` no bwrap.
 - **Config file tests**: Use `tmp_path` for `conf.json` and `.env` — no host filesystem side effects.
 - **Frontend**: No test runner (existing pattern). Covered by TypeScript build + lint. Setup wizard page verified via API tests + manual QA.
+
+---
+
+## 18. Potential Issues
+
+1. **musl vs glibc** — Some pip packages with C extensions may lack musl wheels. Mitigation: pre-install common ones via `apk add py3-numpy` etc. in rootfs Tier 2.
+2. **Skill path mounting** — bwrap needs mount points to exist in rootfs. `prepare_rootfs()` creates `/skills` and `/home` dirs. Skill dirs mounted at their absolute host path via `--ro-bind`.
+3. **Agent prompt updates** — Deep agent system prompts should mention HOME=/workspace. The capability context injection (Section 4.5) handles this.
+4. **Network during rootfs setup** — `apk add` needs internet. Setup wizard must have network access. In Docker, rootfs is pre-baked so no runtime download needed.
+5. **Rootfs disk space** — ~50-100MB after Tier 1+2 packages installed. Shared across all workspaces (read-only). Negligible compared to workspace contents.
+6. **First execution latency** — On bare metal, first sandbox execution triggers rootfs download (~10s). Subsequent executions use cached rootfs. Setup wizard pre-triggers this.
+7. **`/tmp` disk usage** — Since `/tmp` is backed by `workspace/.tmp` (not tmpfs), large temp files consume workspace disk. This is intentional — ephemeral tmpfs caused agent file loss between commands. Workspace cleanup can purge `.tmp` if needed.
+8. **`/var/tmp` symlink** — Some tools expect `/var/tmp` to survive reboots (unlike `/tmp`). Since both point to the same persistent `workspace/.tmp`, this is fine for our use case. The sandbox doesn't "reboot."
