@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -27,9 +28,16 @@ state = _data.get("state", {})
 node_outputs = _data.get("node_outputs", {})
 result = None
 
+_code = open("__code__.py").read()
+_indented = "\\n".join("    " + _line for _line in _code.splitlines())
+_wrapped = "def _user_code():\\n    global result, state, node_outputs\\n" + _indented + "\\n"
+
 _stdout = io.StringIO()
 with contextlib.redirect_stdout(_stdout):
-    exec(open("__code__.py").read())
+    exec(_wrapped)
+    _ret = _user_code()
+    if _ret is not None:
+        result = _ret
 
 _out = {"result": str(result) if result is not None else _stdout.getvalue().strip()}
 
@@ -53,7 +61,7 @@ def code_factory(node):
     except Exception:
         logger.warning("Code node %s: failed to build sandbox backend, falling back to /tmp", node.node_id)
         backend = None
-        workspace_dir = tempfile.mkdtemp(prefix="pipelit_code_")
+        workspace_dir = None
 
     def code_node(state: dict) -> dict:
         if not code_snippet:
@@ -62,11 +70,17 @@ def code_factory(node):
         if language != "python":
             raise ValueError(f"Language '{language}' not yet supported in sandbox mode")
 
-        # Write user code and input state to workspace
-        code_path = os.path.join(workspace_dir, "__code__.py")
-        wrapper_path = os.path.join(workspace_dir, "__wrapper__.py")
-        input_path = os.path.join(workspace_dir, "__input__.json")
-        output_path = os.path.join(workspace_dir, "__output__.json")
+        # Create a unique temp directory per invocation to avoid race conditions
+        # when concurrent executions share the same workspace_dir.
+        if backend is not None:
+            invocation_dir = tempfile.mkdtemp(dir=workspace_dir, prefix="code_run_")
+        else:
+            invocation_dir = tempfile.mkdtemp(prefix="pipelit_code_")
+
+        code_path = os.path.join(invocation_dir, "__code__.py")
+        wrapper_path = os.path.join(invocation_dir, "__wrapper__.py")
+        input_path = os.path.join(invocation_dir, "__input__.json")
+        output_path = os.path.join(invocation_dir, "__output__.json")
 
         try:
             # Prepare input data (strip non-serialisable keys)
@@ -75,20 +89,17 @@ def code_factory(node):
                 "node_outputs": _safe_serialize(state.get("node_outputs", {})),
             }
 
-            with open(code_path, "w") as f:
+            with open(code_path, "w", encoding="utf-8") as f:
                 f.write(code_snippet)
-            with open(wrapper_path, "w") as f:
+            with open(wrapper_path, "w", encoding="utf-8") as f:
                 f.write(_WRAPPER_SCRIPT)
-            with open(input_path, "w") as f:
+            with open(input_path, "w", encoding="utf-8") as f:
                 json.dump(input_data, f)
-
-            # Remove stale output file
-            if os.path.exists(output_path):
-                os.remove(output_path)
 
             # Execute via sandbox backend or plain subprocess
             if backend is not None:
-                resp = backend.execute(f"python3 __wrapper__.py", timeout=timeout)
+                subdir = os.path.basename(invocation_dir)
+                resp = backend.execute(f"cd {subdir} && python3 __wrapper__.py", timeout=timeout)
                 exit_code = resp.exit_code
                 stderr = resp.output or ""  # ExecuteResponse.output has combined stdout+stderr
             else:
@@ -97,7 +108,7 @@ def code_factory(node):
                     capture_output=True,
                     text=True,
                     timeout=timeout,
-                    cwd=workspace_dir,
+                    cwd=invocation_dir,
                     stdin=subprocess.DEVNULL,
                     start_new_session=True,
                 )
@@ -111,7 +122,7 @@ def code_factory(node):
             if not os.path.exists(output_path):
                 raise RuntimeError(f"Code execution produced no output file. stderr: {stderr.strip()}")
 
-            with open(output_path) as f:
+            with open(output_path, encoding="utf-8") as f:
                 out_data = json.load(f)
 
             return {"output": out_data.get("result", "")}
@@ -119,13 +130,7 @@ def code_factory(node):
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"Code execution timed out after {timeout} seconds")
         finally:
-            # Clean up temp files
-            for p in (code_path, wrapper_path, input_path, output_path):
-                try:
-                    if os.path.exists(p):
-                        os.remove(p)
-                except OSError:
-                    pass
+            shutil.rmtree(invocation_dir, ignore_errors=True)
 
     return code_node
 

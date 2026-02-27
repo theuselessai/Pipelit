@@ -1,4 +1,4 @@
-"""Tests for deep_agent component — _resolve_credential_field and _build_backend."""
+"""Tests for _agent_shared — _resolve_credential_field and _build_backend."""
 
 from __future__ import annotations
 

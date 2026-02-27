@@ -181,15 +181,6 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="extracted", data_type=DataType.OBJECT)],
 ))
 
-register_node_type(NodeTypeSpec(
-    component_type="switch",
-    display_name="Switch",
-    description="Routes to different branches based on a state field or expression",
-    category="logic",
-    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
-    outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
-))
-
 # ── Sub-components ────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
@@ -458,6 +449,15 @@ register_node_type(NodeTypeSpec(
 ))
 
 # ── Logic / Flow ──────────────────────────────────────────────────────────────
+
+register_node_type(NodeTypeSpec(
+    component_type="switch",
+    display_name="Switch",
+    description="Routes to different branches based on a state field or expression",
+    category="logic",
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
+    outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
+))
 
 register_node_type(NodeTypeSpec(
     component_type="code",

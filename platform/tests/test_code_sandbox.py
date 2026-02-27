@@ -31,6 +31,26 @@ def _make_node(component_type="code", extra_config=None, node_id="test_node_1", 
     )
 
 
+def _make_fake_execute(tmp_path, env=None):
+    """Create a fake backend.execute that runs commands via subprocess in tmp_path."""
+    def fake_execute(cmd, timeout=None):
+        import subprocess
+        kwargs = dict(
+            capture_output=True,
+            text=True,
+            timeout=timeout or 60,
+            cwd=str(tmp_path),
+        )
+        if env is not None:
+            kwargs["env"] = env
+        result = subprocess.run(["bash", "-c", cmd], **kwargs)
+        resp = MagicMock()
+        resp.exit_code = result.returncode
+        resp.output = (result.stdout or "") + (result.stderr or "")
+        return resp
+    return fake_execute
+
+
 # ---------------------------------------------------------------------------
 # code_execute removal verification
 # ---------------------------------------------------------------------------
@@ -57,29 +77,9 @@ class TestCodeNodeSubprocess:
         code = "result = 2 + 2"
         node = _make_node(extra_config={"code": code, "language": "python"})
 
-        # Mock _build_backend to return a mock backend with a real workspace
         mock_backend = MagicMock()
         mock_backend.cwd = tmp_path
-
-        # The backend.execute returns an ExecuteResponse-like object
-        def fake_execute(cmd, timeout=None):
-            # Actually run the subprocess in tmp_path to test real execution
-            import subprocess
-            # Write the wrapper and code files before running
-            result = subprocess.run(
-                ["bash", "-c", cmd],
-                capture_output=True,
-                text=True,
-                timeout=timeout or 60,
-                cwd=str(tmp_path),
-            )
-            resp = MagicMock()
-            resp.exit_code = result.returncode
-            resp.output = (result.stdout or "") + (result.stderr or "")
-            resp.stderr = result.stderr  # keep for backward compat in tests
-            return resp
-
-        mock_backend.execute = fake_execute
+        mock_backend.execute = _make_fake_execute(tmp_path)
 
         with patch("components.code._build_backend", return_value=mock_backend):
             from components.code import code_factory
@@ -95,26 +95,8 @@ class TestCodeNodeSubprocess:
 
         mock_backend = MagicMock()
         mock_backend.cwd = tmp_path
-
-        def fake_execute(cmd, timeout=None):
-            import subprocess
-            # Run with scrubbed env (simulating sandbox)
-            env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
-            result = subprocess.run(
-                ["bash", "-c", cmd],
-                capture_output=True,
-                text=True,
-                timeout=timeout or 60,
-                cwd=str(tmp_path),
-                env=env,
-            )
-            resp = MagicMock()
-            resp.exit_code = result.returncode
-            resp.output = (result.stdout or "") + (result.stderr or "")
-            resp.stderr = result.stderr  # keep for backward compat in tests
-            return resp
-
-        mock_backend.execute = fake_execute
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
+        mock_backend.execute = _make_fake_execute(tmp_path, env=env)
 
         with patch("components.code._build_backend", return_value=mock_backend):
             from components.code import code_factory
@@ -154,23 +136,7 @@ class TestCodeNodeSubprocess:
 
         mock_backend = MagicMock()
         mock_backend.cwd = tmp_path
-
-        def fake_execute(cmd, timeout=None):
-            import subprocess
-            result = subprocess.run(
-                ["bash", "-c", cmd],
-                capture_output=True,
-                text=True,
-                timeout=timeout or 60,
-                cwd=str(tmp_path),
-            )
-            resp = MagicMock()
-            resp.exit_code = result.returncode
-            resp.output = (result.stdout or "") + (result.stderr or "")
-            resp.stderr = result.stderr  # keep for backward compat in tests
-            return resp
-
-        mock_backend.execute = fake_execute
+        mock_backend.execute = _make_fake_execute(tmp_path)
 
         with patch("components.code._build_backend", return_value=mock_backend):
             from components.code import code_factory
@@ -189,23 +155,7 @@ class TestCodeNodeSubprocess:
 
         mock_backend = MagicMock()
         mock_backend.cwd = tmp_path
-
-        def fake_execute(cmd, timeout=None):
-            import subprocess
-            result = subprocess.run(
-                ["bash", "-c", cmd],
-                capture_output=True,
-                text=True,
-                timeout=timeout or 60,
-                cwd=str(tmp_path),
-            )
-            resp = MagicMock()
-            resp.exit_code = result.returncode
-            resp.output = (result.stdout or "") + (result.stderr or "")
-            resp.stderr = result.stderr  # keep for backward compat in tests
-            return resp
-
-        mock_backend.execute = fake_execute
+        mock_backend.execute = _make_fake_execute(tmp_path)
 
         with patch("components.code._build_backend", return_value=mock_backend):
             from components.code import code_factory
@@ -240,23 +190,7 @@ class TestCodeNodeSubprocess:
 
         mock_backend = MagicMock()
         mock_backend.cwd = tmp_path
-
-        def fake_execute(cmd, timeout=None):
-            import subprocess
-            result = subprocess.run(
-                ["bash", "-c", cmd],
-                capture_output=True,
-                text=True,
-                timeout=timeout or 60,
-                cwd=str(tmp_path),
-            )
-            resp = MagicMock()
-            resp.exit_code = result.returncode
-            resp.output = (result.stdout or "") + (result.stderr or "")
-            resp.stderr = result.stderr  # keep for backward compat in tests
-            return resp
-
-        mock_backend.execute = fake_execute
+        mock_backend.execute = _make_fake_execute(tmp_path)
 
         with patch("components.code._build_backend", return_value=mock_backend):
             from components.code import code_factory

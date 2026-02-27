@@ -8,6 +8,7 @@ injected into agent system prompts.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 
@@ -66,6 +67,9 @@ def detect_capabilities() -> dict:
     caps["network"]["http"] = _check_http()
 
     # Filesystem checks
+    from config import settings as _settings
+    _ws_dir = _settings.WORKSPACE_DIR or os.path.expanduser("~/.config/pipelit/workspaces/default")
+    caps["filesystem"]["workspace_writable"] = _check_writable(_ws_dir) if os.path.isdir(_ws_dir) else False
     caps["filesystem"]["tmp_writable"] = _check_writable("/tmp")
 
     _cached_capabilities = caps
