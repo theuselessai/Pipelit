@@ -71,7 +71,7 @@ def _create_child_execution(
         if target_slug:
             target_workflow = (
                 db.query(Workflow)
-                .filter(Workflow.slug == target_slug, Workflow.deleted_at.is_(None))
+                .filter(Workflow.slug == target_slug)
                 .first()
             )
         if not target_workflow and subworkflow_id_fk:

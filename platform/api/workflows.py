@@ -49,7 +49,6 @@ def list_workflows(
     base = (
         db.query(Workflow)
         .filter(
-            Workflow.deleted_at.is_(None),
             or_(
                 Workflow.owner_id == profile.id,
                 Workflow.id.in_(
@@ -70,7 +69,16 @@ def create_workflow(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    wf = Workflow(owner_id=profile.id, **payload.model_dump())
+    # Deduplicate slug: if "deep" exists (including soft-deleted), try "deep-1", "deep-2", etc.
+    base_slug = payload.slug
+    slug = base_slug
+    counter = 1
+    while db.query(Workflow.id).filter(Workflow.slug == slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    data = payload.model_dump()
+    data["slug"] = slug
+    wf = Workflow(owner_id=profile.id, **data)
     db.add(wf)
     db.commit()
     db.refresh(wf)
@@ -124,7 +132,7 @@ def delete_workflow(
     profile: UserProfile = Depends(get_current_user),
 ):
     wf = get_workflow(slug, profile, db)
-    wf.soft_delete()
+    db.delete(wf)
     db.commit()
 
 
@@ -140,12 +148,10 @@ def batch_delete_workflows(
 ):
     if not payload.slugs:
         return
-    from datetime import datetime, timezone
     workflows = (
         db.query(Workflow)
         .filter(
             Workflow.slug.in_(payload.slugs),
-            Workflow.deleted_at.is_(None),
             or_(
                 Workflow.owner_id == profile.id,
                 Workflow.id.in_(
@@ -157,5 +163,5 @@ def batch_delete_workflows(
         .all()
     )
     for wf in workflows:
-        wf.soft_delete()
+        db.delete(wf)
     db.commit()

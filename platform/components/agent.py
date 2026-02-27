@@ -340,7 +340,7 @@ def _create_child_from_interrupt(
 
         target_workflow = (
             db.query(Workflow)
-            .filter(Workflow.slug == workflow_slug, Workflow.deleted_at.is_(None))
+            .filter(Workflow.slug == workflow_slug)
             .first()
         )
         if not target_workflow:

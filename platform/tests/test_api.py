@@ -157,10 +157,11 @@ class TestWorkflowAPI:
         assert resp.json()["name"] == "Updated"
 
     def test_delete_workflow(self, auth_client, workflow, db):
-        resp = auth_client.delete(f"/api/v1/workflows/{workflow.slug}/")
+        slug = workflow.slug
+        resp = auth_client.delete(f"/api/v1/workflows/{slug}/")
         assert resp.status_code == 204
-        db.refresh(workflow)
-        assert workflow.deleted_at is not None
+        from models.workflow import Workflow
+        assert db.query(Workflow).filter(Workflow.slug == slug).first() is None
 
     def test_unauthenticated(self, client):
         resp = client.get("/api/v1/workflows/")

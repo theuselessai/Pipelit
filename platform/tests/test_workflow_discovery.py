@@ -111,9 +111,7 @@ def wf_inactive(db, user_profile):
 
 @pytest.fixture
 def wf_deleted(db, user_profile):
-    """Soft-deleted workflow that should be excluded."""
-    from datetime import datetime, timezone
-
+    """Create and hard-delete a workflow to verify it's excluded from discovery."""
     wf = Workflow(
         name="Deleted WF",
         slug="deleted-wf",
@@ -122,10 +120,9 @@ def wf_deleted(db, user_profile):
     )
     db.add(wf)
     db.commit()
-    wf.soft_delete()
+    db.delete(wf)
     db.commit()
-    db.refresh(wf)
-    return wf
+    return None
 
 
 # ── TestExtractCapabilities ──────────────────────────────────────────────────

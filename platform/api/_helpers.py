@@ -18,7 +18,6 @@ def get_workflow(slug: str, profile: UserProfile, db: Session) -> Workflow:
         db.query(Workflow)
         .filter(
             Workflow.slug == slug,
-            Workflow.deleted_at.is_(None),
             or_(
                 Workflow.owner_id == profile.id,
                 Workflow.id.in_(

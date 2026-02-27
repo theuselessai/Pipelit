@@ -39,8 +39,6 @@ class Workflow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
     # Relationships
     owner: Mapped["UserProfile"] = relationship("UserProfile", foreign_keys=[owner_id])  # noqa: F821
     error_handler_workflow: Mapped[Workflow | None] = relationship(
@@ -59,10 +57,6 @@ class Workflow(Base):
     executions: Mapped[list] = relationship(
         "WorkflowExecution", back_populates="workflow", cascade="all, delete-orphan"
     )
-
-    def soft_delete(self):
-        from datetime import datetime, timezone
-        self.deleted_at = datetime.now(timezone.utc)
 
     def __repr__(self):
         return f"<Workflow {self.slug}>"

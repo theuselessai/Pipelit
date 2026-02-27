@@ -32,7 +32,6 @@ def discover_workflows(
 
     query = db.query(Workflow).filter(
         Workflow.is_active.is_(True),
-        Workflow.deleted_at.is_(None),
     )
     if exclude_workflow_id is not None:
         query = query.filter(Workflow.id != exclude_workflow_id)
