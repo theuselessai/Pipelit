@@ -167,6 +167,9 @@ class TestBwrapCommand:
 
         assert env_pairs["HOME"] == "/workspace"
         assert ".packages/bin" in env_pairs["PATH"]
+        assert "/sbin" in env_pairs["PATH"]
+        assert "/usr/sbin" in env_pairs["PATH"]
+        assert env_pairs["PATH"] == "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/workspace/.packages/bin"
         assert env_pairs["PIP_TARGET"] == "/workspace/.packages"
         assert env_pairs["PYTHONPATH"] == "/workspace/.packages"
         assert env_pairs["LANG"] == "C.UTF-8"
@@ -237,6 +240,14 @@ class TestContainerModeEnvScrubbing:
         expected_keys = {"PATH", "HOME", "TMPDIR", "LANG", "PIP_TARGET",
                          "PYTHONPATH", "PYTHONDONTWRITEBYTECODE"}
         assert set(env.keys()) == expected_keys
+
+    def test_build_sandbox_env_path_includes_sbin(self):
+        from components.sandboxed_backend import _build_sandbox_env
+
+        env = _build_sandbox_env("/workspace")
+        assert "/sbin" in env["PATH"]
+        assert "/usr/sbin" in env["PATH"]
+        assert env["PATH"] == "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/workspace/.packages/bin"
 
     def test_build_sandbox_env_no_secrets(self):
         from components.sandboxed_backend import _build_sandbox_env

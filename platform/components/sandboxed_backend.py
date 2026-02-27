@@ -38,7 +38,7 @@ _DEFAULT_TIMEOUT = 120
 def _build_sandbox_env(workspace_path: str) -> dict[str, str]:
     """Build clean env for container-mode subprocess execution."""
     return {
-        "PATH": f"/usr/local/bin:/usr/bin:/bin:{workspace_path}/.packages/bin",
+        "PATH": f"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:{workspace_path}/.packages/bin",
         "HOME": workspace_path,
         "TMPDIR": "/tmp",
         "LANG": "C.UTF-8",
@@ -103,7 +103,7 @@ def _build_bwrap_command(
     # Clear host environment, set explicit vars
     args += ["--clearenv"]
     args += ["--setenv", "HOME", "/workspace"]
-    args += ["--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin:/workspace/.packages/bin"]
+    args += ["--setenv", "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/workspace/.packages/bin"]
     args += ["--setenv", "TMPDIR", "/tmp"]
     args += ["--setenv", "LANG", "C.UTF-8"]
     args += ["--setenv", "PIP_TARGET", "/workspace/.packages"]
