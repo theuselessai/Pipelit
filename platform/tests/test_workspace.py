@@ -306,8 +306,9 @@ def test_pagination(auth_client, db, user_profile, tmp_path):
 
 # -- Lifespan: default workspace auto-creation --
 
-def test_lifespan_creates_default_workspace(db, user_profile, tmp_path):
-    """Lifespan creates default workspace when user exists but no default workspace."""
+@pytest.fixture
+def lifespan_app(db, tmp_path):
+    """Run the app lifespan with patched DB and services, cleaning up on exit."""
     from main import app as _app
     from database import get_db
 
@@ -323,63 +324,31 @@ def test_lifespan_creates_default_workspace(db, user_profile, tmp_path):
              mode="none", can_execute=False, container_type=None, reason=None)), \
          patch("services.execution_recovery.recover_zombie_executions", return_value=0):
         with TestClient(_app):
-            pass
+            yield _app
 
+    _app.dependency_overrides.clear()
+
+
+def test_lifespan_creates_default_workspace(db, user_profile, tmp_path, lifespan_app):
+    """Lifespan creates default workspace when user exists but no default workspace."""
     ws = db.query(Workspace).filter(Workspace.name == "default").first()
     assert ws is not None
     expected_path = str(tmp_path / "workspaces" / "default")
     assert ws.path == expected_path
     assert Path(expected_path).exists()
     assert (Path(expected_path) / ".tmp").exists()
-    _app.dependency_overrides.clear()
 
 
-def test_lifespan_skips_existing_default_workspace(db, user_profile, tmp_path, default_workspace):
+def test_lifespan_skips_existing_default_workspace(db, user_profile, tmp_path, default_workspace, lifespan_app):
     """Lifespan does not create duplicate when default workspace already exists."""
-    from main import app as _app
-    from database import get_db
-
-    def _override_get_db():
-        yield db
-
-    _app.dependency_overrides[get_db] = _override_get_db
-
-    with patch("database.SessionLocal", return_value=db), \
-         patch("config.get_pipelit_dir", return_value=tmp_path), \
-         patch("services.scheduler.recover_scheduled_jobs", return_value=0), \
-         patch("services.environment.validate_environment_on_startup", return_value=MagicMock(
-             mode="none", can_execute=False, container_type=None, reason=None)), \
-         patch("services.execution_recovery.recover_zombie_executions", return_value=0):
-        with TestClient(_app):
-            pass
-
     count = db.query(Workspace).filter(Workspace.name == "default").count()
     assert count == 1
-    _app.dependency_overrides.clear()
 
 
-def test_lifespan_skips_when_no_user(db, tmp_path):
+def test_lifespan_skips_when_no_user(db, tmp_path, lifespan_app):
     """Lifespan skips workspace creation when no user exists."""
-    from main import app as _app
-    from database import get_db
-
-    def _override_get_db():
-        yield db
-
-    _app.dependency_overrides[get_db] = _override_get_db
-
-    with patch("database.SessionLocal", return_value=db), \
-         patch("config.get_pipelit_dir", return_value=tmp_path), \
-         patch("services.scheduler.recover_scheduled_jobs", return_value=0), \
-         patch("services.environment.validate_environment_on_startup", return_value=MagicMock(
-             mode="none", can_execute=False, container_type=None, reason=None)), \
-         patch("services.execution_recovery.recover_zombie_executions", return_value=0):
-        with TestClient(_app):
-            pass
-
     ws = db.query(Workspace).filter(Workspace.name == "default").first()
     assert ws is None
-    _app.dependency_overrides.clear()
 
 
 # -- Default workspace model --
