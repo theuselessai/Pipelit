@@ -30,19 +30,20 @@ def _make_node(extra_config=None, system_prompt=None, node_id="deep_1", workflow
     )
 
 
+@pytest.fixture(autouse=True)
+def _mock_sandbox_resolution():
+    """Mock resolve_sandbox_mode so SandboxedShellBackend.__init__ doesn't probe the system."""
+    resolution = SandboxResolution(mode="none", can_execute=True)
+    with patch("components.sandboxed_backend.resolve_sandbox_mode", return_value=resolution):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # _build_backend
 # ---------------------------------------------------------------------------
 
 
 class TestBuildBackend:
-    @pytest.fixture(autouse=True)
-    def _mock_sandbox_resolution(self):
-        """Mock resolve_sandbox_mode so SandboxedShellBackend.__init__ doesn't probe the system."""
-        resolution = SandboxResolution(mode="none", can_execute=True)
-        with patch("components.sandboxed_backend.resolve_sandbox_mode", return_value=resolution):
-            yield
-
     def test_always_returns_sandboxed_shell_backend(self, tmp_path):
         from components.deep_agent import _build_backend
         from components.sandboxed_backend import SandboxedShellBackend
@@ -173,13 +174,6 @@ class TestBuildSubagents:
 class TestDeepAgentFactory:
     """Test the factory function that builds the deep_agent closure."""
 
-    @pytest.fixture(autouse=True)
-    def _mock_sandbox_resolution(self):
-        """Mock resolve_sandbox_mode so SandboxedShellBackend.__init__ doesn't probe the system."""
-        resolution = SandboxResolution(mode="none", can_execute=True)
-        with patch("components.sandboxed_backend.resolve_sandbox_mode", return_value=resolution):
-            yield
-
     def _build(self, extra_config=None, system_prompt=None):
         """Call deep_agent_factory with all external deps mocked; return captured kwargs."""
         from components.deep_agent import deep_agent_factory
@@ -309,13 +303,6 @@ class TestDeepAgentFactory:
 
 class TestDeepAgentNode:
     """Test the inner closure returned by deep_agent_factory."""
-
-    @pytest.fixture(autouse=True)
-    def _mock_sandbox_resolution(self):
-        """Mock resolve_sandbox_mode so SandboxedShellBackend.__init__ doesn't probe the system."""
-        resolution = SandboxResolution(mode="none", can_execute=True)
-        with patch("components.sandboxed_backend.resolve_sandbox_mode", return_value=resolution):
-            yield
 
     def _build_and_invoke(self, state, extra_config=None, system_prompt=None, invoke_return=None):
         """Build the node closure with mocked deps and invoke it with the given state."""
