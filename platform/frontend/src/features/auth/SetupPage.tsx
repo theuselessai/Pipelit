@@ -353,9 +353,11 @@ function StepEnvironment({
             {items.map((item) => (
               <tr key={item.label} className="border-b last:border-0">
                 <td className="px-3 py-2 font-medium">{item.label}</td>
-                <td className="px-3 py-2 text-right flex items-center justify-end gap-2">
-                  <span className="text-muted-foreground">{item.value}</span>
-                  <StatusIcon status={item.status} />
+                <td className="px-3 py-2 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="text-muted-foreground">{item.value}</span>
+                    <StatusIcon status={item.status} />
+                  </div>
                 </td>
               </tr>
             ))}
