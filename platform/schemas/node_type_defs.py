@@ -457,39 +457,6 @@ register_node_type(NodeTypeSpec(
     ],
 ))
 
-register_node_type(NodeTypeSpec(
-    component_type="code_execute",
-    display_name="Code Execute",
-    description="Execute Python or Bash code in a sandboxed environment",
-    category="sub_component",
-    outputs=[
-        PortDefinition(name="result", data_type=DataType.STRING, description="Execution output"),
-    ],
-    config_schema={
-        "type": "object",
-        "properties": {
-            "language": {
-                "type": "string",
-                "enum": ["python", "bash"],
-                "default": "python",
-                "description": "Programming language",
-            },
-            "timeout_seconds": {
-                "type": "integer",
-                "default": 30,
-                "minimum": 1,
-                "maximum": 300,
-                "description": "Maximum execution time",
-            },
-            "sandbox": {
-                "type": "boolean",
-                "default": True,
-                "description": "Enable security restrictions",
-            },
-        },
-    },
-))
-
 # ── Logic / Flow ──────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(

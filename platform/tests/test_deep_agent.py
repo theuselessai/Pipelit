@@ -12,7 +12,7 @@ _platform_dir = str(Path(__file__).resolve().parent.parent)
 if _platform_dir not in sys.path:
     sys.path.insert(0, _platform_dir)
 
-from components.deep_agent import _resolve_credential_field
+from components._agent_shared import _resolve_credential_field
 from models.credential import (
     BaseCredential,
     GitCredential,
@@ -198,7 +198,7 @@ class TestBuildBackend:
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
         assert str(backend.cwd) == ws_path
@@ -241,7 +241,7 @@ class TestBuildBackend:
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
         assert backend._custom_env["OPENAI_API_KEY"] == "sk-secret-key"
@@ -253,7 +253,7 @@ class TestBuildBackend:
 
         with patch("components.sandboxed_backend.resolve_sandbox_mode",
                     return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({"filesystem_root_dir": root})
 
         assert str(backend.cwd) == root
@@ -266,7 +266,7 @@ class TestBuildBackend:
         with patch("components._agent_shared._get_workspace_dir", return_value=default_dir), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({})
 
         assert str(backend.cwd) == default_dir
@@ -279,7 +279,7 @@ class TestBuildBackend:
              patch("components._agent_shared._get_workspace_dir", return_value=fallback_dir), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": 99999})
 
         assert str(backend.cwd) == fallback_dir
@@ -303,7 +303,7 @@ class TestBuildBackend:
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
         assert "" not in backend._custom_env
@@ -332,7 +332,7 @@ class TestBuildBackend:
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
-            from components.deep_agent import _build_backend
+            from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
         assert "MISSING_KEY" not in backend._custom_env

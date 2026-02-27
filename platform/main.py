@@ -92,6 +92,17 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to validate sandbox environment on startup")
 
+    # Pre-detect environment capabilities (cached for agent system prompts)
+    try:
+        from services.capabilities import detect_capabilities
+        caps = detect_capabilities()
+        rt_count = sum(1 for r in caps["runtimes"].values() if r["available"])
+        st_count = sum(1 for t in caps["shell_tools"].values() if t["available"])
+        logger.info("Capabilities: %d runtimes, %d shell tools, dns=%s, http=%s",
+                     rt_count, st_count, caps["network"]["dns"], caps["network"]["http"])
+    except Exception:
+        logger.exception("Failed to detect capabilities on startup")
+
     # Recover any executions stuck in "running" from a previous crash
     try:
         from services.execution_recovery import recover_zombie_executions

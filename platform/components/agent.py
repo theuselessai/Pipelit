@@ -38,6 +38,18 @@ def agent_factory(node):
     concrete = node.component_config.concrete
     system_prompt = getattr(concrete, "system_prompt", None) or ""
     extra = getattr(concrete, "extra_config", None) or {}
+
+    # Prepend environment capabilities when workspace is configured
+    if extra.get("workspace_id"):
+        try:
+            from services.capabilities import detect_capabilities, format_capability_context
+            caps = detect_capabilities()
+            cap_context = format_capability_context(caps)
+            if cap_context:
+                system_prompt = f"{cap_context}\n\n{system_prompt}" if system_prompt else cap_context
+        except Exception:
+            logger.debug("agent: failed to inject capability context", exc_info=True)
+
     workflow_id = node.workflow_id
     workflow_slug = node.workflow.slug if node.workflow else ""
     node_id = node.node_id
