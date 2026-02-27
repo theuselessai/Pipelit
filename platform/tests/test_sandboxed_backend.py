@@ -274,6 +274,41 @@ class TestFallback:
         assert result.exit_code == 0
         assert "fallback" in result.output
 
+    def test_fallback_with_custom_env(self, tmp_path):
+        """mode=none with custom_env merges into os.environ for subprocess."""
+        backend = _make_backend(tmp_path, mode="none", custom_env={"MY_VAR": "123"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"ok\n"
+        mock_result.stderr = b""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            backend.execute("echo test")
+
+        call_kwargs = mock_run.call_args
+        env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env")
+        assert env is not None
+        assert env["MY_VAR"] == "123"
+        # Should also contain standard env vars from os.environ
+        assert "PATH" in env
+
+    def test_fallback_without_custom_env(self, tmp_path):
+        """mode=none without custom_env passes env=None to subprocess."""
+        backend = _make_backend(tmp_path, mode="none")
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"ok\n"
+        mock_result.stderr = b""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            backend.execute("echo test")
+
+        call_kwargs = mock_run.call_args
+        env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env")
+        assert env is None
+
     def test_fallback_write_file(self, tmp_path):
         """Fallback mode can write files in the workspace."""
         backend = _make_backend(tmp_path, mode="none")
@@ -529,6 +564,35 @@ class TestExecuteBranches:
             result = backend.execute("sleep 100")
             assert result.exit_code == 124
             assert "timed out" in result.output.lower()
+
+    def test_bwrap_custom_env_injected(self, tmp_path):
+        """Custom env vars are injected as --setenv args before bash -c."""
+        backend = self._setup_bwrap_backend(tmp_path, custom_env={"MY_VAR": "hello", "OTHER": "world"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = b"ok\n"
+        mock_result.stderr = b""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            backend.execute("echo test")
+
+        cmd = mock_run.call_args[0][0]
+        # --setenv MY_VAR hello and --setenv OTHER world should appear
+        assert "--setenv" in cmd
+        # Find all --setenv triplets
+        setenv_pairs = {}
+        for i, v in enumerate(cmd):
+            if v == "--setenv" and i + 2 < len(cmd):
+                setenv_pairs[cmd[i + 1]] = cmd[i + 2]
+        assert setenv_pairs.get("MY_VAR") == "hello"
+        assert setenv_pairs.get("OTHER") == "world"
+
+        # Custom env vars must appear before "bash -c command"
+        bash_idx = cmd.index("bash")
+        for i, v in enumerate(cmd):
+            if v == "--setenv" and cmd[i + 1] in ("MY_VAR", "OTHER"):
+                assert i < bash_idx, f"--setenv {cmd[i+1]} at {i} should be before bash at {bash_idx}"
 
     def test_container_mode_execute(self, tmp_path):
         """Container mode passes clean env to subprocess."""
