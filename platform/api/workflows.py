@@ -69,7 +69,7 @@ def create_workflow(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    # Deduplicate slug: if "deep" exists (including soft-deleted), try "deep-1", "deep-2", etc.
+    # Deduplicate slug: if "deep" exists, try "deep-1", "deep-2", etc.
     base_slug = payload.slug
     slug = base_slug
     counter = 1

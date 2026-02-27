@@ -1,6 +1,7 @@
 """Workspace schemas."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -10,7 +11,7 @@ class WorkspaceEnvVar(BaseModel):
     value: str | None = None  # for raw source
     credential_id: int | None = None  # for credential source
     credential_field: str | None = None  # e.g. "api_key", "base_url"
-    source: str = "raw"  # "raw" or "credential"
+    source: Literal["raw", "credential"] = "raw"
 
 
 class WorkspaceIn(BaseModel):
@@ -30,7 +31,7 @@ class WorkspaceOut(BaseModel):
     name: str
     path: str
     allow_network: bool
-    env_vars: list[dict]
+    env_vars: list[WorkspaceEnvVar]
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -21,10 +21,7 @@ def app(db):
     from database import get_db
 
     def _override_get_db():
-        try:
-            yield db
-        finally:
-            pass
+        yield db
 
     _app.dependency_overrides[get_db] = _override_get_db
     yield _app

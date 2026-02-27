@@ -59,7 +59,10 @@ export default function WorkspacesPage() {
   }
 
   function handleBatchDelete() {
-    batchDelete.mutate([...selectedIds], {
+    const defaultIds = new Set(workspaces?.filter((w) => w.name === "default").map((w) => w.id) ?? [])
+    const ids = [...selectedIds].filter((id) => !defaultIds.has(id))
+    if (ids.length === 0) { setConfirmBatchDelete(false); return }
+    batchDelete.mutate(ids, {
       onSuccess: () => { setSelectedIds(new Set()); setConfirmBatchDelete(false) },
     })
   }

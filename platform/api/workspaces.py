@@ -22,6 +22,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_owned_workspace(
+    workspace_id: int, profile: UserProfile, db: Session
+) -> Workspace:
+    ws = (
+        db.query(Workspace)
+        .filter(Workspace.id == workspace_id, Workspace.user_profile_id == profile.id)
+        .first()
+    )
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    return ws
+
+
 @router.get("/")
 def list_workspaces(
     limit: int = 50,
@@ -29,8 +42,9 @@ def list_workspaces(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    total = db.query(Workspace).count()
-    items = db.query(Workspace).order_by(Workspace.id).offset(offset).limit(limit).all()
+    base = db.query(Workspace).filter(Workspace.user_profile_id == profile.id)
+    total = base.count()
+    items = base.order_by(Workspace.id).offset(offset).limit(limit).all()
     return {"items": [WorkspaceOut.model_validate(w).model_dump() for w in items], "total": total}
 
 
@@ -72,9 +86,7 @@ def get_workspace(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    ws = _get_owned_workspace(workspace_id, profile, db)
     return ws
 
 
@@ -85,9 +97,7 @@ def update_workspace(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    ws = _get_owned_workspace(workspace_id, profile, db)
 
     if payload.allow_network is not None:
         ws.allow_network = payload.allow_network
@@ -105,9 +115,7 @@ def delete_workspace(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    ws = _get_owned_workspace(workspace_id, profile, db)
     if ws.name == "default":
         raise HTTPException(status_code=403, detail="Cannot delete the default workspace.")
     db.delete(ws)
@@ -126,7 +134,9 @@ def batch_delete_workspaces(
 ):
     if not payload.ids:
         return
-    workspaces = db.query(Workspace).filter(Workspace.id.in_(payload.ids)).all()
+    workspaces = db.query(Workspace).filter(
+        Workspace.id.in_(payload.ids), Workspace.user_profile_id == profile.id
+    ).all()
     for ws in workspaces:
         if ws.name == "default":
             continue  # skip default workspace
@@ -141,9 +151,7 @@ def reset_workspace(
     profile: UserProfile = Depends(get_current_user),
 ):
     """Reset a workspace by deleting everything inside its directory and re-creating it empty."""
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    ws = _get_owned_workspace(workspace_id, profile, db)
 
     # Delete everything inside the workspace directory
     if os.path.isdir(ws.path):
@@ -161,9 +169,7 @@ def reset_rootfs(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    ws = _get_owned_workspace(workspace_id, profile, db)
 
     rootfs_path = os.path.join(ws.path, ".rootfs")
     shutil.rmtree(rootfs_path, ignore_errors=True)

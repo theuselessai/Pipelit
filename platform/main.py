@@ -53,12 +53,14 @@ async def lifespan(app: FastAPI):
                 user = session.query(UserProfile).first()
                 if user:
                     workspace_path = str(get_pipelit_dir() / "workspaces" / "default")
-                    os.makedirs(workspace_path, exist_ok=True)
-                    os.makedirs(os.path.join(workspace_path, ".tmp"), exist_ok=True)
                     ws = Workspace(name="default", path=workspace_path, user_profile_id=user.id)
                     session.add(ws)
                     session.commit()
+                    os.makedirs(workspace_path, exist_ok=True)
+                    os.makedirs(os.path.join(workspace_path, ".tmp"), exist_ok=True)
                     logger.info("Created default workspace at %s", workspace_path)
+                else:
+                    logger.info("No user found, skipping default workspace creation")
     except Exception:
         logger.exception("Failed to ensure default workspace on startup")
 

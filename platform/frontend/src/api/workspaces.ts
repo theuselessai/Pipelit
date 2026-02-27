@@ -56,5 +56,9 @@ export function useResetWorkspace() {
 }
 
 export function useResetWorkspaceRootfs() {
-  return useMutation({ mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset-rootfs/`, { method: "POST" }) })
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset-rootfs/`, { method: "POST" }),
+    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", id] }),
+  })
 }

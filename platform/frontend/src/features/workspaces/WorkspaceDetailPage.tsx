@@ -107,7 +107,7 @@ export default function WorkspaceDetailPage() {
     if (!workspace) return
     deleteWorkspace.mutate(workspace.id, {
       onSuccess: () => { toast.success("Workspace deleted"); navigate("/workspaces") },
-      onError: () => toast.error("Failed to delete workspace"),
+      onError: () => { toast.error("Failed to delete workspace"); setConfirmDelete(false) },
     })
   }
 

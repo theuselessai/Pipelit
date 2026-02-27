@@ -160,7 +160,6 @@ class TestWorkflowAPI:
         slug = workflow.slug
         resp = auth_client.delete(f"/api/v1/workflows/{slug}/")
         assert resp.status_code == 204
-        from models.workflow import Workflow
         assert db.query(Workflow).filter(Workflow.slug == slug).first() is None
 
     def test_unauthenticated(self, client):
