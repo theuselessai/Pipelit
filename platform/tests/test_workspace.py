@@ -106,8 +106,9 @@ def test_create_workspace(auth_client, tmp_path, monkeypatch):
     assert (Path(data["path"]) / ".tmp").exists()
 
 
-def test_create_workspace_with_path(auth_client, tmp_path):
-    custom_path = str(tmp_path / "custom-workspace")
+def test_create_workspace_with_path(auth_client, tmp_path, monkeypatch):
+    monkeypatch.setattr("api.workspaces.get_pipelit_dir", lambda: tmp_path)
+    custom_path = str(tmp_path / "workspaces" / "custom-workspace")
     resp = auth_client.post("/api/v1/workspaces/", json={"name": "custom", "path": custom_path, "allow_network": True})
     assert resp.status_code == 201
     data = resp.json()
@@ -133,6 +134,12 @@ def test_create_workspace_with_env_vars(auth_client, tmp_path, monkeypatch):
 def test_create_workspace_duplicate_name(auth_client, workspace):
     resp = auth_client.post("/api/v1/workspaces/", json={"name": "test-workspace"})
     assert resp.status_code == 409
+
+
+def test_create_workspace_path_traversal_blocked(auth_client):
+    resp = auth_client.post("/api/v1/workspaces/", json={"name": "evil", "path": "/etc/evil-workspace"})
+    assert resp.status_code == 400
+    assert "must be under" in resp.json()["detail"]
 
 
 # -- Get --

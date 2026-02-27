@@ -323,5 +323,11 @@ class SandboxedShellBackend(LocalShellBackend):
         if self._resolution.mode == "container":
             return self._execute_container(command, workspace, effective_timeout)
 
-        # mode == "none" — unsandboxed fallback
-        return super().execute(command, timeout=timeout)
+        # mode == "none" — unsandboxed fallback (still inject custom env vars)
+        env = {**os.environ, **self._custom_env} if self._custom_env else None
+        return self._run_subprocess(
+            ["bash", "-c", command],
+            effective_timeout,
+            env=env,
+            cwd=workspace,
+        )

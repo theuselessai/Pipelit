@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -61,6 +62,16 @@ def create_workspace(
 
     # Auto-derive path if not provided
     path = payload.path or str(get_pipelit_dir() / "workspaces" / payload.name)
+
+    # Validate user-provided paths are under the pipelit workspaces directory
+    if payload.path:
+        allowed_root = str(get_pipelit_dir() / "workspaces")
+        resolved = str(Path(path).resolve())
+        if not resolved.startswith(allowed_root + os.sep) and resolved != allowed_root:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Workspace path must be under {allowed_root}/",
+            )
 
     ws = Workspace(
         name=payload.name,
