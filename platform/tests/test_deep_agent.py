@@ -235,6 +235,7 @@ class TestBuildBackend:
         )
         db.add(ws)
         db.commit()
+        db.refresh(ws)
         db.refresh(cred)
 
         with patch("database.SessionLocal", return_value=db), \
