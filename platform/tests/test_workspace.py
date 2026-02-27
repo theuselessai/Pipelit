@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -303,7 +304,54 @@ def test_pagination(auth_client, db, user_profile, tmp_path):
     assert len(data2["items"]) == 1
 
 
-# -- Default workspace auto-creation --
+# -- Lifespan: default workspace auto-creation --
+
+@pytest.fixture
+def lifespan_app(db, tmp_path):
+    """Run the app lifespan with patched DB and services, cleaning up on exit."""
+    from main import app as _app
+    from database import get_db
+
+    def _override_get_db():
+        yield db
+
+    _app.dependency_overrides[get_db] = _override_get_db
+
+    with patch("database.SessionLocal", return_value=db), \
+         patch("config.get_pipelit_dir", return_value=tmp_path), \
+         patch("services.scheduler.recover_scheduled_jobs", return_value=0), \
+         patch("services.environment.validate_environment_on_startup", return_value=MagicMock(
+             mode="none", can_execute=False, container_type=None, reason=None)), \
+         patch("services.execution_recovery.recover_zombie_executions", return_value=0):
+        with TestClient(_app):
+            yield _app
+
+    _app.dependency_overrides.clear()
+
+
+def test_lifespan_creates_default_workspace(db, user_profile, tmp_path, lifespan_app):
+    """Lifespan creates default workspace when user exists but no default workspace."""
+    ws = db.query(Workspace).filter(Workspace.name == "default").first()
+    assert ws is not None
+    expected_path = str(tmp_path / "workspaces" / "default")
+    assert ws.path == expected_path
+    assert Path(expected_path).exists()
+    assert (Path(expected_path) / ".tmp").exists()
+
+
+def test_lifespan_skips_existing_default_workspace(db, user_profile, tmp_path, default_workspace, lifespan_app):
+    """Lifespan does not create duplicate when default workspace already exists."""
+    count = db.query(Workspace).filter(Workspace.name == "default").count()
+    assert count == 1
+
+
+def test_lifespan_skips_when_no_user(db, tmp_path, lifespan_app):
+    """Lifespan skips workspace creation when no user exists."""
+    ws = db.query(Workspace).filter(Workspace.name == "default").first()
+    assert ws is None
+
+
+# -- Default workspace model --
 
 def test_default_workspace_model_env_vars_default(db, user_profile, tmp_path):
     """Workspace env_vars defaults to empty list."""
