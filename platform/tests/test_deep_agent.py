@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from services.environment import SandboxResolution
 
 
 def _make_node(extra_config=None, system_prompt=None, node_id="deep_1", workflow_id=1):
@@ -27,6 +28,14 @@ def _make_node(extra_config=None, system_prompt=None, node_id="deep_1", workflow
         component_config=config,
         workflow=SimpleNamespace(slug="test-wf"),
     )
+
+
+@pytest.fixture(autouse=True)
+def _mock_sandbox_resolution():
+    """Mock resolve_sandbox_mode so SandboxedShellBackend.__init__ doesn't probe the system."""
+    resolution = SandboxResolution(mode="none", can_execute=True)
+    with patch("components.sandboxed_backend.resolve_sandbox_mode", return_value=resolution):
+        yield
 
 
 # ---------------------------------------------------------------------------
