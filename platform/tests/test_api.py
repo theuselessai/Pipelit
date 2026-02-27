@@ -663,6 +663,45 @@ class TestEdgeSubComponentLinking:
         db.refresh(agent_cc)
         assert agent_cc.llm_model_config_id is None
 
+    def test_delete_ai_model_node_clears_linked_config(self, auth_client, workflow, db):
+        """Deleting an ai_model node should not cause StaleDataError on
+        agent configs that reference it via llm_model_config_id."""
+        model_cc = BaseComponentConfig(component_type="ai_model", model_name="gpt-4o")
+        db.add(model_cc)
+        db.flush()
+        model_node = WorkflowNode(
+            workflow_id=workflow.id, node_id="model1",
+            component_type="ai_model", component_config_id=model_cc.id,
+        )
+        db.add(model_node)
+
+        agent_cc = BaseComponentConfig(component_type="agent", system_prompt="test")
+        db.add(agent_cc)
+        db.flush()
+        agent_node = WorkflowNode(
+            workflow_id=workflow.id, node_id="agent1",
+            component_type="agent", component_config_id=agent_cc.id,
+        )
+        db.add(agent_node)
+        db.commit()
+
+        # Link model to agent via llm edge
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/edges/",
+            json={"source_node_id": "model1", "target_node_id": "agent1", "edge_label": "llm"},
+        )
+        assert resp.status_code == 201
+
+        # Delete the ai_model node — should NOT raise StaleDataError
+        resp = auth_client.delete(f"/api/v1/workflows/{workflow.slug}/nodes/model1/")
+        assert resp.status_code == 204
+
+        # Agent config should still exist with llm_model_config_id cleared
+        db.expire_all()
+        refreshed = db.query(BaseComponentConfig).filter(BaseComponentConfig.id == agent_cc.id).first()
+        assert refreshed is not None
+        assert refreshed.llm_model_config_id is None
+
 
 # ── Credential models listing (Anthropic) ────────────────────────────────────
 
