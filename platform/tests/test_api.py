@@ -604,7 +604,8 @@ class TestSetupAPI:
         """Setup succeeds (returns API key) even if conf.json write fails."""
         from unittest.mock import patch
 
-        with patch("api.auth.build_environment_report", side_effect=RuntimeError("disk full")), \
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()), \
+             patch("api.auth.save_conf", side_effect=RuntimeError("disk full")), \
              patch("api.auth.get_pipelit_dir", return_value=tmp_path / "pipelit"):
             resp = client.post(
                 "/api/v1/auth/setup/",

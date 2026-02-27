@@ -251,9 +251,10 @@ def delete_node(
 
     # Clear self-referential llm_model_config_id FKs pointing to this config
     # before deleting, to avoid StaleDataError from SET NULL cascades
-    db.query(BaseComponentConfig).filter(
-        BaseComponentConfig.llm_model_config_id == cc_id,
-    ).update({"llm_model_config_id": None}, synchronize_session="fetch")
+    if cc_id:
+        db.query(BaseComponentConfig).filter(
+            BaseComponentConfig.llm_model_config_id == cc_id,
+        ).update({"llm_model_config_id": None}, synchronize_session="fetch")
 
     db.delete(node)
     # Delete the config
