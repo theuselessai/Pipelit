@@ -600,6 +600,48 @@ class TestSetupAPI:
         resp = client.get("/api/v1/auth/setup/rootfs-status/")
         assert resp.status_code == 409
 
+    def test_setup_conf_write_failure(self, client, tmp_path):
+        """Setup succeeds (returns API key) even if conf.json write fails."""
+        from unittest.mock import patch
+
+        with patch("api.auth.build_environment_report", side_effect=RuntimeError("disk full")), \
+             patch("api.auth.get_pipelit_dir", return_value=tmp_path / "pipelit"):
+            resp = client.post(
+                "/api/v1/auth/setup/",
+                json={"username": "admin", "password": "admin123"},
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()["key"]) == 36
+
+    def test_setup_rootfs_enqueue_failure(self, client, tmp_path):
+        """Setup succeeds even if rootfs enqueue fails."""
+        from unittest.mock import patch, MagicMock
+
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()), \
+             patch("api.auth.save_conf"), \
+             patch("api.auth.get_pipelit_dir", return_value=tmp_path / "pipelit"), \
+             patch.dict("sys.modules", {"redis": None}):
+            resp = client.post(
+                "/api/v1/auth/setup/",
+                json={"username": "admin", "password": "admin123"},
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()["key"]) == 36
+
+
+class TestPrepareRootfsJob:
+    def test_prepare_rootfs_job(self):
+        from unittest.mock import patch, MagicMock
+
+        mock_result = MagicMock()
+        mock_result.__str__ = lambda self: "/path/to/rootfs"
+
+        with patch("services.rootfs.prepare_golden_image", return_value=mock_result):
+            from tasks import prepare_rootfs_job
+            result = prepare_rootfs_job(tier=2)
+
+        assert result == "/path/to/rootfs"
+
 
 # ── Edge sub-component linking ───────────────────────────────────────────────
 
