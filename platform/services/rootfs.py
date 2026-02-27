@@ -148,12 +148,12 @@ def get_golden_dir() -> Path:
 def is_rootfs_ready(rootfs_dir: Path) -> bool:
     """Check whether a rootfs directory contains a usable Alpine rootfs.
 
-    Checks for ``/bin/sh``, ``/usr/bin/python3``, and ``.alpine-version``.
+    Checks for ``/bin/sh``, ``/usr/bin/python3``, and ``/etc/alpine-release``.
     """
     return (
         (rootfs_dir / "bin" / "sh").exists()
         and (rootfs_dir / "usr" / "bin" / "python3").exists()
-        and (rootfs_dir / ".alpine-version").exists()
+        and (rootfs_dir / "etc" / "alpine-release").exists()
     )
 
 
@@ -233,6 +233,8 @@ def install_packages(rootfs_dir: Path, packages: list[str]) -> None:
         "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
         "--share-net",
         "--die-with-parent",
+        "--clearenv",
+        "--setenv", "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "--chdir", "/",
         "--",
         "apk", "add", "--no-cache",
@@ -328,6 +330,12 @@ def prepare_golden_image(tier: int = 1) -> Path:
 
                 # /var/tmp symlink
                 _ensure_var_tmp_symlink(golden_dir)
+
+                if not is_rootfs_ready(golden_dir):
+                    raise RuntimeError(
+                        f"Golden rootfs at {golden_dir} failed readiness check after provisioning. "
+                        f"Expected bin/sh, usr/bin/python3, and etc/alpine-release."
+                    )
 
                 logger.info("Golden rootfs prepared at %s", golden_dir)
             finally:

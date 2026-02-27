@@ -120,7 +120,8 @@ class TestRootfsReadiness:
         (rootfs / "bin" / "sh").touch()
         (rootfs / "usr" / "bin").mkdir(parents=True)
         (rootfs / "usr" / "bin" / "python3").touch()
-        (rootfs / ".alpine-version").write_text("3.21.3")
+        (rootfs / "etc").mkdir(parents=True)
+        (rootfs / "etc" / "alpine-release").write_text("3.21.3")
 
         assert is_rootfs_ready(rootfs) is True
 
@@ -137,7 +138,8 @@ class TestRootfsReadiness:
         rootfs = tmp_path / "rootfs"
         (rootfs / "bin").mkdir(parents=True)
         (rootfs / "bin" / "sh").touch()
-        (rootfs / ".alpine-version").write_text("3.21.3")
+        (rootfs / "etc").mkdir(parents=True)
+        (rootfs / "etc" / "alpine-release").write_text("3.21.3")
 
         assert is_rootfs_ready(rootfs) is False
 
@@ -293,7 +295,8 @@ class TestPrepareGoldenImage:
         (golden / "bin" / "sh").touch()
         (golden / "usr" / "bin").mkdir(parents=True)
         (golden / "usr" / "bin" / "python3").touch()
-        (golden / ".alpine-version").write_text("3.21.3")
+        (golden / "etc").mkdir(parents=True)
+        (golden / "etc" / "alpine-release").write_text("3.21.3")
 
         with patch("services.rootfs.get_golden_dir", return_value=golden):
             result = prepare_golden_image()
@@ -311,7 +314,8 @@ class TestPrepareGoldenImage:
             (target / "bin" / "sh").touch()
             (target / "usr" / "bin").mkdir(parents=True, exist_ok=True)
             (target / "usr" / "bin" / "python3").touch()
-            (target / ".alpine-version").write_text("3.21.3")
+            (target / "etc").mkdir(parents=True, exist_ok=True)
+            (target / "etc" / "alpine-release").write_text("3.21.3")
 
         tarball_path = tmp_path / "pipelit" / "mini.tar.gz"
 
@@ -340,7 +344,8 @@ class TestPrepareGoldenImage:
             (target / "bin" / "sh").touch()
             (target / "usr" / "bin").mkdir(parents=True, exist_ok=True)
             (target / "usr" / "bin" / "python3").touch()
-            (target / ".alpine-version").write_text("3.21.3")
+            (target / "etc").mkdir(parents=True, exist_ok=True)
+            (target / "etc" / "alpine-release").write_text("3.21.3")
 
         tarball_path = tmp_path / "pipelit" / "mini.tar.gz"
 
@@ -370,7 +375,8 @@ class TestCopyRootfsToWorkspace:
         (golden / "bin" / "sh").touch()
         (golden / "usr" / "bin").mkdir(parents=True)
         (golden / "usr" / "bin" / "python3").touch()
-        (golden / ".alpine-version").write_text("3.21.3")
+        (golden / "etc").mkdir(parents=True)
+        (golden / "etc" / "alpine-release").write_text("3.21.3")
         return golden
 
     def test_creates_rootfs(self, tmp_path):
