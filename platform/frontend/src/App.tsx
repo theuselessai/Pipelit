@@ -17,6 +17,7 @@ import AgentUsersPage from "@/features/users/AgentUsersPage"
 import EpicsPage from "@/features/epics/EpicsPage"
 import EpicDetailPage from "@/features/epics/EpicDetailPage"
 import WorkspacesPage from "@/features/workspaces/WorkspacesPage"
+import WorkspaceDetailPage from "@/features/workspaces/WorkspaceDetailPage"
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -36,6 +37,7 @@ export default function App() {
                 <Route path="/workflows/:slug" element={<WorkflowEditorPage />} />
                 <Route path="/credentials" element={<CredentialsPage />} />
                 <Route path="/workspaces" element={<WorkspacesPage />} />
+                <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
                 <Route path="/executions" element={<ExecutionsPage />} />
                 <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                 <Route path="/epics" element={<EpicsPage />} />

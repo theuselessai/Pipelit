@@ -1,4 +1,4 @@
-"""Workspace CRUD + reset-rootfs endpoints."""
+"""Workspace CRUD + reset endpoints."""
 
 from __future__ import annotations
 
@@ -52,6 +52,7 @@ def create_workspace(
         name=payload.name,
         path=path,
         allow_network=payload.allow_network,
+        env_vars=[ev.model_dump() for ev in payload.env_vars] if payload.env_vars else [],
         user_profile_id=profile.id,
     )
     db.add(ws)
@@ -88,14 +89,10 @@ def update_workspace(
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
 
-    if payload.name is not None:
-        # Check for duplicate name
-        dup = db.query(Workspace).filter(Workspace.name == payload.name, Workspace.id != workspace_id).first()
-        if dup:
-            raise HTTPException(status_code=409, detail="Workspace with this name already exists.")
-        ws.name = payload.name
     if payload.allow_network is not None:
         ws.allow_network = payload.allow_network
+    if payload.env_vars is not None:
+        ws.env_vars = [ev.model_dump() for ev in payload.env_vars]
 
     db.commit()
     db.refresh(ws)
@@ -135,6 +132,27 @@ def batch_delete_workspaces(
             continue  # skip default workspace
         db.delete(ws)
     db.commit()
+
+
+@router.post("/{workspace_id}/reset/", status_code=200)
+def reset_workspace(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    """Reset a workspace by deleting everything inside its directory and re-creating it empty."""
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+
+    # Delete everything inside the workspace directory
+    if os.path.isdir(ws.path):
+        shutil.rmtree(ws.path)
+    # Re-create empty workspace with .tmp
+    os.makedirs(ws.path, exist_ok=True)
+    os.makedirs(os.path.join(ws.path, ".tmp"), exist_ok=True)
+    logger.info("Reset workspace %s at %s", ws.name, ws.path)
+    return {"ok": True, "message": f"Workspace '{ws.name}' has been reset."}
 
 
 @router.post("/{workspace_id}/reset-rootfs/", status_code=200)

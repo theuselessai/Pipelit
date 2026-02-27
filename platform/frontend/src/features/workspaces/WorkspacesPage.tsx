@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { useWorkspaces, useCreateWorkspace, useDeleteWorkspace, useBatchDeleteWorkspaces, useResetWorkspaceRootfs } from "@/api/workspaces"
+import { Link } from "react-router-dom"
+import { useWorkspaces, useCreateWorkspace, useDeleteWorkspace, useBatchDeleteWorkspaces } from "@/api/workspaces"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -10,9 +11,8 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { PaginationControls } from "@/components/ui/pagination-controls"
-import { Plus, Trash2, RotateCcw } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { format } from "date-fns"
-import { toast } from "sonner"
 
 const PAGE_SIZE = 50
 
@@ -24,7 +24,6 @@ export default function WorkspacesPage() {
   const createWorkspace = useCreateWorkspace()
   const deleteWorkspace = useDeleteWorkspace()
   const batchDelete = useBatchDeleteWorkspaces()
-  const resetRootfs = useResetWorkspaceRootfs()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
   const [path, setPath] = useState("")
@@ -65,13 +64,6 @@ export default function WorkspacesPage() {
     })
   }
 
-  function handleResetRootfs(id: number, wsName: string) {
-    resetRootfs.mutate(id, {
-      onSuccess: (data) => toast.success(data.message),
-      onError: () => toast.error(`Failed to reset rootfs for ${wsName}`),
-    })
-  }
-
   if (isLoading) {
     return <div className="p-6"><div className="h-8 w-48 bg-muted animate-pulse rounded mb-6" /><div className="space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted animate-pulse rounded" />)}</div></div>
   }
@@ -101,6 +93,7 @@ export default function WorkspacesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Path</TableHead>
                 <TableHead>Network</TableHead>
+                <TableHead>Env Vars</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -108,19 +101,23 @@ export default function WorkspacesPage() {
             <TableBody>
               {workspaces?.map((ws) => (
                 <TableRow key={ws.id}>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox checked={selectedIds.has(ws.id)} onCheckedChange={() => toggleSelect(ws.id)} />
                   </TableCell>
-                  <TableCell className="font-medium">{ws.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link to={`/workspaces/${ws.id}`} className="text-blue-600 hover:underline dark:text-blue-400">
+                      {ws.name}
+                    </Link>
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground font-mono max-w-[300px] truncate">{ws.path}</TableCell>
                   <TableCell>
                     {ws.allow_network ? <Badge variant="outline" className="text-green-600">Yes</Badge> : <Badge variant="outline" className="text-muted-foreground">No</Badge>}
                   </TableCell>
+                  <TableCell>
+                    <span className="text-xs text-muted-foreground">{ws.env_vars?.length || 0}</span>
+                  </TableCell>
                   <TableCell>{format(new Date(ws.created_at), "MMM d, yyyy")}</TableCell>
-                  <TableCell className="flex gap-1">
-                    <Button variant="outline" size="sm" onClick={() => handleResetRootfs(ws.id, ws.name)} title="Reset rootfs">
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
+                  <TableCell>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -134,7 +131,7 @@ export default function WorkspacesPage() {
                 </TableRow>
               ))}
               {workspaces?.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No workspaces yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No workspaces yet.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

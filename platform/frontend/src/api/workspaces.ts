@@ -10,6 +10,14 @@ export function useWorkspaces(params?: { limit?: number; offset?: number }) {
   return useQuery({ queryKey: ["workspaces", params], queryFn: () => apiFetch<PaginatedResponse<Workspace>>(`/workspaces/${q ? `?${q}` : ""}`) })
 }
 
+export function useWorkspace(id: number | string) {
+  return useQuery({
+    queryKey: ["workspace", id],
+    queryFn: () => apiFetch<Workspace>(`/workspaces/${id}/`),
+    enabled: !!id,
+  })
+}
+
 export function useCreateWorkspace() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (data: WorkspaceCreate) => apiFetch<Workspace>("/workspaces/", { method: "POST", body: JSON.stringify(data) }), onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaces"] }) })
@@ -17,7 +25,13 @@ export function useCreateWorkspace() {
 
 export function useUpdateWorkspace() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, data }: { id: number; data: WorkspaceUpdate }) => apiFetch<Workspace>(`/workspaces/${id}/`, { method: "PATCH", body: JSON.stringify(data) }), onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaces"] }) })
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: WorkspaceUpdate }) => apiFetch<Workspace>(`/workspaces/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["workspaces"] })
+      qc.invalidateQueries({ queryKey: ["workspace", vars.id] })
+    },
+  })
 }
 
 export function useDeleteWorkspace() {
@@ -30,6 +44,14 @@ export function useBatchDeleteWorkspaces() {
   return useMutation({
     mutationFn: (ids: number[]) => apiFetch<void>("/workspaces/batch-delete/", { method: "POST", body: JSON.stringify({ ids }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaces"] }),
+  })
+}
+
+export function useResetWorkspace() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset/`, { method: "POST" }),
+    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", id] }),
   })
 }
 

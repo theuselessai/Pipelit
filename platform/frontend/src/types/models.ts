@@ -145,9 +145,16 @@ export interface RootfsStatus {
 }
 
 // Workspace
-export interface Workspace { id: number; name: string; path: string; allow_network: boolean; created_at: string }
-export interface WorkspaceCreate { name: string; path?: string; allow_network?: boolean }
-export interface WorkspaceUpdate { name?: string; allow_network?: boolean }
+export interface WorkspaceEnvVar {
+  key: string
+  value?: string           // for raw source
+  credential_id?: number   // for credential source
+  credential_field?: string // e.g. "api_key", "base_url"
+  source: "raw" | "credential"
+}
+export interface Workspace { id: number; name: string; path: string; allow_network: boolean; env_vars: WorkspaceEnvVar[]; created_at: string }
+export interface WorkspaceCreate { name: string; path?: string; allow_network?: boolean; env_vars?: WorkspaceEnvVar[] }
+export interface WorkspaceUpdate { allow_network?: boolean; env_vars?: WorkspaceEnvVar[] }
 
 // Paginated response
 export interface PaginatedResponse<T> { items: T[]; total: number }

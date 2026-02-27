@@ -86,6 +86,13 @@ def test_list_workspaces(auth_client, workspace):
     assert data["items"][0]["name"] == "test-workspace"
 
 
+def test_list_workspaces_includes_env_vars(auth_client, workspace):
+    resp = auth_client.get("/api/v1/workspaces/")
+    data = resp.json()
+    assert "env_vars" in data["items"][0]
+    assert data["items"][0]["env_vars"] == []
+
+
 # -- Create --
 
 def test_create_workspace(auth_client, tmp_path, monkeypatch):
@@ -96,6 +103,7 @@ def test_create_workspace(auth_client, tmp_path, monkeypatch):
     assert data["name"] == "new-ws"
     assert "new-ws" in data["path"]
     assert data["allow_network"] is False
+    assert data["env_vars"] == []
     # Directory should be created
     assert Path(data["path"]).exists()
     assert (Path(data["path"]) / ".tmp").exists()
@@ -110,6 +118,21 @@ def test_create_workspace_with_path(auth_client, tmp_path):
     assert data["allow_network"] is True
 
 
+def test_create_workspace_with_env_vars(auth_client, tmp_path, monkeypatch):
+    monkeypatch.setattr("api.workspaces.get_pipelit_dir", lambda: tmp_path)
+    env_vars = [
+        {"key": "FOO", "value": "bar", "source": "raw"},
+        {"key": "BAZ", "value": "qux", "source": "raw"},
+    ]
+    resp = auth_client.post("/api/v1/workspaces/", json={"name": "env-ws", "env_vars": env_vars})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert len(data["env_vars"]) == 2
+    assert data["env_vars"][0]["key"] == "FOO"
+    assert data["env_vars"][0]["value"] == "bar"
+    assert data["env_vars"][1]["key"] == "BAZ"
+
+
 def test_create_workspace_duplicate_name(auth_client, workspace):
     resp = auth_client.post("/api/v1/workspaces/", json={"name": "test-workspace"})
     assert resp.status_code == 409
@@ -120,7 +143,9 @@ def test_create_workspace_duplicate_name(auth_client, workspace):
 def test_get_workspace(auth_client, workspace):
     resp = auth_client.get(f"/api/v1/workspaces/{workspace.id}/")
     assert resp.status_code == 200
-    assert resp.json()["name"] == "test-workspace"
+    data = resp.json()
+    assert data["name"] == "test-workspace"
+    assert "env_vars" in data
 
 
 def test_get_workspace_not_found(auth_client):
@@ -136,15 +161,34 @@ def test_update_workspace(auth_client, workspace):
     assert resp.json()["allow_network"] is True
 
 
-def test_update_workspace_name(auth_client, workspace):
-    resp = auth_client.patch(f"/api/v1/workspaces/{workspace.id}/", json={"name": "renamed"})
+def test_update_workspace_env_vars(auth_client, workspace):
+    env_vars = [{"key": "SECRET", "value": "s3cret", "source": "raw"}]
+    resp = auth_client.patch(f"/api/v1/workspaces/{workspace.id}/", json={"env_vars": env_vars})
     assert resp.status_code == 200
-    assert resp.json()["name"] == "renamed"
+    data = resp.json()
+    assert len(data["env_vars"]) == 1
+    assert data["env_vars"][0]["key"] == "SECRET"
+    assert data["env_vars"][0]["value"] == "s3cret"
 
 
-def test_update_workspace_duplicate_name(auth_client, workspace, default_workspace):
-    resp = auth_client.patch(f"/api/v1/workspaces/{workspace.id}/", json={"name": "default"})
-    assert resp.status_code == 409
+def test_update_workspace_env_vars_replace(auth_client, workspace):
+    """Updating env_vars replaces the entire list."""
+    env1 = [{"key": "A", "value": "1", "source": "raw"}]
+    auth_client.patch(f"/api/v1/workspaces/{workspace.id}/", json={"env_vars": env1})
+    env2 = [{"key": "B", "value": "2", "source": "raw"}, {"key": "C", "value": "3", "source": "raw"}]
+    resp = auth_client.patch(f"/api/v1/workspaces/{workspace.id}/", json={"env_vars": env2})
+    data = resp.json()
+    assert len(data["env_vars"]) == 2
+    assert data["env_vars"][0]["key"] == "B"
+
+
+def test_update_workspace_env_vars_credential_source(auth_client, workspace):
+    env_vars = [{"key": "API_KEY", "credential_id": 1, "credential_field": "api_key", "source": "credential"}]
+    resp = auth_client.patch(f"/api/v1/workspaces/{workspace.id}/", json={"env_vars": env_vars})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["env_vars"][0]["source"] == "credential"
+    assert data["env_vars"][0]["credential_id"] == 1
 
 
 # -- Delete --
@@ -182,7 +226,35 @@ def test_batch_delete_empty(auth_client):
     assert resp.status_code == 204
 
 
-# -- Reset Rootfs --
+# -- Reset Workspace --
+
+def test_reset_workspace(auth_client, workspace, tmp_path):
+    # Create workspace directory with various content
+    ws_dir = Path(workspace.path)
+    ws_dir.mkdir(parents=True, exist_ok=True)
+    (ws_dir / ".rootfs").mkdir()
+    (ws_dir / ".rootfs" / "somefile").touch()
+    (ws_dir / ".venv").mkdir()
+    (ws_dir / ".tmp").mkdir()
+    (ws_dir / "myfile.py").touch()
+
+    resp = auth_client.post(f"/api/v1/workspaces/{workspace.id}/reset/")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    # Everything should be gone except the re-created dirs
+    assert ws_dir.exists()
+    assert (ws_dir / ".tmp").exists()
+    assert not (ws_dir / ".rootfs").exists()
+    assert not (ws_dir / ".venv").exists()
+    assert not (ws_dir / "myfile.py").exists()
+
+
+def test_reset_workspace_not_found(auth_client):
+    resp = auth_client.post("/api/v1/workspaces/9999/reset/")
+    assert resp.status_code == 404
+
+
+# -- Reset Rootfs (legacy) --
 
 def test_reset_rootfs(auth_client, workspace, tmp_path):
     # Create a fake .rootfs directory
@@ -225,3 +297,33 @@ def test_pagination(auth_client, db, user_profile, tmp_path):
     resp2 = auth_client.get("/api/v1/workspaces/?limit=2&offset=4")
     data2 = resp2.json()
     assert len(data2["items"]) == 1
+
+
+# -- Default workspace auto-creation --
+
+def test_default_workspace_model_env_vars_default(db, user_profile, tmp_path):
+    """Workspace env_vars defaults to empty list."""
+    ws = Workspace(
+        name="env-test",
+        path=str(tmp_path / "env-test"),
+        user_profile_id=user_profile.id,
+    )
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+    assert ws.env_vars == []
+
+
+def test_workspace_model_with_env_vars(db, user_profile, tmp_path):
+    """Workspace env_vars can be set to a list of dicts."""
+    ws = Workspace(
+        name="env-test-2",
+        path=str(tmp_path / "env-test-2"),
+        user_profile_id=user_profile.id,
+        env_vars=[{"key": "FOO", "value": "bar", "source": "raw"}],
+    )
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+    assert len(ws.env_vars) == 1
+    assert ws.env_vars[0]["key"] == "FOO"
