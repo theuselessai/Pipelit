@@ -39,12 +39,28 @@ def _build_backend(extra: dict):
     from components.sandboxed_backend import SandboxedShellBackend
     from components._agent_shared import _get_workspace_dir
 
-    root_dir = extra.get("filesystem_root_dir") or _get_workspace_dir()
+    root_dir = None
+    allow_network = bool(extra.get("allow_network", False))
+
+    # Resolve workspace from DB if workspace_id is set
+    workspace_id = extra.get("workspace_id")
+    if workspace_id:
+        from database import SessionLocal
+        from models.workspace import Workspace
+        with SessionLocal() as session:
+            ws = session.query(Workspace).filter(Workspace.id == workspace_id).first()
+            if ws:
+                root_dir = ws.path
+                allow_network = ws.allow_network
+
+    if not root_dir:
+        root_dir = extra.get("filesystem_root_dir") or _get_workspace_dir()
+
     root_dir = os.path.expanduser(root_dir)
     os.makedirs(root_dir, exist_ok=True)
     return SandboxedShellBackend(
         root_dir=root_dir,
-        allow_network=bool(extra.get("allow_network", False)),
+        allow_network=allow_network,
     )
 
 

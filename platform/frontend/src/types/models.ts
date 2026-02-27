@@ -144,6 +144,11 @@ export interface RootfsStatus {
   error: string | null;
 }
 
+// Workspace
+export interface Workspace { id: number; name: string; path: string; allow_network: boolean; created_at: string }
+export interface WorkspaceCreate { name: string; path?: string; allow_network?: boolean }
+export interface WorkspaceUpdate { name?: string; allow_network?: boolean }
+
 // Paginated response
 export interface PaginatedResponse<T> { items: T[]; total: number }
 

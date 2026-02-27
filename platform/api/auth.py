@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -122,9 +123,14 @@ def setup(payload: SetupRequest, db: Session = Depends(get_db)):
         )
         save_conf(conf)
 
-        # Create default workspace directory
-        workspace_dir = get_pipelit_dir() / "workspaces" / "default"
-        workspace_dir.mkdir(parents=True, exist_ok=True)
+        # Create default workspace directory + DB row
+        workspace_path = str(get_pipelit_dir() / "workspaces" / "default")
+        os.makedirs(workspace_path, exist_ok=True)
+        os.makedirs(os.path.join(workspace_path, ".tmp"), exist_ok=True)
+        from models.workspace import Workspace
+        ws = Workspace(name="default", path=workspace_path, user_profile_id=user.id)
+        db.add(ws)
+        db.commit()
 
         # If bwrap mode, enqueue rootfs preparation
         if env.get("sandbox_mode") == "bwrap" and not env.get("rootfs_ready"):

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
+import { useWorkspaces } from "@/api/workspaces"
 import { useSendChatMessage, useChatHistory, useDeleteChatHistory } from "@/api/chat"
 import { useManualExecute } from "@/api/executions"
 import { wsManager } from "@/lib/wsManager"
@@ -534,6 +535,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const updateNode = useUpdateNode(slug)
   const deleteNode = useDeleteNode(slug)
   const { data: credentials } = useCredentials()
+  const { data: workspacesData } = useWorkspaces()
   const allCredentials = credentials?.items ?? []
   const llmCredentials = allCredentials.filter((c) => c.credential_type === "llm")
 
@@ -569,7 +571,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   )
 
   // Deep agent state
-  const [filesystemRootDir, setFilesystemRootDir] = useState<string>((node.config.extra_config?.filesystem_root_dir as string) ?? "")
+  const [workspaceId, setWorkspaceId] = useState<string>((node.config.extra_config?.workspace_id as number)?.toString() ?? "")
   const [enableTodos, setEnableTodos] = useState<boolean>(Boolean(node.config.extra_config?.enable_todos))
   const [allowNetwork, setAllowNetwork] = useState<boolean>(Boolean(node.config.extra_config?.allow_network))
   const [subagents, setSubagents] = useState<{ name: string; description: string; system_prompt: string; model: string }[]>(
@@ -718,7 +720,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     if (isDeepAgent) {
       parsedExtra = {
         ...parsedExtra,
-        filesystem_root_dir: filesystemRootDir,
+        workspace_id: workspaceId ? Number(workspaceId) : null,
         enable_todos: enableTodos,
         allow_network: allowNetwork,
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
@@ -1366,14 +1368,22 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <Switch checked={allowNetwork} onCheckedChange={setAllowNetwork} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Workspace Directory</Label>
+              <Label className="text-xs">Workspace</Label>
               <p className="text-xs text-muted-foreground">Sandboxed directory for file read/write operations</p>
-              <Input
-                value={filesystemRootDir}
-                onChange={(e) => setFilesystemRootDir(e.target.value)}
-                className="text-xs h-7"
-                placeholder="~/.config/pipelit/workspaces/default"
-              />
+              <Select value={workspaceId} onValueChange={(v) => {
+                setWorkspaceId(v)
+                const ws = workspacesData?.items?.find((w) => w.id.toString() === v)
+                if (ws) setAllowNetwork(ws.allow_network)
+              }}>
+                <SelectTrigger className="text-xs h-7">
+                  <SelectValue placeholder="Default workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspacesData?.items?.map((ws) => (
+                    <SelectItem key={ws.id} value={ws.id.toString()}>{ws.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <Separator />
