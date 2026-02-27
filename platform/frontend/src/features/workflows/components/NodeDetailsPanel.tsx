@@ -266,10 +266,12 @@ function ChatPanel({ slug, node, onClose }: Props) {
         const text = msg.data.text as string
         if (text) {
           receivedChatMessagesRef.current = true
-          setLocalMessages((prev) => [
-            ...prev,
-            { role: "assistant", text, timestamp: new Date().toISOString() },
-          ])
+          setLocalMessages((prev) => {
+            // Deduplicate: skip if last message has same text
+            const last = prev[prev.length - 1]
+            if (last && last.role === "assistant" && last.text === text) return prev
+            return [...prev, { role: "assistant", text, timestamp: new Date().toISOString() }]
+          })
         }
         return
       }
@@ -569,6 +571,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Deep agent state
   const [filesystemRootDir, setFilesystemRootDir] = useState<string>((node.config.extra_config?.filesystem_root_dir as string) ?? "")
   const [enableTodos, setEnableTodos] = useState<boolean>(Boolean(node.config.extra_config?.enable_todos))
+  const [allowNetwork, setAllowNetwork] = useState<boolean>(Boolean(node.config.extra_config?.allow_network))
   const [subagents, setSubagents] = useState<{ name: string; description: string; system_prompt: string; model: string }[]>(
     () => (node.config.extra_config?.subagents as { name: string; description: string; system_prompt: string; model: string }[]) ?? []
   )
@@ -717,6 +720,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         ...parsedExtra,
         filesystem_root_dir: filesystemRootDir,
         enable_todos: enableTodos,
+        allow_network: allowNetwork,
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
       }
     }
@@ -1353,6 +1357,13 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <p className="text-xs text-muted-foreground">Built-in task planning and tracking</p>
               </div>
               <Switch checked={enableTodos} onCheckedChange={setEnableTodos} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Network Access</Label>
+                <p className="text-xs text-muted-foreground">Allow outbound network (install packages, call APIs)</p>
+              </div>
+              <Switch checked={allowNetwork} onCheckedChange={setAllowNetwork} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Workspace Directory</Label>

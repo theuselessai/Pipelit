@@ -44,7 +44,7 @@ def _build_backend(extra: dict):
     os.makedirs(root_dir, exist_ok=True)
     return SandboxedShellBackend(
         root_dir=root_dir,
-        allow_network=False,
+        allow_network=bool(extra.get("allow_network", False)),
     )
 
 
