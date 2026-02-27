@@ -2,27 +2,35 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from config import PipelitConfig, get_pipelit_dir, save_conf
 from database import get_db
 from models.user import APIKey, UserProfile
 from schemas.auth import (
+    EnvironmentInfo,
     MeResponse,
     MFADisableRequest,
     MFALoginVerifyRequest,
     MFASetupResponse,
     MFAStatusResponse,
     MFAVerifyRequest,
+    RootfsStatusResponse,
     SetupRequest,
     SetupStatusResponse,
     TokenRequest,
     TokenResponse,
 )
+from services.environment import build_environment_report, refresh_capabilities
 from services.mfa import generate_secret, get_provisioning_uri, verify_code
+from services.rootfs import get_golden_dir, is_rootfs_ready
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -74,7 +82,11 @@ def me(user: UserProfile = Depends(get_current_user)):
 @router.get("/setup-status/", response_model=SetupStatusResponse)
 def setup_status(db: Session = Depends(get_db)):
     has_users = db.query(UserProfile).first() is not None
-    return {"needs_setup": not has_users}
+    if has_users:
+        return {"needs_setup": False, "environment": None}
+
+    env = build_environment_report()
+    return {"needs_setup": True, "environment": env}
 
 
 @router.post("/setup/", response_model=TokenResponse, responses={409: {"description": "User already exists"}})
@@ -95,7 +107,68 @@ def setup(payload: SetupRequest, db: Session = Depends(get_db)):
     db.add(api_key)
     db.commit()
     db.refresh(api_key)
+
+    # Write conf.json with setup config + detected environment
+    try:
+        env = build_environment_report()
+        conf = PipelitConfig(
+            setup_completed=True,
+            sandbox_mode=payload.sandbox_mode or env.get("sandbox_mode", "auto"),
+            database_url=payload.database_url or "",
+            redis_url=payload.redis_url or "",
+            log_level=payload.log_level or "",
+            platform_base_url=payload.platform_base_url or "",
+            detected_environment=env,
+        )
+        save_conf(conf)
+
+        # Create default workspace directory
+        workspace_dir = get_pipelit_dir() / "workspaces" / "default"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        # If bwrap mode, enqueue rootfs preparation
+        if env.get("sandbox_mode") == "bwrap" and not env.get("rootfs_ready"):
+            try:
+                from redis import Redis
+                from rq import Queue
+
+                from config import settings
+
+                q = Queue(connection=Redis.from_url(settings.REDIS_URL))
+                from tasks import prepare_rootfs_job
+
+                q.enqueue(prepare_rootfs_job, tier=2)
+            except Exception:
+                logger.warning("Failed to enqueue rootfs preparation job", exc_info=True)
+    except Exception:
+        logger.warning("Failed to write conf.json during setup", exc_info=True)
+
     return {"key": api_key.key, "requires_mfa": False}
+
+
+@router.post("/setup/recheck/", response_model=dict, responses={409: {"description": "Setup already completed"}})
+def setup_recheck(db: Session = Depends(get_db)):
+    """Re-run environment detection during setup wizard."""
+    if db.query(UserProfile).first() is not None:
+        raise HTTPException(status_code=409, detail="Setup already completed.")
+
+    refresh_capabilities()
+    env = build_environment_report()
+    return {"environment": env}
+
+
+@router.get("/setup/rootfs-status/", response_model=RootfsStatusResponse, responses={409: {"description": "Setup already completed"}})
+def rootfs_status(db: Session = Depends(get_db)):
+    """Check rootfs provisioning status during setup wizard."""
+    if db.query(UserProfile).first() is not None:
+        raise HTTPException(status_code=409, detail="Setup already completed.")
+
+    golden_dir = get_golden_dir()
+    ready = is_rootfs_ready(golden_dir)
+    lock_path = golden_dir.parent / ".rootfs.lock"
+    preparing = not ready and lock_path.exists()
+
+    return {"ready": ready, "preparing": preparing, "error": None}
 
 
 # ---------------------------------------------------------------------------

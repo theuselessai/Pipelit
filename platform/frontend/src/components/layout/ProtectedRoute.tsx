@@ -9,7 +9,9 @@ export default function ProtectedRoute() {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      checkSetupStatus().then(setNeedsSetup).catch(() => setNeedsSetup(false))
+      checkSetupStatus()
+        .then((result) => setNeedsSetup(result.needs_setup))
+        .catch(() => setNeedsSetup(false))
     }
   }, [isAuthenticated])
 

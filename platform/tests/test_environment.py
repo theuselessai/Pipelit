@@ -525,3 +525,160 @@ class TestStartupValidation:
 
         mock_ready.assert_called_once()
         assert "Golden rootfs ready" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# compute_setup_gate
+# ---------------------------------------------------------------------------
+
+
+class TestSetupGate:
+    def test_linux_with_bwrap_passes(self):
+        from services.environment import compute_setup_gate
+
+        passed, reason = compute_setup_gate("Linux", None, bwrap_available=True)
+        assert passed is True
+        assert reason is None
+
+    def test_linux_no_bwrap_no_container_blocks(self):
+        from services.environment import compute_setup_gate
+
+        passed, reason = compute_setup_gate("Linux", None, bwrap_available=False)
+        assert passed is False
+        assert "bwrap" in reason
+
+    def test_linux_no_bwrap_with_container_passes(self):
+        from services.environment import compute_setup_gate
+
+        passed, reason = compute_setup_gate("Linux", "docker", bwrap_available=False)
+        assert passed is True
+        assert reason is None
+
+    def test_macos_no_container_blocks(self):
+        from services.environment import compute_setup_gate
+
+        passed, reason = compute_setup_gate("Darwin", None, bwrap_available=False)
+        assert passed is False
+        assert "macOS" in reason
+
+    def test_macos_with_container_passes(self):
+        from services.environment import compute_setup_gate
+
+        passed, reason = compute_setup_gate("Darwin", "docker", bwrap_available=False)
+        assert passed is True
+        assert reason is None
+
+    def test_container_always_passes(self):
+        from services.environment import compute_setup_gate
+
+        for container in ["docker", "codespaces", "gitpod", "kubernetes"]:
+            passed, _ = compute_setup_gate("Linux", container, bwrap_available=False)
+            assert passed is True
+
+
+# ---------------------------------------------------------------------------
+# build_environment_report
+# ---------------------------------------------------------------------------
+
+
+class TestBuildEnvironmentReport:
+    @staticmethod
+    def _mock_caps(tier1_all=True, tier2_all=True):
+        """Build a mock capabilities dict."""
+        from services.environment import TIER1_TOOLS, TIER2_TOOLS
+
+        shell_tools = {}
+        for t in TIER1_TOOLS:
+            shell_tools[t] = {"available": tier1_all, "tier": 1}
+        for t in TIER2_TOOLS:
+            shell_tools[t] = {"available": tier2_all, "tier": 2}
+        return {
+            "runtimes": {
+                "python3": {"available": True, "version": "3.12.0", "path": "/usr/bin/python3"},
+                "node": {"available": True, "version": "v20.0.0", "path": "/usr/bin/node"},
+                "pip3": {"available": True, "version": "pip 24.0", "path": "/usr/bin/pip3"},
+            },
+            "shell_tools": shell_tools,
+            "network": {"dns": True, "http": True},
+            "filesystem": {"workspace_exists": False, "workspace_writable": False, "tmp_writable": True},
+            "system": {"os": "Linux", "arch": "x86_64", "kernel": "6.1.0"},
+        }
+
+    @patch("services.environment.detect_container", return_value=None)
+    @patch("services.environment.shutil.which", return_value="/usr/bin/bwrap")
+    @patch("services.environment.platform.system", return_value="Linux")
+    @patch("services.environment.platform.machine", return_value="x86_64")
+    @patch("services.rootfs.is_rootfs_ready", return_value=False)
+    def test_report_has_expected_keys(self, *mocks):
+        from services.environment import build_environment_report
+
+        with patch("services.environment.refresh_capabilities", return_value=self._mock_caps()):
+            report = build_environment_report()
+
+        assert report["os"] == "Linux"
+        assert report["arch"] == "x86_64"
+        assert report["container"] is None
+        assert report["bwrap_available"] is True
+        assert report["sandbox_mode"] in ("bwrap", "container", "none")
+        assert "capabilities" in report
+        assert "gate" in report
+        assert "tier1_met" in report
+        assert "tier2_warnings" in report
+        assert report["gate"]["passed"] is True
+
+    @patch("services.environment.detect_container", return_value=None)
+    @patch("services.environment.shutil.which", return_value="/usr/bin/bwrap")
+    @patch("services.environment.platform.system", return_value="Linux")
+    @patch("services.environment.platform.machine", return_value="x86_64")
+    @patch("services.rootfs.is_rootfs_ready", return_value=False)
+    def test_bwrap_mode_skips_tier1_check(self, *mocks):
+        from services.environment import build_environment_report
+
+        caps = self._mock_caps(tier1_all=False)
+        with patch("services.environment.refresh_capabilities", return_value=caps):
+            report = build_environment_report()
+
+        assert report["tier1_met"] is True
+
+    @patch("services.environment.detect_container", return_value="docker")
+    @patch("services.environment.shutil.which", return_value=None)
+    @patch("services.environment.platform.system", return_value="Linux")
+    @patch("services.environment.platform.machine", return_value="x86_64")
+    @patch("services.rootfs.is_rootfs_ready", return_value=False)
+    def test_tier2_warnings_reported(self, *mocks):
+        from services.environment import build_environment_report, TIER2_TOOLS
+
+        caps = self._mock_caps(tier2_all=False)
+        with patch("services.environment.refresh_capabilities", return_value=caps):
+            report = build_environment_report()
+
+        assert len(report["tier2_warnings"]) == len(TIER2_TOOLS)
+        for tool in TIER2_TOOLS:
+            assert tool in report["tier2_warnings"]
+
+    @patch("services.environment.detect_container", return_value=None)
+    @patch("services.environment.shutil.which", return_value="/usr/bin/bwrap")
+    @patch("services.environment.platform.system", return_value="Linux")
+    @patch("services.environment.platform.machine", return_value="x86_64")
+    @patch("services.rootfs.is_rootfs_ready", return_value=True)
+    def test_rootfs_ready_reflected(self, *mocks):
+        from services.environment import build_environment_report
+
+        with patch("services.environment.refresh_capabilities", return_value=self._mock_caps()):
+            report = build_environment_report()
+
+        assert report["rootfs_ready"] is True
+
+    @patch("services.environment.detect_container", return_value=None)
+    @patch("services.environment.shutil.which", return_value=None)
+    @patch("services.environment.platform.system", return_value="Darwin")
+    @patch("services.environment.platform.machine", return_value="arm64")
+    @patch("services.rootfs.is_rootfs_ready", return_value=False)
+    def test_macos_gate_blocks(self, *mocks):
+        from services.environment import build_environment_report
+
+        with patch("services.environment.refresh_capabilities", return_value=self._mock_caps()):
+            report = build_environment_report()
+
+        assert report["gate"]["passed"] is False
+        assert "macOS" in report["gate"]["blocked_reason"]

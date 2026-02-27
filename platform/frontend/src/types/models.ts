@@ -97,6 +97,53 @@ export interface MemoryUser { id: string; canonical_id: string; display_name: st
 // Agent Users
 export interface AgentUser { id: number; username: string; purpose: string; api_key_preview: string; created_at: string; created_by: string | null }
 
+// Environment / Setup Wizard
+export interface RuntimeInfo {
+  available: boolean;
+  version: string | null;
+  path: string | null;
+}
+
+export interface ShellToolInfo {
+  available: boolean;
+  tier: number;
+}
+
+export interface NetworkInfo {
+  dns: boolean;
+  http: boolean;
+}
+
+export interface CapabilitiesInfo {
+  runtimes: Record<string, RuntimeInfo>;
+  shell_tools: Record<string, ShellToolInfo>;
+  network: NetworkInfo;
+}
+
+export interface GateResult {
+  passed: boolean;
+  blocked_reason: string | null;
+}
+
+export interface EnvironmentInfo {
+  os: string;
+  arch: string;
+  container: string | null;
+  bwrap_available: boolean;
+  rootfs_ready: boolean;
+  sandbox_mode: string;
+  capabilities: CapabilitiesInfo;
+  tier1_met: boolean;
+  tier2_warnings: string[];
+  gate: GateResult;
+}
+
+export interface RootfsStatus {
+  ready: boolean;
+  preparing: boolean;
+  error: string | null;
+}
+
 // Paginated response
 export interface PaginatedResponse<T> { items: T[]; total: number }
 
