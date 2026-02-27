@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,6 +29,8 @@ from schemas.auth import (
 from services.environment import build_environment_report, refresh_capabilities
 from services.mfa import generate_secret, get_provisioning_uri, verify_code
 from services.rootfs import get_golden_dir, is_rootfs_ready
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -136,9 +139,9 @@ def setup(payload: SetupRequest, db: Session = Depends(get_db)):
 
                 q.enqueue(prepare_rootfs_job, tier=2)
             except Exception:
-                pass  # Non-critical: rootfs will be created on first execution
+                logger.warning("Failed to enqueue rootfs preparation job", exc_info=True)
     except Exception:
-        pass  # Non-critical: setup succeeds even if conf.json write fails
+        logger.warning("Failed to write conf.json during setup", exc_info=True)
 
     return {"key": api_key.key, "requires_mfa": False}
 

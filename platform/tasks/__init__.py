@@ -70,6 +70,10 @@ def recover_zombie_executions_job() -> int:
 
 
 def prepare_rootfs_job(tier: int = 2) -> str:
-    from services.rootfs import prepare_golden_image
-    result = prepare_golden_image(tier=tier)
-    return str(result)
+    token = execution_id_var.set("rootfs-prep")
+    try:
+        from services.rootfs import prepare_golden_image
+        result = prepare_golden_image(tier=tier)
+        return str(result)
+    finally:
+        execution_id_var.reset(token)

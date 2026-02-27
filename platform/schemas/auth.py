@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -28,7 +30,7 @@ class RuntimeInfo(BaseModel):
 
 class ShellToolInfo(BaseModel):
     available: bool
-    tier: int  # 1 or 2
+    tier: int = Field(ge=1, le=2)
 
 
 class NetworkInfo(BaseModel):
@@ -67,13 +69,13 @@ class RootfsStatusResponse(BaseModel):
 
 
 class SetupRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=4)
     sandbox_mode: str | None = None
-    database_url: str | None = None
-    redis_url: str | None = None
-    log_level: str | None = None
-    platform_base_url: str | None = None
+    database_url: str | None = Field(None, min_length=1)
+    redis_url: str | None = Field(None, min_length=1)
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] | None = None
+    platform_base_url: str | None = Field(None, min_length=1)
 
 
 class SetupStatusResponse(BaseModel):
