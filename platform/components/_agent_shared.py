@@ -135,6 +135,12 @@ class PipelitAgentMiddleware(AgentMiddleware):
                     break
 
             if text.strip():
+                # Deduplicate: skip if same text already published for this execution
+                dedup_key = f"{exec_id}:{hash(text)}"
+                if dedup_key == getattr(self, '_last_chat_dedup', None):
+                    return response
+                self._last_chat_dedup = dedup_key
+
                 from services.orchestrator import _publish_event
                 _publish_event(
                     exec_id,

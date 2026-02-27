@@ -28,38 +28,6 @@ from services.token_usage import (
 logger = logging.getLogger(__name__)
 
 
-def _ensure_workspace_venv(root_dir: str) -> None:
-    """Create a per-workspace Python venv if it doesn't already exist.
-
-    Installs common packages (reportlab, pillow) so agents can create PDFs
-    and images out of the box.  Runs lazily — ~5s one-time cost per workspace.
-    """
-    import subprocess as _sp
-
-    venv_path = os.path.join(root_dir, ".venv")
-    if os.path.isdir(venv_path):
-        return
-
-    logger.info("Creating workspace venv at %s", venv_path)
-    try:
-        _sp.run(
-            ["python3", "-m", "venv", venv_path],
-            check=True,
-            capture_output=True,
-            timeout=60,
-        )
-        pip = os.path.join(venv_path, "bin", "pip")
-        _sp.run(
-            [pip, "install", "--quiet", "reportlab", "pillow"],
-            check=True,
-            capture_output=True,
-            timeout=120,
-        )
-        logger.info("Workspace venv ready at %s", venv_path)
-    except Exception:
-        logger.exception("Failed to create workspace venv at %s", venv_path)
-
-
 def _build_backend(extra: dict):
     """Build a sandboxed shell backend for deep agents.
 
@@ -74,10 +42,9 @@ def _build_backend(extra: dict):
     root_dir = extra.get("filesystem_root_dir") or _get_workspace_dir()
     root_dir = os.path.expanduser(root_dir)
     os.makedirs(root_dir, exist_ok=True)
-    _ensure_workspace_venv(root_dir)
     return SandboxedShellBackend(
         root_dir=root_dir,
-        allow_network=False,
+        allow_network=bool(extra.get("allow_network", False)),
     )
 
 

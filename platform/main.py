@@ -57,6 +57,17 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to create skills directory")
 
+    # Validate sandbox environment
+    try:
+        from services.environment import validate_environment_on_startup
+        resolution = validate_environment_on_startup()
+        logger.info("Sandbox: mode=%s, can_execute=%s, container=%s",
+                     resolution.mode, resolution.can_execute, resolution.container_type)
+        if not resolution.can_execute:
+            logger.warning("Sandbox not available: %s", resolution.reason)
+    except Exception:
+        logger.exception("Failed to validate sandbox environment on startup")
+
     # Recover any executions stuck in "running" from a previous crash
     try:
         from services.execution_recovery import recover_zombie_executions
