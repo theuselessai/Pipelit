@@ -1,5 +1,7 @@
 """Auth schemas."""
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -15,13 +17,68 @@ class TokenResponse(BaseModel):
     requires_mfa: bool = False
 
 
+# ── Environment / setup wizard schemas ────────────────────────────────────────
+
+
+class RuntimeInfo(BaseModel):
+    available: bool
+    version: str | None = None
+    path: str | None = None
+
+
+class ShellToolInfo(BaseModel):
+    available: bool
+    tier: int  # 1 or 2
+
+
+class NetworkInfo(BaseModel):
+    dns: bool
+    http: bool
+
+
+class CapabilitiesInfo(BaseModel):
+    runtimes: dict[str, RuntimeInfo]
+    shell_tools: dict[str, ShellToolInfo]
+    network: NetworkInfo
+
+
+class GateResult(BaseModel):
+    passed: bool
+    blocked_reason: str | None = None
+
+
+class EnvironmentInfo(BaseModel):
+    os: str
+    arch: str
+    container: str | None = None
+    bwrap_available: bool
+    rootfs_ready: bool
+    sandbox_mode: str
+    capabilities: CapabilitiesInfo
+    tier1_met: bool
+    tier2_warnings: list[str]
+    gate: GateResult
+
+
+class RootfsStatusResponse(BaseModel):
+    ready: bool
+    preparing: bool
+    error: str | None = None
+
+
 class SetupRequest(BaseModel):
     username: str
     password: str
+    sandbox_mode: str | None = None
+    database_url: str | None = None
+    redis_url: str | None = None
+    log_level: str | None = None
+    platform_base_url: str | None = None
 
 
 class SetupStatusResponse(BaseModel):
     needs_setup: bool
+    environment: EnvironmentInfo | None = None
 
 
 class MeResponse(BaseModel):

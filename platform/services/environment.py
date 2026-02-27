@@ -300,6 +300,74 @@ def refresh_capabilities(workspace_path: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def compute_setup_gate(
+    os_name: str, container_type: str | None, bwrap_available: bool,
+) -> tuple[bool, str | None]:
+    """Determine whether the platform can run in this environment.
+
+    Returns ``(passed, blocked_reason)``.
+    """
+    if os_name == "Darwin" and not container_type:
+        return False, "macOS requires Docker or another container runtime to sandbox code execution."
+    if os_name == "Linux" and not bwrap_available and not container_type:
+        return False, "bwrap is required for sandboxed execution. Install with `apt install bubblewrap`."
+    return True, None
+
+
+def build_environment_report() -> dict:
+    """Build a full environment report for the setup wizard.
+
+    Returns a dict matching the ``EnvironmentInfo`` schema.
+    """
+    from services.rootfs import get_golden_dir, is_rootfs_ready
+
+    container = detect_container()
+    resolution = resolve_sandbox_mode()
+    caps = refresh_capabilities()
+
+    bwrap_available = shutil.which("bwrap") is not None
+    os_name = platform.system()
+    arch = platform.machine()
+
+    golden_dir = get_golden_dir()
+    rootfs_ready = is_rootfs_ready(golden_dir)
+
+    # Tier checks — skip tier1 check in bwrap mode (rootfs provides them)
+    shell_tools = caps.get("shell_tools", {})
+    if resolution.mode == "bwrap":
+        tier1_met = True
+    else:
+        tier1_met = all(
+            shell_tools.get(t, {}).get("available", False) for t in TIER1_TOOLS
+        )
+    tier2_warnings = [
+        t for t in TIER2_TOOLS
+        if not shell_tools.get(t, {}).get("available", False)
+    ]
+
+    passed, blocked_reason = compute_setup_gate(os_name, container, bwrap_available)
+
+    return {
+        "os": os_name,
+        "arch": arch,
+        "container": container,
+        "bwrap_available": bwrap_available,
+        "rootfs_ready": rootfs_ready,
+        "sandbox_mode": resolution.mode,
+        "capabilities": {
+            "runtimes": caps.get("runtimes", {}),
+            "shell_tools": shell_tools,
+            "network": caps.get("network", {"dns": False, "http": False}),
+        },
+        "tier1_met": tier1_met,
+        "tier2_warnings": tier2_warnings,
+        "gate": {
+            "passed": passed,
+            "blocked_reason": blocked_reason,
+        },
+    }
+
+
 def validate_environment_on_startup() -> SandboxResolution:
     """Run full environment validation at server startup.
 

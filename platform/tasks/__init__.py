@@ -67,3 +67,9 @@ def execute_scheduled_job_task(job_id: str, current_repeat: int = 0, current_ret
 def recover_zombie_executions_job() -> int:
     from services.execution_recovery import recover_zombie_executions
     return recover_zombie_executions()
+
+
+def prepare_rootfs_job(tier: int = 2) -> str:
+    from services.rootfs import prepare_golden_image
+    result = prepare_golden_image(tier=tier)
+    return str(result)

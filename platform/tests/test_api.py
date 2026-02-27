@@ -455,8 +455,33 @@ class TestExecutionAPI:
 
 
 class TestSetupAPI:
+    def _mock_env_report(self):
+        return {
+            "os": "Linux",
+            "arch": "x86_64",
+            "container": None,
+            "bwrap_available": True,
+            "rootfs_ready": False,
+            "sandbox_mode": "bwrap",
+            "capabilities": {
+                "runtimes": {
+                    "python3": {"available": True, "version": "3.12.0", "path": "/usr/bin/python3"},
+                    "node": {"available": True, "version": "v20.0.0", "path": "/usr/bin/node"},
+                    "pip3": {"available": True, "version": "pip 24.0", "path": "/usr/bin/pip3"},
+                },
+                "shell_tools": {"bash": {"available": True, "tier": 1}},
+                "network": {"dns": True, "http": True},
+            },
+            "tier1_met": True,
+            "tier2_warnings": [],
+            "gate": {"passed": True, "blocked_reason": None},
+        }
+
     def test_setup_status_needs_setup(self, client):
-        resp = client.get("/api/v1/auth/setup-status/")
+        from unittest.mock import patch
+
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()):
+            resp = client.get("/api/v1/auth/setup-status/")
         assert resp.status_code == 200
         assert resp.json()["needs_setup"] is True
 
@@ -465,11 +490,16 @@ class TestSetupAPI:
         assert resp.status_code == 200
         assert resp.json()["needs_setup"] is False
 
-    def test_setup_creates_user(self, client):
-        resp = client.post(
-            "/api/v1/auth/setup/",
-            json={"username": "admin", "password": "admin123"},
-        )
+    def test_setup_creates_user(self, client, tmp_path):
+        from unittest.mock import patch
+
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()), \
+             patch("api.auth.save_conf"), \
+             patch("api.auth.get_pipelit_dir", return_value=tmp_path / "pipelit"):
+            resp = client.post(
+                "/api/v1/auth/setup/",
+                json={"username": "admin", "password": "admin123"},
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert "key" in data
@@ -480,6 +510,94 @@ class TestSetupAPI:
             "/api/v1/auth/setup/",
             json={"username": "another", "password": "pass"},
         )
+        assert resp.status_code == 409
+
+    def test_setup_status_includes_environment(self, client):
+        from unittest.mock import patch
+
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()):
+            resp = client.get("/api/v1/auth/setup-status/")
+        data = resp.json()
+        assert data["needs_setup"] is True
+        env = data["environment"]
+        assert env is not None
+        assert env["os"] == "Linux"
+        assert env["gate"]["passed"] is True
+        assert "capabilities" in env
+
+    def test_setup_status_no_environment_after_setup(self, client, user_profile):
+        resp = client.get("/api/v1/auth/setup-status/")
+        data = resp.json()
+        assert data["needs_setup"] is False
+        assert data["environment"] is None
+
+    def test_setup_writes_conf_json(self, client, tmp_path):
+        from unittest.mock import patch, MagicMock
+
+        mock_save = MagicMock()
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()), \
+             patch("api.auth.save_conf", mock_save), \
+             patch("api.auth.get_pipelit_dir", return_value=tmp_path / "pipelit"):
+            resp = client.post(
+                "/api/v1/auth/setup/",
+                json={
+                    "username": "admin",
+                    "password": "admin123",
+                    "log_level": "DEBUG",
+                },
+            )
+        assert resp.status_code == 200
+        mock_save.assert_called_once()
+        conf = mock_save.call_args[0][0]
+        assert conf.setup_completed is True
+        assert conf.log_level == "DEBUG"
+        assert conf.sandbox_mode == "bwrap"
+
+    def test_setup_creates_workspace_dir(self, client, tmp_path):
+        from unittest.mock import patch
+
+        pipelit_dir = tmp_path / "pipelit"
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()), \
+             patch("api.auth.save_conf"), \
+             patch("api.auth.get_pipelit_dir", return_value=pipelit_dir):
+            resp = client.post(
+                "/api/v1/auth/setup/",
+                json={"username": "admin", "password": "admin123"},
+            )
+        assert resp.status_code == 200
+        assert (pipelit_dir / "workspaces" / "default").is_dir()
+
+    def test_setup_recheck(self, client):
+        from unittest.mock import patch
+
+        with patch("api.auth.build_environment_report", return_value=self._mock_env_report()), \
+             patch("api.auth.refresh_capabilities"):
+            resp = client.post("/api/v1/auth/setup/recheck/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "environment" in data
+        assert data["environment"]["os"] == "Linux"
+
+    def test_setup_recheck_blocked_after_setup(self, client, user_profile):
+        resp = client.post("/api/v1/auth/setup/recheck/")
+        assert resp.status_code == 409
+
+    def test_rootfs_status(self, client, tmp_path):
+        from unittest.mock import patch
+
+        with patch("api.auth.is_rootfs_ready", return_value=False), \
+             patch("api.auth.get_golden_dir", return_value=tmp_path / "rootfs"):
+            # Create lock file to simulate preparing
+            lock_path = tmp_path / ".rootfs.lock"
+            lock_path.touch()
+            resp = client.get("/api/v1/auth/setup/rootfs-status/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ready"] is False
+        assert data["preparing"] is True
+
+    def test_rootfs_status_blocked_after_setup(self, client, user_profile):
+        resp = client.get("/api/v1/auth/setup/rootfs-status/")
         assert resp.status_code == 409
 
 

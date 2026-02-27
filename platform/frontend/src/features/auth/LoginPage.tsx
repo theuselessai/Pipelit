@@ -20,8 +20,8 @@ export default function LoginPage() {
   const [mfaCode, setMfaCode] = useState("")
 
   useEffect(() => {
-    checkSetupStatus().then((needsSetup) => {
-      if (needsSetup) navigate("/setup", { replace: true })
+    checkSetupStatus().then((result) => {
+      if (result.needs_setup) navigate("/setup", { replace: true })
     }).catch(() => {})
   }, [navigate])
 
