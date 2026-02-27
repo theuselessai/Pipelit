@@ -35,7 +35,6 @@ class TriggerResolver:
             .filter(
                 WorkflowNode.component_type == component_type,
                 Workflow.is_active == True,
-                Workflow.deleted_at.is_(None),
             )
             .order_by(WorkflowNode.id)
             .all()
@@ -58,7 +57,7 @@ class TriggerResolver:
         # Fall back to default workflow
         default_workflow = (
             db.query(Workflow)
-            .filter(Workflow.is_active == True, Workflow.is_default == True, Workflow.deleted_at.is_(None))
+            .filter(Workflow.is_active == True, Workflow.is_default == True)
             .first()
         )
         if default_workflow:

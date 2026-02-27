@@ -28,6 +28,25 @@ from services.token_usage import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_credential_field(cred, field: str) -> str | None:
+    """Extract a secret value from a credential's child record."""
+    if field == "api_key" and cred.llm_credential:
+        return cred.llm_credential.api_key or None
+    if field == "base_url" and cred.llm_credential:
+        return cred.llm_credential.base_url or None
+    if field == "organization_id" and cred.llm_credential:
+        return cred.llm_credential.organization_id or None
+    if field == "bot_token" and cred.telegram_credential:
+        return cred.telegram_credential.bot_token or None
+    if field == "access_token" and cred.git_credential:
+        return cred.git_credential.access_token or None
+    if field == "ssh_private_key" and cred.git_credential:
+        return cred.git_credential.ssh_private_key or None
+    if field == "webhook_secret" and cred.git_credential:
+        return cred.git_credential.webhook_secret or None
+    return None
+
+
 def _build_backend(extra: dict):
     """Build a sandboxed shell backend for deep agents.
 
@@ -39,12 +58,47 @@ def _build_backend(extra: dict):
     from components.sandboxed_backend import SandboxedShellBackend
     from components._agent_shared import _get_workspace_dir
 
-    root_dir = extra.get("filesystem_root_dir") or _get_workspace_dir()
+    root_dir = None
+    allow_network = bool(extra.get("allow_network", False))
+    env_vars: dict[str, str] = {}
+
+    # Resolve workspace from DB if workspace_id is set
+    workspace_id = extra.get("workspace_id")
+    if workspace_id:
+        from database import SessionLocal
+        from models.workspace import Workspace
+        from models.credential import BaseCredential
+        with SessionLocal() as session:
+            ws = session.query(Workspace).filter(Workspace.id == workspace_id).first()
+            if ws:
+                root_dir = ws.path
+                allow_network = ws.allow_network
+                # Resolve env vars
+                for ev in (ws.env_vars or []):
+                    key = ev.get("key", "")
+                    if not key:
+                        continue
+                    if ev.get("source") == "credential" and ev.get("credential_id"):
+                        cred = session.query(BaseCredential).filter(
+                            BaseCredential.id == ev["credential_id"]
+                        ).first()
+                        if cred:
+                            field = ev.get("credential_field", "api_key")
+                            val = _resolve_credential_field(cred, field)
+                            if val:
+                                env_vars[key] = val
+                    elif ev.get("source") == "raw":
+                        env_vars[key] = ev.get("value", "")
+
+    if not root_dir:
+        root_dir = extra.get("filesystem_root_dir") or _get_workspace_dir()
+
     root_dir = os.path.expanduser(root_dir)
     os.makedirs(root_dir, exist_ok=True)
     return SandboxedShellBackend(
         root_dir=root_dir,
-        allow_network=bool(extra.get("allow_network", False)),
+        allow_network=allow_network,
+        custom_env=env_vars if env_vars else None,
     )
 
 

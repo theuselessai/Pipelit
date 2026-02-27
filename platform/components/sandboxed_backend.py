@@ -149,6 +149,7 @@ class SandboxedShellBackend(LocalShellBackend):
         *,
         allow_network: bool = False,
         extra_ro_binds: list[str] | None = None,
+        custom_env: dict[str, str] | None = None,
         timeout: int = _DEFAULT_TIMEOUT,
         max_output_bytes: int = 100_000,
     ) -> None:
@@ -163,6 +164,7 @@ class SandboxedShellBackend(LocalShellBackend):
         )
         self._allow_network = allow_network
         self._extra_ro_binds = extra_ro_binds or []
+        self._custom_env = custom_env or {}
 
         # Resolve sandbox mode via environment detection
         from config import settings
@@ -214,6 +216,14 @@ class SandboxedShellBackend(LocalShellBackend):
             allow_network=self._allow_network,
         )
 
+        # Inject custom env vars via --setenv (before the final bash -c command)
+        if self._custom_env:
+            insert_idx = len(sandbox_cmd) - 3  # before "bash", "-c", command
+            env_args: list[str] = []
+            for key, val in self._custom_env.items():
+                env_args += ["--setenv", key, val]
+            sandbox_cmd = sandbox_cmd[:insert_idx] + env_args + sandbox_cmd[insert_idx:]
+
         return self._run_subprocess(sandbox_cmd, effective_timeout)
 
     def _execute_container(
@@ -224,6 +234,9 @@ class SandboxedShellBackend(LocalShellBackend):
     ) -> ExecuteResponse:
         """Execute a command with scrubbed env inside a container."""
         clean_env = _build_sandbox_env(workspace)
+        # Merge custom env vars (user-defined take precedence)
+        if self._custom_env:
+            clean_env.update(self._custom_env)
 
         return self._run_subprocess(
             ["bash", "-c", command],
@@ -310,5 +323,11 @@ class SandboxedShellBackend(LocalShellBackend):
         if self._resolution.mode == "container":
             return self._execute_container(command, workspace, effective_timeout)
 
-        # mode == "none" — unsandboxed fallback
-        return super().execute(command, timeout=timeout)
+        # mode == "none" — unsandboxed fallback (still inject custom env vars)
+        env = {**os.environ, **self._custom_env} if self._custom_env else None
+        return self._run_subprocess(
+            ["bash", "-c", command],
+            effective_timeout,
+            env=env,
+            cwd=workspace,
+        )

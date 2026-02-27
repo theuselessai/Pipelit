@@ -166,7 +166,7 @@ def send_chat_message(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    workflow = db.query(Workflow).filter(Workflow.slug == slug, Workflow.deleted_at.is_(None)).first()
+    workflow = db.query(Workflow).filter(Workflow.slug == slug).first()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
@@ -247,7 +247,7 @@ def get_chat_history(
         limit: Max messages to return (default 10)
         before: ISO datetime string - only return messages before this time
     """
-    workflow = db.query(Workflow).filter(Workflow.slug == slug, Workflow.deleted_at.is_(None)).first()
+    workflow = db.query(Workflow).filter(Workflow.slug == slug).first()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
@@ -364,7 +364,7 @@ def delete_chat_history(
     profile: UserProfile = Depends(get_current_user),
 ):
     """Delete chat history from LangGraph checkpoints for this workflow."""
-    workflow = db.query(Workflow).filter(Workflow.slug == slug, Workflow.deleted_at.is_(None)).first()
+    workflow = db.query(Workflow).filter(Workflow.slug == slug).first()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 

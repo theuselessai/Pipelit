@@ -35,3 +35,4 @@ from models.memory import (  # noqa: F401
     MemoryProcedure,
     MemoryUser,
 )
+from models.workspace import Workspace  # noqa: F401

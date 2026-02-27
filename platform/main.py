@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,6 +40,29 @@ async def lifespan(app: FastAPI):
 
     # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
     Base.metadata.create_all(bind=engine)
+
+    # Ensure default workspace exists in DB (covers existing installs)
+    try:
+        from database import SessionLocal
+        from models.workspace import Workspace
+        from config import get_pipelit_dir
+        with SessionLocal() as session:
+            default = session.query(Workspace).filter(Workspace.name == "default").first()
+            if not default:
+                from models.user import UserProfile
+                user = session.query(UserProfile).first()
+                if user:
+                    workspace_path = str(get_pipelit_dir() / "workspaces" / "default")
+                    ws = Workspace(name="default", path=workspace_path, user_profile_id=user.id)
+                    session.add(ws)
+                    session.commit()
+                    os.makedirs(workspace_path, exist_ok=True)
+                    os.makedirs(os.path.join(workspace_path, ".tmp"), exist_ok=True)
+                    logger.info("Created default workspace at %s", workspace_path)
+                else:
+                    logger.info("No user found, skipping default workspace creation")
+    except Exception:
+        logger.exception("Failed to ensure default workspace on startup")
 
     # Recover any scheduled jobs that missed their next_run_at while the server was down
     try:
