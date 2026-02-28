@@ -326,6 +326,13 @@ class TestRedactUrl:
 
         assert _redact_url("") == ""
 
+    def test_parse_error_returns_original(self):
+        """If urlparse raises, _redact_url returns the original string."""
+        from api.settings import _redact_url
+
+        with patch("api.settings.urlparse", side_effect=ValueError("bad url")):
+            assert _redact_url("not://valid") == "not://valid"
+
 
 def test_get_settings_redacts_urls(auth_client, tmp_path, monkeypatch):
     """GET /settings/ redacts passwords from database_url and redis_url."""
@@ -347,3 +354,121 @@ def test_get_settings_redacts_urls(auth_client, tmp_path, monkeypatch):
     assert "admin:***@" in config["database_url"]
     assert "mypass" not in config["redis_url"]
     assert ":***@" in config["redis_url"]
+
+
+# ---------------------------------------------------------------------------
+# _build_environment_cached() unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildEnvironmentCached:
+    """Exercise _build_environment_cached() body with mocked low-level deps."""
+
+    def _call(self):
+        from api.settings import _build_environment_cached
+
+        return _build_environment_cached()
+
+    def test_bwrap_mode(self):
+        """bwrap sandbox mode → tier1_met=True unconditionally."""
+        from services.environment import SandboxResolution
+
+        with (
+            patch("api.settings.detect_container", return_value=None),
+            patch(
+                "api.settings.resolve_sandbox_mode",
+                return_value=SandboxResolution(mode="bwrap", can_execute=True),
+            ),
+            patch(
+                "api.settings.detect_capabilities",
+                return_value={
+                    "runtimes": {"python3": {"available": True}},
+                    "shell_tools": {"bash": {"available": True, "tier": 1}},
+                    "network": {"dns": True, "http": True},
+                },
+            ),
+            patch("api.settings.shutil") as mock_shutil,
+            patch("api.settings.get_golden_dir", return_value=Path("/tmp/golden")),
+            patch("api.settings.is_rootfs_ready", return_value=False),
+        ):
+            mock_shutil.which.return_value = "/usr/bin/bwrap"
+            result = self._call()
+
+        assert result["sandbox_mode"] == "bwrap"
+        assert result["bwrap_available"] is True
+        assert result["tier1_met"] is True
+        assert result["rootfs_ready"] is False
+        assert result["container"] is None
+        assert "os" in result
+        assert "arch" in result
+        assert "capabilities" in result
+        assert result["gate"]["passed"] is True
+
+    def test_non_bwrap_mode(self):
+        """non-bwrap mode → tier1_met computed from shell_tools."""
+        from services.environment import SandboxResolution
+
+        with (
+            patch("api.settings.detect_container", return_value="docker"),
+            patch(
+                "api.settings.resolve_sandbox_mode",
+                return_value=SandboxResolution(
+                    mode="container", can_execute=True, container_type="docker"
+                ),
+            ),
+            patch(
+                "api.settings.detect_capabilities",
+                return_value={
+                    "runtimes": {},
+                    "shell_tools": {},
+                    "network": {"dns": False, "http": False},
+                },
+            ),
+            patch("api.settings.shutil") as mock_shutil,
+            patch("api.settings.get_golden_dir", return_value=Path("/tmp/golden")),
+            patch("api.settings.is_rootfs_ready", return_value=True),
+        ):
+            mock_shutil.which.return_value = None
+            result = self._call()
+
+        assert result["sandbox_mode"] == "container"
+        assert result["bwrap_available"] is False
+        assert result["container"] == "docker"
+        assert result["rootfs_ready"] is True
+        # No shell tools available → tier1_met should be False
+        assert result["tier1_met"] is False
+        # tier2_warnings should list all TIER2 tools
+        from services.environment import TIER2_TOOLS
+
+        assert result["tier2_warnings"] == TIER2_TOOLS
+
+
+def test_get_settings_exercises_build_environment(auth_client):
+    """GET /settings/ with low-level mocks exercises _build_environment_cached body."""
+    from services.environment import SandboxResolution
+
+    with (
+        patch("api.settings.detect_container", return_value=None),
+        patch(
+            "api.settings.resolve_sandbox_mode",
+            return_value=SandboxResolution(mode="bwrap", can_execute=True),
+        ),
+        patch(
+            "api.settings.detect_capabilities",
+            return_value={
+                "runtimes": {},
+                "shell_tools": {},
+                "network": {"dns": False, "http": False},
+            },
+        ),
+        patch("api.settings.shutil") as mock_shutil,
+        patch("api.settings.get_golden_dir", return_value=Path("/tmp/golden")),
+        patch("api.settings.is_rootfs_ready", return_value=False),
+    ):
+        mock_shutil.which.return_value = "/usr/bin/bwrap"
+        resp = auth_client.get("/api/v1/settings/")
+
+    assert resp.status_code == 200
+    env = resp.json()["environment"]
+    assert env["sandbox_mode"] == "bwrap"
+    assert env["tier1_met"] is True
