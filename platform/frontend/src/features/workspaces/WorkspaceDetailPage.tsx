@@ -165,7 +165,7 @@ export default function WorkspaceDetailPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent>
           {currentEnvVars.length > 0 ? (
             <Table>
               <TableHeader>

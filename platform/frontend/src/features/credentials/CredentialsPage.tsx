@@ -110,7 +110,7 @@ export default function CredentialsPage() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>

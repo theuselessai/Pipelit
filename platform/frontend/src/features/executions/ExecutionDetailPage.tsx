@@ -96,7 +96,7 @@ function LogsTable({ logs }: { logs: ExecutionLog[] }) {
   return (
     <Card>
       <CardHeader><CardTitle className="text-sm">Node Execution Logs</CardTitle></CardHeader>
-      <CardContent className="p-0">
+      <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
