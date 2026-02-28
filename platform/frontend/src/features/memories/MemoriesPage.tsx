@@ -51,7 +51,7 @@ function FactsTab() {
         </div>
       )}
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
@@ -132,7 +132,7 @@ function EpisodesTab() {
         </div>
       )}
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
@@ -234,7 +234,7 @@ function CheckpointsTab() {
         </Select>
       </div>
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
@@ -313,7 +313,7 @@ function ProceduresTab() {
         </div>
       )}
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
@@ -392,7 +392,7 @@ function UsersTab() {
         </div>
       )}
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>

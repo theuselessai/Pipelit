@@ -82,7 +82,7 @@ export default function AgentUsersPage() {
       </p>
 
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>

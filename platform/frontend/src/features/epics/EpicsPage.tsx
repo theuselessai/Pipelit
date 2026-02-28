@@ -89,7 +89,7 @@ export default function EpicsPage() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
+        <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
