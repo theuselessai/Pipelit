@@ -241,10 +241,6 @@ class _IdentifyUserConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "identify_user"}
 
 
-class _CodeExecuteConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "code_execute"}
-
-
 class _SkillConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "skill"}
 
@@ -311,7 +307,6 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "memory_read": OtherComponentConfig,
     "memory_write": OtherComponentConfig,
     "identify_user": OtherComponentConfig,
-    "code_execute": OtherComponentConfig,
     "skill": _SkillConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,

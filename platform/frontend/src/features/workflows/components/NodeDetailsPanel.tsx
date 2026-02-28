@@ -622,7 +622,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Compute all upstream ancestor nodes for switch/filter/loop (BFS backward through data edges)
   const upstreamNodes = useMemo(() => {
     if (!workflow) return []
-    const SUB_TYPES = new Set(["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await"])
+    const SUB_TYPES = new Set(["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await"])
     const visited = new Set<string>()
     const queue = [node.node_id]
     while (queue.length > 0) {
@@ -715,12 +715,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         compacting: compacting || null,
         compacting_trigger: compacting === "summarize" ? (Number(compactingTrigger) || null) : null,
         compacting_keep: compacting === "summarize" ? (Number(compactingKeep) || null) : null,
+        workspace_id: workspaceId ? Number(workspaceId) : null,
       }
     }
     if (isDeepAgent) {
       parsedExtra = {
         ...parsedExtra,
-        workspace_id: workspaceId ? Number(workspaceId) : null,
         enable_todos: enableTodos,
         allow_network: allowNetwork,
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
@@ -730,7 +730,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       parsedExtra = { ...parsedExtra, skill_path: skillPath, skill_source: skillSource }
     }
     if (node.component_type === "code") {
-      parsedExtra = { ...parsedExtra, code: codeSnippet, language: codeLanguage }
+      parsedExtra = { ...parsedExtra, code: codeSnippet, language: codeLanguage, workspace_id: workspaceId ? Number(workspaceId) : null }
     }
     if (node.component_type === "categorizer") {
       parsedExtra = { ...parsedExtra, categories }
@@ -1345,6 +1345,24 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </div>
             </div>
           )}
+          {!isDeepAgent && (
+            <div className="space-y-1">
+              <Label className="text-xs">Workspace</Label>
+              <p className="text-xs text-muted-foreground">Sandboxed directory for tool execution</p>
+              <Select value={workspaceId} onValueChange={(v) => {
+                setWorkspaceId(v)
+              }}>
+                <SelectTrigger className="text-xs h-7">
+                  <SelectValue placeholder="No workspace (unsandboxed)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspacesData?.items?.map((ws) => (
+                    <SelectItem key={ws.id} value={ws.id.toString()}>{ws.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </>
       )}
 
@@ -1516,6 +1534,22 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 <SelectItem value="python">Python</SelectItem>
                 <SelectItem value="javascript">JavaScript</SelectItem>
                 <SelectItem value="bash">Bash</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Workspace</Label>
+            <p className="text-xs text-muted-foreground">Sandboxed directory for code execution</p>
+            <Select value={workspaceId} onValueChange={(v) => {
+              setWorkspaceId(v)
+            }}>
+              <SelectTrigger className="text-xs h-7">
+                <SelectValue placeholder="Default workspace" />
+              </SelectTrigger>
+              <SelectContent>
+                {workspacesData?.items?.map((ws) => (
+                  <SelectItem key={ws.id} value={ws.id.toString()}>{ws.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

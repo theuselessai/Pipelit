@@ -181,15 +181,6 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="extracted", data_type=DataType.OBJECT)],
 ))
 
-register_node_type(NodeTypeSpec(
-    component_type="switch",
-    display_name="Switch",
-    description="Routes to different branches based on a state field or expression",
-    category="logic",
-    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
-    outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
-))
-
 # ── Sub-components ────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
@@ -457,40 +448,16 @@ register_node_type(NodeTypeSpec(
     ],
 ))
 
-register_node_type(NodeTypeSpec(
-    component_type="code_execute",
-    display_name="Code Execute",
-    description="Execute Python or Bash code in a sandboxed environment",
-    category="sub_component",
-    outputs=[
-        PortDefinition(name="result", data_type=DataType.STRING, description="Execution output"),
-    ],
-    config_schema={
-        "type": "object",
-        "properties": {
-            "language": {
-                "type": "string",
-                "enum": ["python", "bash"],
-                "default": "python",
-                "description": "Programming language",
-            },
-            "timeout_seconds": {
-                "type": "integer",
-                "default": 30,
-                "minimum": 1,
-                "maximum": 300,
-                "description": "Maximum execution time",
-            },
-            "sandbox": {
-                "type": "boolean",
-                "default": True,
-                "description": "Enable security restrictions",
-            },
-        },
-    },
-))
-
 # ── Logic / Flow ──────────────────────────────────────────────────────────────
+
+register_node_type(NodeTypeSpec(
+    component_type="switch",
+    display_name="Switch",
+    description="Routes to different branches based on a state field or expression",
+    category="logic",
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
+    outputs=[PortDefinition(name="route", data_type=DataType.STRING)],
+))
 
 register_node_type(NodeTypeSpec(
     component_type="code",

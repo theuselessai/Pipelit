@@ -9,9 +9,8 @@ import {
   faCalendarDays, faHandPointer, faHourglass, faHeartPulse,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
   faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
-  faDatabase, faFloppyDisk, faIdCard, faLaptopCode,
-  faClipboardList, faListCheck, faRocket, faPenRuler, faCompass, faBrain,
-  faGraduationCap,
+  faDatabase, faFloppyDisk, faIdCard,
+  faClipboardList, faListCheck, faRocket, faPenRuler, faCompass, faBrain, faGraduationCap,
 } from "@fortawesome/free-solid-svg-icons"
 import { faTelegram } from "@fortawesome/free-brands-svg-icons"
 import {
@@ -87,7 +86,6 @@ const COMPONENT_COLORS: Record<string, string> = {
   wait: "#6366f1",
   workflow: "#6366f1",
   code: "#64748b",
-  code_execute: "#10b981",
   memory_read: "#f59e0b",
   memory_write: "#f59e0b",
   identify_user: "#0ea5e9",
@@ -109,7 +107,7 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   run_command: faTerminal, http_request: faGlobe, web_search: faMagnifyingGlass, calculator: faCalculator, datetime: faClock,
   create_agent_user: faUserPlus, platform_api: faPlug, whoami: faFingerprint, epic_tools: faClipboardList, task_tools: faListCheck, scheduler_tools: faCalendarDays, system_health: faHeartPulse, spawn_and_await: faRocket, workflow_create: faPenRuler, workflow_discover: faCompass,
   workflow: faSitemap,
-  code: faCode, code_execute: faLaptopCode, error_handler: faTriangleExclamation,
+  code: faCode, error_handler: faTriangleExclamation,
   memory_read: faDatabase, memory_write: faFloppyDisk, identify_user: faIdCard,
   human_confirmation: faUserCheck, aggregator: faLayerGroup, output_parser: faFileExport,
   loop: faRepeat, wait: faClock, merge: faCodeMerge, filter: faFilter,
@@ -134,8 +132,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isTrigger = data.componentType.startsWith("trigger_")
   const isLoop = data.componentType === "loop"
   const isFixedWidth = ["router", "categorizer", "agent", "deep_agent", "extractor", "switch", "loop"].includes(data.componentType)
-  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"].includes(data.componentType)
-  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "code_execute", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "skill"].includes(data.componentType)
+  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "skill"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "deep_agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent", "deep_agent"].includes(data.componentType)

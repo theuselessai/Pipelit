@@ -27,7 +27,6 @@ export type ComponentType =
   | "human_confirmation"
   | "workflow"
   | "code"
-  | "code_execute"
   | "loop"
   | "wait"
   | "merge"

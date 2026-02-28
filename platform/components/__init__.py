@@ -33,7 +33,6 @@ from components import (  # noqa: E402, F401
     calculator,
     categorizer,
     code,
-    code_execute,
     control_flow,
     create_agent_user,
     epic_tools,
