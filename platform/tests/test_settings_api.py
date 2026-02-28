@@ -159,7 +159,9 @@ def test_patch_log_level_hot_reload(auth_client, monkeypatch):
     """Patching log_level hot-reloads it and updates conf.json."""
     from config import settings as _settings
 
-    original_level = _settings.LOG_LEVEL
+    monkeypatch.setattr(_settings, "LOG_LEVEL", _settings.LOG_LEVEL)
+    original_root_level = logging.getLogger().level
+    monkeypatch.setattr(logging.getLogger(), "level", original_root_level)
 
     resp = auth_client.patch("/api/v1/settings/", json={"log_level": "DEBUG"})
     assert resp.status_code == 200
@@ -172,16 +174,12 @@ def test_patch_log_level_hot_reload(auth_client, monkeypatch):
     assert _settings.LOG_LEVEL == "DEBUG"
     assert logging.getLogger().level == logging.DEBUG
 
-    # Restore
-    _settings.LOG_LEVEL = original_level
-    logging.getLogger().setLevel(original_level)
 
-
-def test_patch_zombie_threshold_hot_reload(auth_client):
+def test_patch_zombie_threshold_hot_reload(auth_client, monkeypatch):
     """Patching zombie_execution_threshold_seconds hot-reloads it."""
     from config import settings as _settings
 
-    original = _settings.ZOMBIE_EXECUTION_THRESHOLD_SECONDS
+    monkeypatch.setattr(_settings, "ZOMBIE_EXECUTION_THRESHOLD_SECONDS", _settings.ZOMBIE_EXECUTION_THRESHOLD_SECONDS)
 
     resp = auth_client.patch(
         "/api/v1/settings/",
@@ -192,9 +190,6 @@ def test_patch_zombie_threshold_hot_reload(auth_client):
     assert "zombie_execution_threshold_seconds" in data["hot_reloaded"]
     assert data["config"]["zombie_execution_threshold_seconds"] == 600
     assert _settings.ZOMBIE_EXECUTION_THRESHOLD_SECONDS == 600
-
-    # Restore
-    _settings.ZOMBIE_EXECUTION_THRESHOLD_SECONDS = original
 
 
 def test_patch_database_url_restart_required(auth_client):
@@ -209,11 +204,13 @@ def test_patch_database_url_restart_required(auth_client):
     assert "database_url" not in data["hot_reloaded"]
 
 
-def test_patch_multiple_fields(auth_client):
+def test_patch_multiple_fields(auth_client, monkeypatch):
     """Mix of hot-reloadable + restart-required fields."""
     from config import settings as _settings
 
-    original_level = _settings.LOG_LEVEL
+    monkeypatch.setattr(_settings, "LOG_LEVEL", _settings.LOG_LEVEL)
+    original_root_level = logging.getLogger().level
+    monkeypatch.setattr(logging.getLogger(), "level", original_root_level)
 
     resp = auth_client.patch(
         "/api/v1/settings/",
@@ -223,10 +220,6 @@ def test_patch_multiple_fields(auth_client):
     data = resp.json()
     assert "log_level" in data["hot_reloaded"]
     assert "redis_url" in data["restart_required"]
-
-    # Restore
-    _settings.LOG_LEVEL = original_level
-    logging.getLogger().setLevel(original_level)
 
 
 def test_patch_invalid_log_level(auth_client):
