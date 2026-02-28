@@ -35,7 +35,6 @@ def _make_node(component_type="code", extra_config=None, node_id="test_node_1", 
 def _make_fake_execute(tmp_path, env=None):
     """Create a fake backend.execute that runs commands via subprocess in tmp_path."""
     def fake_execute(cmd, timeout=None):
-        import subprocess
         kwargs = dict(
             capture_output=True,
             text=True,
@@ -115,7 +114,6 @@ class TestCodeNodeSubprocess:
         mock_backend.cwd = tmp_path
 
         def fake_execute(cmd, timeout=None):
-            import subprocess
             raise subprocess.TimeoutExpired(cmd, timeout)
 
         # Actually simulate the timeout happening in _build_backend

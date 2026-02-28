@@ -190,6 +190,16 @@ class TestCheckHttp:
 
 
 class TestCheckWritable:
+    def test_check_writable_success(self):
+        """Writable check returns True when mkstemp succeeds."""
+        from services.capabilities import _check_writable
+        with patch("tempfile.mkstemp", return_value=(99, "/tmp/test")), \
+             patch("os.close") as mock_close, \
+             patch("os.unlink") as mock_unlink:
+            assert _check_writable("/tmp") is True
+        mock_close.assert_called_once_with(99)
+        mock_unlink.assert_called_once_with("/tmp/test")
+
     def test_check_writable_not_writable(self):
         """Writable check returns False when mkstemp raises."""
         from services.capabilities import _check_writable
