@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,9 @@ import { COLOR_THEMES, COLOR_THEME_KEYS, type ColorThemeKey } from "@/lib/colorT
 import { useEditorTheme, EDITOR_THEMES, type EditorThemeKey } from "@/hooks/useEditorTheme"
 import CodeMirrorEditor from "@/components/CodeMirrorEditor"
 import { mfaSetup, mfaVerify, mfaDisable, mfaStatus, type MFASetupResult } from "@/api/auth"
+import { useSettings, useUpdateSettings, useRecheckEnvironment } from "@/api/settings"
+import type { EnvironmentInfo } from "@/types/models"
+import type { PlatformConfigOut } from "@/api/settings"
 
 const themes = [
   { value: "system" as const, label: "System" },
@@ -42,6 +47,332 @@ print(greet("world"))  # Hello, world!`
 
 const themeKeys = Object.keys(EDITOR_THEMES) as EditorThemeKey[]
 
+const TIER1_TOOLS = [
+  "bash", "python3", "pip3", "cat", "ls", "cp", "mv", "mkdir",
+  "rm", "chmod", "grep", "sed", "head", "tail", "wc",
+]
+
+const TIER2_TOOLS = [
+  "find", "sort", "awk", "xargs", "tee", "curl", "wget",
+  "git", "tar", "unzip", "jq", "node", "npm",
+]
+
+function EnvironmentCard({ environment, onRecheck }: { environment: EnvironmentInfo; onRecheck: () => void }) {
+  const recheckEnv = useRecheckEnvironment()
+
+  const handleRecheck = () => {
+    recheckEnv.mutate(undefined, { onSuccess: () => onRecheck() })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Environment</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRecheck}
+            disabled={recheckEnv.isPending}
+          >
+            {recheckEnv.isPending ? "Checking..." : "Re-check"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* System Info */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+          <div>
+            <span className="text-muted-foreground">OS:</span>{" "}
+            <span className="font-medium">{environment.os}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Arch:</span>{" "}
+            <span className="font-medium">{environment.arch}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Container:</span>{" "}
+            <span className="font-medium">{environment.container || "none"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Sandbox:</span>{" "}
+            <span className="font-medium">{environment.sandbox_mode}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">bwrap:</span>{" "}
+            <Badge variant={environment.bwrap_available ? "default" : "secondary"} className="text-xs">
+              {environment.bwrap_available ? "available" : "not found"}
+            </Badge>
+          </div>
+          <div>
+            <span className="text-muted-foreground">rootfs:</span>{" "}
+            <Badge variant={environment.rootfs_ready ? "default" : "secondary"} className="text-xs">
+              {environment.rootfs_ready ? "ready" : "not ready"}
+            </Badge>
+          </div>
+        </div>
+
+        {/* Runtimes */}
+        <div>
+          <h4 className="text-sm font-medium mb-1">Runtimes</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(environment.capabilities.runtimes).map(([name, info]) => (
+              <Badge key={name} variant={info.available ? "default" : "secondary"} className="text-xs">
+                {name}{info.version ? ` (${info.version})` : ""}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        {/* Shell Tools */}
+        <div>
+          <h4 className="text-sm font-medium mb-1">Shell Tools — Tier 1</h4>
+          <div className="flex flex-wrap gap-1">
+            {TIER1_TOOLS.map((tool) => {
+              const info = environment.capabilities.shell_tools[tool]
+              return (
+                <Badge key={tool} variant={info?.available ? "default" : "secondary"} className="text-xs">
+                  {tool}
+                </Badge>
+              )
+            })}
+          </div>
+        </div>
+        <div>
+          <h4 className="text-sm font-medium mb-1">Shell Tools — Tier 2</h4>
+          <div className="flex flex-wrap gap-1">
+            {TIER2_TOOLS.map((tool) => {
+              const info = environment.capabilities.shell_tools[tool]
+              return (
+                <Badge key={tool} variant={info?.available ? "default" : "secondary"} className="text-xs">
+                  {tool}
+                </Badge>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Network */}
+        <div>
+          <h4 className="text-sm font-medium mb-1">Network</h4>
+          <div className="flex gap-2">
+            <Badge variant={environment.capabilities.network.dns ? "default" : "secondary"} className="text-xs">
+              DNS {environment.capabilities.network.dns ? "OK" : "fail"}
+            </Badge>
+            <Badge variant={environment.capabilities.network.http ? "default" : "secondary"} className="text-xs">
+              HTTP {environment.capabilities.network.http ? "OK" : "fail"}
+            </Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PlatformConfigCard({
+  config,
+  onSave,
+  saving,
+  pendingRestart,
+}: {
+  config: PlatformConfigOut
+  onSave: (fields: Record<string, unknown>) => void
+  saving: boolean
+  pendingRestart: string[]
+}) {
+  const [databaseUrl, setDatabaseUrl] = useState(config.database_url)
+  const [redisUrl, setRedisUrl] = useState(config.redis_url)
+  const [platformBaseUrl, setPlatformBaseUrl] = useState(config.platform_base_url)
+  const [corsAllowAll, setCorsAllowAll] = useState(config.cors_allow_all_origins ?? true)
+  const [sandboxMode, setSandboxMode] = useState(config.sandbox_mode)
+
+  useEffect(() => {
+    setDatabaseUrl(config.database_url)
+    setRedisUrl(config.redis_url)
+    setPlatformBaseUrl(config.platform_base_url)
+    setCorsAllowAll(config.cors_allow_all_origins ?? true)
+    setSandboxMode(config.sandbox_mode)
+  }, [config])
+
+  const handleSave = () => {
+    onSave({
+      database_url: databaseUrl,
+      redis_url: redisUrl,
+      platform_base_url: platformBaseUrl,
+      cors_allow_all_origins: corsAllowAll,
+      sandbox_mode: sandboxMode,
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Platform Configuration</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {pendingRestart.length > 0 && (
+          <Alert variant="warning">
+            <AlertTitle>Restart required</AlertTitle>
+            <AlertDescription>
+              The following settings require a server restart to take effect:{" "}
+              <span className="font-medium">{pendingRestart.join(", ")}</span>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="space-y-2">
+          <Label>Data Directory</Label>
+          <Input value={config.pipelit_dir} disabled />
+          <p className="text-xs text-muted-foreground">Read-only. Set via PIPELIT_DIR environment variable.</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="database-url">Database URL</Label>
+          <Input id="database-url" value={databaseUrl} onChange={(e) => setDatabaseUrl(e.target.value)} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="redis-url">Redis URL</Label>
+          <Input id="redis-url" value={redisUrl} onChange={(e) => setRedisUrl(e.target.value)} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="platform-base-url">Platform Base URL</Label>
+          <Input id="platform-base-url" value={platformBaseUrl} onChange={(e) => setPlatformBaseUrl(e.target.value)} />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <Label htmlFor="cors-all">CORS Allow All Origins</Label>
+            <p className="text-xs text-muted-foreground">Allow requests from any origin.</p>
+          </div>
+          <Switch id="cors-all" checked={corsAllowAll} onCheckedChange={setCorsAllowAll} />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Sandbox Mode</Label>
+          <Select value={sandboxMode} onValueChange={setSandboxMode}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">auto</SelectItem>
+              <SelectItem value="bwrap">bwrap</SelectItem>
+              <SelectItem value="container">container</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function LoggingCard({
+  config,
+  onSave,
+  saving,
+}: {
+  config: PlatformConfigOut
+  onSave: (fields: Record<string, unknown>) => void
+  saving: boolean
+}) {
+  const [logLevel, setLogLevel] = useState(config.log_level)
+  const [logFile, setLogFile] = useState(config.log_file)
+
+  useEffect(() => {
+    setLogLevel(config.log_level)
+    setLogFile(config.log_file)
+  }, [config])
+
+  const handleSave = () => {
+    onSave({ log_level: logLevel, log_file: logFile })
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Logging</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label>Log Level</Label>
+          <Select value={logLevel} onValueChange={setLogLevel}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].map((level) => (
+                <SelectItem key={level} value={level}>{level}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="log-file">Log File Path</Label>
+          <Input
+            id="log-file"
+            value={logFile}
+            onChange={(e) => setLogFile(e.target.value)}
+            placeholder="Empty = console only"
+          />
+        </div>
+
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AdvancedCard({
+  config,
+  onSave,
+  saving,
+}: {
+  config: PlatformConfigOut
+  onSave: (fields: Record<string, unknown>) => void
+  saving: boolean
+}) {
+  const [zombieThreshold, setZombieThreshold] = useState(
+    config.zombie_execution_threshold_seconds ?? 900
+  )
+
+  useEffect(() => {
+    setZombieThreshold(config.zombie_execution_threshold_seconds ?? 900)
+  }, [config])
+
+  const handleSave = () => {
+    onSave({ zombie_execution_threshold_seconds: zombieThreshold })
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Advanced</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="zombie-threshold">Zombie Execution Threshold (seconds)</Label>
+          <Input
+            id="zombie-threshold"
+            type="number"
+            min={0}
+            value={zombieThreshold}
+            onChange={(e) => setZombieThreshold(Number(e.target.value))}
+          />
+          <p className="text-xs text-muted-foreground">
+            Executions running longer than this are considered zombies. Default: 900 (15 min).
+          </p>
+        </div>
+
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme()
   const { colorTheme, setColorTheme } = useColorTheme()
@@ -56,6 +387,12 @@ export default function SettingsPage() {
   const [code, setCode] = useState("")
   const [error, setError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  // Platform settings state
+  const { data: settingsData, isLoading: settingsLoading } = useSettings()
+  const updateSettings = useUpdateSettings()
+  const [pendingRestart, setPendingRestart] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     mfaStatus()
@@ -109,6 +446,23 @@ export default function SettingsPage() {
       setError("Invalid code. Please try again.")
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleSave = async (fields: Record<string, unknown>) => {
+    setSaving(true)
+    try {
+      const result = await updateSettings.mutateAsync(fields as Record<string, string>)
+      if (result.restart_required.length > 0) {
+        setPendingRestart((prev) => {
+          const combined = new Set([...prev, ...result.restart_required])
+          return Array.from(combined)
+        })
+      }
+    } catch {
+      // error handled by TanStack Query
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -216,6 +570,38 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Platform Settings Cards */}
+      {settingsLoading ? (
+        <Card>
+          <CardContent className="py-8">
+            <p className="text-sm text-muted-foreground text-center">Loading platform settings...</p>
+          </CardContent>
+        </Card>
+      ) : settingsData ? (
+        <>
+          <EnvironmentCard
+            environment={settingsData.environment}
+            onRecheck={() => {}}
+          />
+          <PlatformConfigCard
+            config={settingsData.config}
+            onSave={handleSave}
+            saving={saving}
+            pendingRestart={pendingRestart}
+          />
+          <LoggingCard
+            config={settingsData.config}
+            onSave={handleSave}
+            saving={saving}
+          />
+          <AdvancedCard
+            config={settingsData.config}
+            onSave={handleSave}
+            saving={saving}
+          />
+        </>
+      ) : null}
 
       {/* Enable MFA Dialog */}
       <Dialog open={showEnableDialog} onOpenChange={(open) => { setShowEnableDialog(open); if (!open) { setError(""); setCode(""); setSetupData(null); } }}>
