@@ -187,6 +187,7 @@ function PlatformConfigCard({
   const [platformBaseUrl, setPlatformBaseUrl] = useState(config.platform_base_url)
   const [corsAllowAll, setCorsAllowAll] = useState(config.cors_allow_all_origins ?? true)
   const [sandboxMode, setSandboxMode] = useState(config.sandbox_mode)
+  const [urlError, setUrlError] = useState("")
 
   useEffect(() => {
     setDatabaseUrl(config.database_url)
@@ -198,11 +199,12 @@ function PlatformConfigCard({
 
   const handleSave = () => {
     for (const [label, val] of [["Database URL", databaseUrl], ["Redis URL", redisUrl]] as const) {
-      if (val && !/^\w+:\/\//.test(val)) {
-        alert(`${label} must be a valid URL (e.g. sqlite:///path or redis://host:port)`)
+      if (val && !/^[a-z][a-z0-9+.-]*:\/\//i.test(val)) {
+        setUrlError(`${label} must be a valid URL (e.g. sqlite:///path or redis://host:port)`)
         return
       }
     }
+    setUrlError("")
     onSave({
       database_url: databaseUrl,
       redis_url: redisUrl,
@@ -279,6 +281,7 @@ function PlatformConfigCard({
         <Button onClick={handleSave} disabled={saving}>
           {saving ? "Saving..." : "Save"}
         </Button>
+        {urlError && <p className="text-sm text-destructive">{urlError}</p>}
       </CardContent>
     </Card>
   )
