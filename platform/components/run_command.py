@@ -83,7 +83,7 @@ def run_command_factory(node):
             if backend is not None:
                 resp = backend.execute(command, timeout=timeout)
                 output = resp.output or ""
-                if resp.exit_code and resp.exit_code != 0:
+                if resp.exit_code is not None and resp.exit_code != 0:
                     output += f"\n[exit code: {resp.exit_code}]"
                 output = output or "(no output)"
             else:
