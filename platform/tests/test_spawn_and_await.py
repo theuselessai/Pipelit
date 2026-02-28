@@ -177,7 +177,7 @@ class TestSpawnAndAwaitFactory:
         tool = tools[0]
 
         # Check that tool has 'tasks' parameter in its schema
-        schema = tool.args_schema.schema() if hasattr(tool, "args_schema") else {}
+        schema = tool.args_schema.model_json_schema() if hasattr(tool, "args_schema") else {}
         props = schema.get("properties", {})
         assert "tasks" in props
         # Should NOT have old single-task params

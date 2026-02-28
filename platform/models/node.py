@@ -241,6 +241,10 @@ class _IdentifyUserConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "identify_user"}
 
 
+class _GetTotpCodeConfig(ToolComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "get_totp_code"}
+
+
 class _SkillConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "skill"}
 
@@ -300,6 +304,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "workflow_discover": _WorkflowDiscoverConfig,
     "scheduler_tools": _SchedulerToolsConfig,
     "system_health": _SystemHealthConfig,
+    "get_totp_code": ToolComponentConfig,
     "human_confirmation": OtherComponentConfig,
     "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,

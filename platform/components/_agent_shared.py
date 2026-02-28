@@ -438,7 +438,7 @@ class SkillAwareBackend:
         self._default = default
         self._skill_paths = [p.rstrip("/") for p in skill_paths]
         # FilesystemBackend with root_dir=None: absolute paths used as-is
-        self._fs = FilesystemBackend(root_dir=None)
+        self._fs = FilesystemBackend(root_dir=None, virtual_mode=False)
 
     def _is_skill_path(self, path: str) -> bool:
         path_stripped = path.rstrip("/")
