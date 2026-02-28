@@ -2,12 +2,6 @@ import { useState, useEffect } from "react"
 import { Outlet, NavLink, useNavigate } from "react-router-dom"
 import { useAuth } from "@/features/auth/AuthProvider"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { useTheme } from "@/hooks/useTheme"
 import { useColorTheme } from "@/hooks/useColorTheme"
 import { useWebSocket } from "@/hooks/useWebSocket"
@@ -88,29 +82,35 @@ export default function AppLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-2 border-t">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className={`w-full ${collapsed ? "justify-center px-0" : "justify-start gap-2"}`}>
-                <User className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="truncate">{username ?? "User"}</span>}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start">
-              <DropdownMenuItem onClick={() => navigate("/settings")}>
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={logout}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <div className="p-2 border-t space-y-1">
+          <Button
+            variant="ghost"
+            className={`w-full ${collapsed ? "justify-center px-0" : "justify-start gap-2"}`}
+            title="Settings"
+            onClick={() => navigate("/settings")}
+          >
+            <Settings className="h-4 w-4 shrink-0" />
+            {!collapsed && "Settings"}
+          </Button>
+          <Button
+            variant="ghost"
+            className={`w-full ${collapsed ? "justify-center px-0" : "justify-start gap-2"}`}
+            title="Logout"
+            onClick={logout}
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            {!collapsed && "Logout"}
+          </Button>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-auto">
+          <Outlet />
+        </div>
+        <div className="border-t px-4 py-1.5 text-sm text-muted-foreground flex items-center gap-2">
+          <User className="h-3.5 w-3.5" />
+          <span>{username ?? "User"}</span>
+        </div>
       </main>
     </div>
   )
