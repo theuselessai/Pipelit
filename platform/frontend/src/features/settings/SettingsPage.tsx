@@ -174,11 +174,13 @@ function PlatformConfigCard({
   onSave,
   saving,
   pendingRestart,
+  onDismissRestart,
 }: {
   config: PlatformConfigOut
   onSave: (fields: Record<string, unknown>) => void
   saving: boolean
   pendingRestart: string[]
+  onDismissRestart: () => void
 }) {
   const [databaseUrl, setDatabaseUrl] = useState(config.database_url)
   const [redisUrl, setRedisUrl] = useState(config.redis_url)
@@ -210,11 +212,18 @@ function PlatformConfigCard({
       <CardContent className="space-y-4">
         {pendingRestart.length > 0 && (
           <Alert variant="warning">
-            <AlertTitle>Restart required</AlertTitle>
-            <AlertDescription>
-              The following settings require a server restart to take effect:{" "}
-              <span className="font-medium">{pendingRestart.join(", ")}</span>
-            </AlertDescription>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <AlertTitle>Restart required</AlertTitle>
+                <AlertDescription>
+                  The following settings require a server restart to take effect:{" "}
+                  <span className="font-medium">{pendingRestart.join(", ")}</span>
+                </AlertDescription>
+              </div>
+              <Button variant="ghost" size="sm" className="shrink-0 -mt-1 -mr-2" onClick={onDismissRestart}>
+                Dismiss
+              </Button>
+            </div>
           </Alert>
         )}
 
@@ -358,7 +367,7 @@ function AdvancedCard({
             type="number"
             min={0}
             value={zombieThreshold}
-            onChange={(e) => setZombieThreshold(Number(e.target.value))}
+            onChange={(e) => setZombieThreshold(e.target.value === '' ? 0 : Number(e.target.value))}
           />
           <p className="text-xs text-muted-foreground">
             Executions running longer than this are considered zombies. Default: 900 (15 min).
@@ -392,7 +401,6 @@ export default function SettingsPage() {
   const { data: settingsData, isLoading: settingsLoading } = useSettings()
   const updateSettings = useUpdateSettings()
   const [pendingRestart, setPendingRestart] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     mfaStatus()
@@ -450,7 +458,6 @@ export default function SettingsPage() {
   }
 
   const handleSave = async (fields: Record<string, unknown>) => {
-    setSaving(true)
     try {
       const result = await updateSettings.mutateAsync(fields as SettingsUpdate)
       if (result.restart_required.length > 0) {
@@ -461,8 +468,6 @@ export default function SettingsPage() {
       }
     } catch {
       // error handled by TanStack Query
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -586,18 +591,19 @@ export default function SettingsPage() {
           <PlatformConfigCard
             config={settingsData.config}
             onSave={handleSave}
-            saving={saving}
+            saving={updateSettings.isPending}
             pendingRestart={pendingRestart}
+            onDismissRestart={() => setPendingRestart([])}
           />
           <LoggingCard
             config={settingsData.config}
             onSave={handleSave}
-            saving={saving}
+            saving={updateSettings.isPending}
           />
           <AdvancedCard
             config={settingsData.config}
             onSave={handleSave}
-            saving={saving}
+            saving={updateSettings.isPending}
           />
         </>
       ) : null}

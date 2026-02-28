@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Depends
 
@@ -43,13 +44,30 @@ RESTART_REQUIRED = {
 }
 
 
+def _redact_url(url: str) -> str:
+    """Replace the password portion of a URL with '***'."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return url
+    if not parsed.password:
+        return url
+    # Rebuild netloc with redacted password
+    userinfo = f"{parsed.username or ''}:***"
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    redacted = parsed._replace(netloc=f"{userinfo}@{host}")
+    return urlunparse(redacted)
+
+
 def _build_config_out(conf) -> PlatformConfigOut:
     """Build PlatformConfigOut from a PipelitConfig + live settings."""
     return PlatformConfigOut(
         pipelit_dir=str(get_pipelit_dir()),
         sandbox_mode=conf.sandbox_mode or settings.SANDBOX_MODE,
-        database_url=conf.database_url or settings.DATABASE_URL,
-        redis_url=conf.redis_url or settings.REDIS_URL,
+        database_url=_redact_url(conf.database_url or settings.DATABASE_URL),
+        redis_url=_redact_url(conf.redis_url or settings.REDIS_URL),
         log_level=conf.log_level or settings.LOG_LEVEL,
         log_file=conf.log_file or settings.LOG_FILE,
         platform_base_url=conf.platform_base_url or settings.PLATFORM_BASE_URL,

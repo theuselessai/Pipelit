@@ -293,3 +293,60 @@ def test_recheck_environment_unauthenticated(client):
     """POST recheck-environment without auth returns 401 or 403."""
     resp = client.post("/api/v1/settings/recheck-environment/")
     assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# URL redaction
+# ---------------------------------------------------------------------------
+
+
+class TestRedactUrl:
+    """Unit tests for _redact_url helper."""
+
+    def test_no_password(self):
+        from api.settings import _redact_url
+
+        assert _redact_url("sqlite:///pipelit.db") == "sqlite:///pipelit.db"
+
+    def test_redis_with_password(self):
+        from api.settings import _redact_url
+
+        assert _redact_url("redis://:secret@host:6379/0") == "redis://:***@host:6379/0"
+
+    def test_postgres_with_user_and_password(self):
+        from api.settings import _redact_url
+
+        result = _redact_url("postgresql://admin:hunter2@db.example.com:5432/mydb")
+        assert result == "postgresql://admin:***@db.example.com:5432/mydb"
+
+    def test_no_password_with_host(self):
+        from api.settings import _redact_url
+
+        assert _redact_url("redis://localhost:6379/0") == "redis://localhost:6379/0"
+
+    def test_empty_string(self):
+        from api.settings import _redact_url
+
+        assert _redact_url("") == ""
+
+
+def test_get_settings_redacts_urls(auth_client, tmp_path, monkeypatch):
+    """GET /settings/ redacts passwords from database_url and redis_url."""
+    pipelit_dir = tmp_path / "pipelit"
+    pipelit_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PIPELIT_DIR", str(pipelit_dir))
+
+    conf_data = {
+        "database_url": "postgresql://admin:secret@db:5432/app",
+        "redis_url": "redis://:mypass@redis:6379/0",
+    }
+    (pipelit_dir / "conf.json").write_text(json.dumps(conf_data))
+
+    with patch("api.settings._build_environment_cached", return_value=MOCK_ENVIRONMENT):
+        resp = auth_client.get("/api/v1/settings/")
+    assert resp.status_code == 200
+    config = resp.json()["config"]
+    assert "secret" not in config["database_url"]
+    assert "admin:***@" in config["database_url"]
+    assert "mypass" not in config["redis_url"]
+    assert ":***@" in config["redis_url"]
