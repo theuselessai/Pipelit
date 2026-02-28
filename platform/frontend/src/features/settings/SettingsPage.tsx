@@ -197,6 +197,12 @@ function PlatformConfigCard({
   }, [config])
 
   const handleSave = () => {
+    for (const [label, val] of [["Database URL", databaseUrl], ["Redis URL", redisUrl]] as const) {
+      if (val && !/^\w+:\/\//.test(val)) {
+        alert(`${label} must be a valid URL (e.g. sqlite:///path or redis://host:port)`)
+        return
+      }
+    }
     onSave({
       database_url: databaseUrl,
       redis_url: redisUrl,
@@ -367,7 +373,10 @@ function AdvancedCard({
             type="number"
             min={0}
             value={zombieThreshold}
-            onChange={(e) => setZombieThreshold(e.target.value === '' ? 0 : Number(e.target.value))}
+            onChange={(e) => {
+              const val = e.target.value === '' ? 0 : Number(e.target.value)
+              if (!isNaN(val)) setZombieThreshold(val)
+            }}
           />
           <p className="text-xs text-muted-foreground">
             Executions running longer than this are considered zombies. Default: 900 (15 min).
