@@ -55,6 +55,14 @@ def _isolate_pipelit_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _restore_root_log_level():
+    """Restore root logger level after tests that hot-reload log_level."""
+    original = logging.getLogger().level
+    yield
+    logging.getLogger().setLevel(original)
+
+
+@pytest.fixture(autouse=True)
 def _clear_capabilities_cache():
     """Reset the capabilities cache before each test."""
     import services.environment as env
@@ -160,8 +168,6 @@ def test_patch_log_level_hot_reload(auth_client, monkeypatch):
     from config import settings as _settings
 
     monkeypatch.setattr(_settings, "LOG_LEVEL", _settings.LOG_LEVEL)
-    original_root_level = logging.getLogger().level
-    monkeypatch.setattr(logging.getLogger(), "level", original_root_level)
 
     resp = auth_client.patch("/api/v1/settings/", json={"log_level": "DEBUG"})
     assert resp.status_code == 200
@@ -209,8 +215,6 @@ def test_patch_multiple_fields(auth_client, monkeypatch):
     from config import settings as _settings
 
     monkeypatch.setattr(_settings, "LOG_LEVEL", _settings.LOG_LEVEL)
-    original_root_level = logging.getLogger().level
-    monkeypatch.setattr(logging.getLogger(), "level", original_root_level)
 
     resp = auth_client.patch(
         "/api/v1/settings/",
