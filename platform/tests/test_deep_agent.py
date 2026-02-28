@@ -12,6 +12,8 @@ _platform_dir = str(Path(__file__).resolve().parent.parent)
 if _platform_dir not in sys.path:
     sys.path.insert(0, _platform_dir)
 
+from types import SimpleNamespace
+
 from components._agent_shared import _resolve_credential_field
 from models.credential import (
     BaseCredential,
@@ -20,6 +22,30 @@ from models.credential import (
     TelegramCredential,
 )
 from models.workspace import Workspace
+
+
+def _make_deep_agent_node(system_prompt="", extra_config=None):
+    """Build a minimal node-like object for deep_agent_factory."""
+    extra = extra_config or {}
+    concrete = SimpleNamespace(
+        system_prompt=system_prompt,
+        extra_config=extra,
+        max_tokens=None,
+    )
+    config = SimpleNamespace(
+        component_type="deep_agent",
+        extra_config=extra,
+        system_prompt=system_prompt,
+        concrete=concrete,
+    )
+    workflow = SimpleNamespace(slug="test-workflow")
+    return SimpleNamespace(
+        node_id="test_deep_1",
+        workflow_id=1,
+        workflow=workflow,
+        component_type="deep_agent",
+        component_config=config,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -336,3 +362,30 @@ class TestBuildBackend:
             backend = _build_backend({"workspace_id": ws.id})
 
         assert "MISSING_KEY" not in backend._custom_env
+
+
+# ---------------------------------------------------------------------------
+# deep_agent_factory — capability injection
+# ---------------------------------------------------------------------------
+
+
+class TestDeepAgentCapabilityInjection:
+    def test_capability_injection_failure(self):
+        """When detect_capabilities raises, system_prompt is unchanged."""
+        node = _make_deep_agent_node(system_prompt="You are helpful.")
+
+        with patch("services.capabilities.detect_capabilities", side_effect=RuntimeError("boom")), \
+             patch("components.deep_agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.deep_agent.get_model_name_for_node", return_value="test-model"), \
+             patch("components.deep_agent._resolve_tools", return_value=([], {})), \
+             patch("components.deep_agent._resolve_skills", return_value=[]), \
+             patch("components.deep_agent._get_checkpointer", return_value=None), \
+             patch("components.deep_agent._get_redis_checkpointer", return_value=MagicMock()), \
+             patch("components.deep_agent._build_backend", return_value=MagicMock()), \
+             patch("components.deep_agent.create_deep_agent") as mock_create:
+            from components.deep_agent import deep_agent_factory
+            deep_agent_factory(node)
+
+        # system_prompt should be passed unchanged (no capability prefix)
+        call_kwargs = mock_create.call_args
+        assert call_kwargs.kwargs.get("system_prompt") == "You are helpful."

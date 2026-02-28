@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -235,3 +236,122 @@ class TestRunCommandSandbox:
             result = tool.invoke({"command": "echo fallback_works"})
 
         assert "fallback_works" in result
+
+    def test_run_command_backend_build_failure(self):
+        """When _build_backend raises, falls back to subprocess."""
+        node = _make_node("run_command", extra_config={})
+
+        with patch("components.run_command._resolve_parent_workspace", return_value={"workspace_id": 1}), \
+             patch("components._agent_shared._build_backend", side_effect=RuntimeError("boom")):
+            from components.run_command import run_command_factory
+            tool = run_command_factory(node)
+            result = tool.invoke({"command": "echo fallback_after_error"})
+
+        assert "fallback_after_error" in result
+
+    def test_run_command_sandbox_nonzero_exit(self):
+        """Backend returning non-zero exit code includes [exit code: N]."""
+        node = _make_node("run_command", extra_config={})
+
+        mock_backend = MagicMock()
+        resp = MagicMock()
+        resp.output = "some error output"
+        resp.exit_code = 1
+        mock_backend.execute = MagicMock(return_value=resp)
+
+        with patch("components.run_command._resolve_parent_workspace", return_value={"workspace_id": 1}), \
+             patch("components._agent_shared._build_backend", return_value=mock_backend):
+            from components.run_command import run_command_factory
+            tool = run_command_factory(node)
+            result = tool.invoke({"command": "false"})
+
+        assert "[exit code: 1]" in result
+
+
+# ---------------------------------------------------------------------------
+# Code node subprocess fallback (backend=None)
+# ---------------------------------------------------------------------------
+
+
+class TestCodeNodeSubprocessFallback:
+    """Tests for the subprocess fallback path when _build_backend fails."""
+
+    def test_code_node_subprocess_fallback(self):
+        """When _build_backend raises, code runs via subprocess.run."""
+        code = "result = 2 + 2"
+        node = _make_node(extra_config={"code": code, "language": "python"})
+
+        with patch("components.code._build_backend", side_effect=RuntimeError("no sandbox")):
+            from components.code import code_factory
+            fn = code_factory(node)
+            result = fn({"node_outputs": {}, "messages": []})
+
+        assert result["output"] == "4"
+
+    def test_code_node_subprocess_timeout(self):
+        """subprocess.TimeoutExpired is caught and re-raised as RuntimeError."""
+        code = "import time; time.sleep(30)"
+        node = _make_node(extra_config={"code": code, "language": "python", "timeout": 1})
+
+        with patch("components.code._build_backend", side_effect=RuntimeError("no sandbox")):
+            from components.code import code_factory
+            fn = code_factory(node)
+
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("python3", 1)):
+            with pytest.raises(RuntimeError, match="timed out after 1 seconds"):
+                fn({"node_outputs": {}, "messages": []})
+
+    def test_code_node_return_value(self):
+        """return statements in user code work via subprocess fallback."""
+        code = "return 42"
+        node = _make_node(extra_config={"code": code, "language": "python"})
+
+        with patch("components.code._build_backend", side_effect=RuntimeError("no sandbox")):
+            from components.code import code_factory
+            fn = code_factory(node)
+            result = fn({"node_outputs": {}, "messages": []})
+
+        assert result["output"] == "42"
+
+
+# ---------------------------------------------------------------------------
+# _safe_serialize edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestSafeSerialize:
+    """Tests for non-JSON-serializable fallback paths in _safe_serialize."""
+
+    def test_non_serializable_dict_values(self):
+        """Dict with non-serializable values falls back to str() per value."""
+        from components.code import _safe_serialize
+        result = _safe_serialize({"key": {1, 2, 3}})
+        assert isinstance(result, dict)
+        assert isinstance(result["key"], str)
+
+    def test_non_serializable_custom_class(self):
+        """Custom object falls back to str()."""
+        class Custom:
+            def __str__(self):
+                return "custom_str"
+
+        from components.code import _safe_serialize
+        result = _safe_serialize(Custom())
+        assert result == "custom_str"
+
+    def test_non_serializable_list(self):
+        """List with non-serializable items falls back per element."""
+        from components.code import _safe_serialize
+        result = _safe_serialize([{1, 2}, "ok"])
+        assert result[1] == "ok"
+        assert isinstance(result[0], str)
+
+    def test_non_serializable_str_fails(self):
+        """Object where str() also fails returns None."""
+        class Broken:
+            def __str__(self):
+                raise RuntimeError("cannot stringify")
+
+        from components.code import _safe_serialize
+        result = _safe_serialize(Broken())
+        assert result is None

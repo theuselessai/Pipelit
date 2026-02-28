@@ -153,3 +153,45 @@ class TestCapabilitiesCached:
         # Second call should not increment call_count
         assert call_count == first_count
         assert caps1 is caps2
+
+
+# ---------------------------------------------------------------------------
+# _check_dns / _check_http / _check_writable internals
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDns:
+    def test_check_dns_success(self):
+        """DNS check returns True when resolution succeeds."""
+        from services.capabilities import _check_dns
+        with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('8.8.8.8', 53))]):
+            assert _check_dns() is True
+
+    def test_check_dns_failure(self):
+        """DNS check returns False when resolution fails."""
+        import socket
+        from services.capabilities import _check_dns
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("DNS failed")):
+            assert _check_dns() is False
+
+
+class TestCheckHttp:
+    def test_check_http_success(self):
+        """HTTP check returns True when request succeeds."""
+        from services.capabilities import _check_http
+        with patch("urllib.request.urlopen", return_value=MagicMock()):
+            assert _check_http() is True
+
+    def test_check_http_failure(self):
+        """HTTP check returns False when request fails."""
+        from services.capabilities import _check_http
+        with patch("urllib.request.urlopen", side_effect=OSError("Connection refused")):
+            assert _check_http() is False
+
+
+class TestCheckWritable:
+    def test_check_writable_not_writable(self):
+        """Writable check returns False when mkstemp raises."""
+        from services.capabilities import _check_writable
+        with patch("tempfile.mkstemp", side_effect=OSError("permission denied")):
+            assert _check_writable("/nonexistent") is False
