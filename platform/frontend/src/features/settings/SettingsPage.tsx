@@ -29,7 +29,7 @@ import CodeMirrorEditor from "@/components/CodeMirrorEditor"
 import { mfaSetup, mfaVerify, mfaDisable, mfaStatus, type MFASetupResult } from "@/api/auth"
 import { useSettings, useUpdateSettings, useRecheckEnvironment } from "@/api/settings"
 import type { EnvironmentInfo } from "@/types/models"
-import type { PlatformConfigOut } from "@/api/settings"
+import type { PlatformConfigOut, SettingsUpdate } from "@/api/settings"
 
 const themes = [
   { value: "system" as const, label: "System" },
@@ -57,11 +57,11 @@ const TIER2_TOOLS = [
   "git", "tar", "unzip", "jq", "node", "npm",
 ]
 
-function EnvironmentCard({ environment, onRecheck }: { environment: EnvironmentInfo; onRecheck: () => void }) {
+function EnvironmentCard({ environment }: { environment: EnvironmentInfo }) {
   const recheckEnv = useRecheckEnvironment()
 
   const handleRecheck = () => {
-    recheckEnv.mutate(undefined, { onSuccess: () => onRecheck() })
+    recheckEnv.mutate()
   }
 
   return (
@@ -452,7 +452,7 @@ export default function SettingsPage() {
   const handleSave = async (fields: Record<string, unknown>) => {
     setSaving(true)
     try {
-      const result = await updateSettings.mutateAsync(fields as Record<string, string>)
+      const result = await updateSettings.mutateAsync(fields as SettingsUpdate)
       if (result.restart_required.length > 0) {
         setPendingRestart((prev) => {
           const combined = new Set([...prev, ...result.restart_required])
@@ -582,7 +582,6 @@ export default function SettingsPage() {
         <>
           <EnvironmentCard
             environment={settingsData.environment}
-            onRecheck={() => {}}
           />
           <PlatformConfigCard
             config={settingsData.config}

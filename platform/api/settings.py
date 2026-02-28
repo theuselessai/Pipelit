@@ -140,7 +140,13 @@ def update_settings(
     hot_reloaded: list[str] = []
     restart_required: list[str] = []
 
+    allowed_fields = HOT_RELOADABLE | RESTART_REQUIRED
+
     for field_name, value in updates.items():
+        if field_name not in allowed_fields:
+            logger.warning("Ignoring unrecognized config field: %s", field_name)
+            continue
+
         # Write to conf.json model
         setattr(conf, field_name, value)
 
