@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -99,7 +100,7 @@ def code_factory(node):
             # Execute via sandbox backend or plain subprocess
             if backend is not None:
                 subdir = os.path.basename(invocation_dir)
-                resp = backend.execute(f"cd {subdir} && python3 __wrapper__.py", timeout=timeout)
+                resp = backend.execute(f"cd {shlex.quote(subdir)} && python3 __wrapper__.py", timeout=timeout)
                 exit_code = resp.exit_code
                 stderr = resp.output or ""  # ExecuteResponse.output has combined stdout+stderr
             else:

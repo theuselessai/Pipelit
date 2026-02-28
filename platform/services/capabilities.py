@@ -117,7 +117,7 @@ def format_capability_context(caps: dict) -> str:
     fs = caps.get("filesystem", {})
     fs_status = []
     if fs.get("workspace_writable"):
-        fs_status.append("/workspace writable")
+        fs_status.append("workspace writable")
     if fs.get("tmp_writable"):
         fs_status.append("/tmp writable")
     if fs_status:

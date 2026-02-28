@@ -81,7 +81,7 @@ def deep_agent_factory(node):
         cap_context = format_capability_context(caps)
         if cap_context:
             system_prompt = f"{cap_context}\n\n{system_prompt}" if system_prompt else cap_context
-    except Exception:
+    except (ImportError, RuntimeError):
         logger.debug("deep_agent: failed to inject capability context", exc_info=True)
 
     workflow_id = node.workflow_id
