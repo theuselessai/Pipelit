@@ -1,4 +1,4 @@
-"""Tests for Telegram polling service — routing, offset, backoff, recovery."""
+"""Tests for Telegram polling service — routing, offset, backoff, recovery, API."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch, call
 
 import pytest
+from fastapi.testclient import TestClient
 
 _platform_dir = str(Path(__file__).resolve().parent.parent)
 if _platform_dir not in sys.path:
@@ -352,3 +353,180 @@ class TestRecovery:
 
         assert count == 1
         mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
+
+
+# ---------------------------------------------------------------------------
+# Update-ID guard edge case
+# ---------------------------------------------------------------------------
+
+class TestUpdateIdGuard:
+    def test_skips_update_without_update_id(self, db, telegram_credential, telegram_trigger):
+        """Update with update_id=None should be skipped (not crash), and poll should reschedule."""
+        updates = [
+            {"message": {"text": "no uid"}},  # missing update_id entirely
+            _make_message_update(update_id=200, text="valid"),
+        ]
+        api_response = {"ok": True, "result": updates}
+
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = api_response
+        mock_resp.raise_for_status.return_value = None
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_redis),
+            patch("services.telegram_poller.requests.post", return_value=mock_resp),
+            patch("services.telegram_poller._route_update") as mock_route,
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            poll_telegram_credential(telegram_credential.id)
+
+        # Only the valid update (update_id=200) should be routed
+        mock_route.assert_called_once()
+        # Offset should only be set for the valid update
+        mock_redis.set.assert_called_once()
+        # Should still reschedule
+        mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
+
+
+# ---------------------------------------------------------------------------
+# Task wrapper (execution_id_var context)
+# ---------------------------------------------------------------------------
+
+class TestTaskWrapper:
+    def test_execution_id_var_set_during_poll(self, db, telegram_credential, telegram_trigger):
+        """poll_telegram_credential_task should set execution_id_var during execution."""
+        from logging_config import execution_id_var
+        from tasks import poll_telegram_credential_task
+
+        captured_values = []
+
+        def _capture_poll(cred_id, error_count=0):
+            captured_values.append(execution_id_var.get(""))
+
+        with (
+            patch("services.telegram_poller.poll_telegram_credential", side_effect=_capture_poll),
+        ):
+            poll_telegram_credential_task(telegram_credential.id, 0)
+
+        assert captured_values == [f"tg-poll-{telegram_credential.id}"]
+        # After the call, the var should be reset
+        assert execution_id_var.get("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Telegram Poll API Tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def app(db):
+    """Create a test FastAPI app with DB overridden to use test session."""
+    from main import app as _app
+    from database import get_db
+
+    def _override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    _app.dependency_overrides[get_db] = _override_get_db
+    yield _app
+    _app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(app):
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_client(client, api_key):
+    client.headers["Authorization"] = f"Bearer {api_key.key}"
+    return client
+
+
+class TestTelegramPollAPI:
+    def test_start_polling_happy_path(self, auth_client, workflow, telegram_trigger):
+        """POST start should activate polling and return is_active=True."""
+        with patch("services.telegram_poller.start_telegram_polling") as mock_start:
+            resp = auth_client.post(
+                f"/api/v1/workflows/{workflow.slug}/nodes/{telegram_trigger.node_id}/telegram-poll/start/"
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["config"]["is_active"] is True
+        mock_start.assert_called_once()
+
+    def test_start_polling_no_credential(self, db, auth_client, workflow):
+        """Trigger node without credential should return 422."""
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        cc = BaseComponentConfig(
+            component_type="trigger_telegram",
+            credential_id=None,
+            trigger_config={},
+            is_active=False,
+            priority=0,
+        )
+        db.add(cc)
+        db.flush()
+        node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="tg_no_cred",
+            component_type="trigger_telegram",
+            component_config_id=cc.id,
+        )
+        db.add(node)
+        db.commit()
+
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/tg_no_cred/telegram-poll/start/"
+        )
+        assert resp.status_code == 422
+        assert "credential" in resp.json()["detail"].lower()
+
+    def test_start_polling_wrong_node_type(self, db, auth_client, workflow):
+        """Non-telegram node should return 400."""
+        from models.node import BaseComponentConfig, WorkflowNode
+
+        cc = BaseComponentConfig(
+            component_type="trigger_manual",
+            trigger_config={},
+            is_active=True,
+            priority=0,
+        )
+        db.add(cc)
+        db.flush()
+        node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="manual_trig",
+            component_type="trigger_manual",
+            component_config_id=cc.id,
+        )
+        db.add(node)
+        db.commit()
+
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/manual_trig/telegram-poll/start/"
+        )
+        assert resp.status_code == 400
+
+    def test_start_polling_node_not_found(self, auth_client, workflow):
+        """Bogus node_id should return 404."""
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/nonexistent_node/telegram-poll/start/"
+        )
+        assert resp.status_code == 404
+
+    def test_stop_polling_happy_path(self, auth_client, workflow, telegram_trigger):
+        """POST stop should deactivate polling and return is_active=False."""
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/{telegram_trigger.node_id}/telegram-poll/stop/"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["config"]["is_active"] is False
