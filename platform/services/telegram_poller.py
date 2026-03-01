@@ -82,12 +82,16 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
 
         updates = data.get("result", [])
         for update in updates:
+            uid = update.get("update_id")
+            if uid is None:
+                logger.warning("Skipping Telegram update without update_id: %s", update)
+                continue
             try:
                 _route_update(token, update, db)
             except Exception:
-                logger.exception("Error processing Telegram update %s", update.get("update_id"))
+                logger.exception("Error processing Telegram update %s", uid)
             # Advance offset even if processing fails
-            new_offset = update["update_id"] + 1
+            new_offset = uid + 1
             r.set(offset_key, str(new_offset), ex=OFFSET_TTL)
 
         # Self-reschedule immediately on success

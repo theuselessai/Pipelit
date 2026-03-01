@@ -70,8 +70,12 @@ def recover_zombie_executions_job() -> int:
 
 
 def poll_telegram_credential_task(credential_id: int, error_count: int = 0) -> None:
-    from services.telegram_poller import poll_telegram_credential
-    poll_telegram_credential(credential_id, error_count)
+    token = execution_id_var.set(f"tg-poll-{credential_id}")
+    try:
+        from services.telegram_poller import poll_telegram_credential
+        poll_telegram_credential(credential_id, error_count)
+    finally:
+        execution_id_var.reset(token)
 
 
 def prepare_rootfs_job(tier: int = 2) -> str:

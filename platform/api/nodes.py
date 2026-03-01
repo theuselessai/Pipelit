@@ -452,11 +452,12 @@ def telegram_poll_start(
         raise HTTPException(status_code=422, detail="No credential set on this trigger node.")
 
     cc.is_active = True
-    db.commit()
-    db.refresh(node)
 
     from services.telegram_poller import start_telegram_polling
     start_telegram_polling(cc.credential_id)
+
+    db.commit()
+    db.refresh(node)
 
     result = serialize_node(node, db)
     broadcast(f"workflow:{slug}", "node_updated", result)

@@ -683,6 +683,10 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     setSchedJob(node.schedule_job ?? null)
   }, [node.schedule_job])
 
+  useEffect(() => {
+    setTriggerIsActive(node.config.is_active ?? true)
+  }, [node.config.is_active])
+
   // Refresh schedule data when executions complete
   useEffect(() => {
     if (node.component_type !== "trigger_schedule") return
