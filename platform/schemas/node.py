@@ -15,6 +15,7 @@ ComponentTypeStr = Literal[
     "switch",
     "run_command",
     "create_agent_user",
+    "get_totp_code",
     "platform_api",
     "whoami",
     "epic_tools",
