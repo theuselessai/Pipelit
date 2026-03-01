@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -33,6 +33,7 @@ class Workflow(Base):
         ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True
     )
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    max_execution_seconds: Mapped[int] = mapped_column(Integer, default=600, server_default=text("600"))
     input_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     output_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

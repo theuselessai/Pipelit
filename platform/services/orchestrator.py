@@ -408,6 +408,27 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         from schemas.node_io import NodeStatus
         slug = topo_data.get("workflow_slug", "")
 
+        # Execution timeout enforcement
+        if execution.started_at:
+            elapsed = (datetime.now(timezone.utc) - execution.started_at).total_seconds()
+            max_seconds = state.get("_max_execution_seconds")
+            if max_seconds is None:
+                # Cache workflow timeout in state on first check
+                from models.workflow import Workflow
+                wf = db.get(Workflow, execution.workflow_id)
+                max_seconds = wf.max_execution_seconds if wf else 600
+                state["_max_execution_seconds"] = max_seconds
+                save_state(execution_id, state)
+            if elapsed > max_seconds:
+                execution.status = "failed"
+                execution.error_message = f"Execution timed out after {int(elapsed)}s (limit: {max_seconds}s)"
+                execution.completed_at = datetime.now(timezone.utc)
+                _persist_execution_costs(execution, state)
+                db.commit()
+                _publish_event(execution_id, "execution_failed", {"error": execution.error_message, "error_code": "timeout"}, workflow_slug=slug)
+                _cleanup_redis(execution_id)
+                return
+
         # Budget enforcement: check epic budget before executing node
         budget_error = _check_budget(execution_id, state, db)
         if budget_error:

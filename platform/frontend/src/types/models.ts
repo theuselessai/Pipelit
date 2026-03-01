@@ -45,7 +45,7 @@ export type CredentialType = "git" | "llm" | "telegram" | "tool"
 export type ExecutionStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "cancelled"
 
 // Workflow
-export interface Workflow { id: number; name: string; slug: string; description: string; is_active: boolean; is_public: boolean; is_default: boolean; error_handler_workflow_id: number | null; input_schema: Record<string, unknown> | null; output_schema: Record<string, unknown> | null; node_count: number; edge_count: number; trigger_count: number; created_at: string; updated_at: string }
+export interface Workflow { id: number; name: string; slug: string; description: string; is_active: boolean; is_public: boolean; is_default: boolean; error_handler_workflow_id: number | null; max_execution_seconds: number; input_schema: Record<string, unknown> | null; output_schema: Record<string, unknown> | null; node_count: number; edge_count: number; trigger_count: number; created_at: string; updated_at: string }
 export interface WorkflowDetail extends Workflow { nodes: WorkflowNode[]; edges: WorkflowEdge[] }
 export interface WorkflowCreate { name: string; slug: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean }
 export interface WorkflowUpdate { name?: string; slug?: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean }
