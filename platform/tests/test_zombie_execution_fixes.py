@@ -233,6 +233,7 @@ class TestInflightDecrementOnException:
         mock_execution = MagicMock()
         mock_execution.status = "running"
         mock_execution.execution_id = "exec-1"
+        mock_execution.started_at = None
         mock_execution.parent_execution_id = None
         mock_execution.parent_node_id = None
         mock_db.query.return_value.filter.return_value.first.return_value = mock_execution

@@ -1,10 +1,8 @@
-"""Tests for simple component factories — calculator, datetime, trigger, subworkflow,
+"""Tests for simple component factories — trigger, subworkflow,
 human_confirmation, run_command."""
 
 from __future__ import annotations
 
-import ast
-import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
@@ -26,116 +24,6 @@ def _make_node(component_type="test", extra_config=None, system_prompt=None):
         component_type=component_type,
         component_config=config,
     )
-
-
-# ── Calculator ─────────────────────────────────────────────────────────────────
-
-class TestCalculator:
-    def _get_tool(self, node=None):
-        from components.calculator import calculator_factory
-        return calculator_factory(node or _make_node("calculator"))
-
-    def test_addition(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "2 + 3"}) == "5"
-
-    def test_subtraction(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "10 - 4"}) == "6"
-
-    def test_multiplication(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "6 * 7"}) == "42"
-
-    def test_division(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "15 / 4"}) == "3.75"
-
-    def test_floor_division(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "15 // 4"}) == "3"
-
-    def test_modulo(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "10 % 3"}) == "1"
-
-    def test_power(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "2 ** 10"}) == "1024"
-
-    def test_unary_neg(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "-5 + 3"}) == "-2"
-
-    def test_unary_pos(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "+5"}) == "5"
-
-    def test_complex_expression(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "(2 + 3) * 4 - 1"}) == "19"
-
-    def test_float(self):
-        t = self._get_tool()
-        assert t.invoke({"expression": "3.14 * 2"}) == "6.28"
-
-    def test_invalid_expression(self):
-        t = self._get_tool()
-        result = t.invoke({"expression": "foo + bar"})
-        assert "Error" in result
-
-    def test_string_constant_rejected(self):
-        t = self._get_tool()
-        result = t.invoke({"expression": "'hello'"})
-        assert "Error" in result
-
-    def test_unsupported_expression(self):
-        t = self._get_tool()
-        result = t.invoke({"expression": "[1, 2, 3]"})
-        assert "Error" in result
-
-    def test_division_by_zero(self):
-        t = self._get_tool()
-        result = t.invoke({"expression": "1 / 0"})
-        assert "Error" in result
-
-
-class TestSafeEval:
-    """Direct tests for the _safe_eval helper."""
-
-    def test_unsupported_operator(self):
-        from components.calculator import _safe_eval
-
-        # BinOp with unsupported operator type
-        tree = ast.parse("1 << 2", mode="eval")
-        with pytest.raises(ValueError, match="Unsupported operator"):
-            _safe_eval(tree)
-
-
-# ── Datetime ───────────────────────────────────────────────────────────────────
-
-class TestDatetime:
-    def test_utc_default(self):
-        from components.datetime_tool import datetime_factory
-        node = _make_node("datetime")
-        tool = datetime_factory(node)
-        result = tool.invoke({})
-        assert "UTC" in result
-
-    def test_with_timezone(self):
-        from components.datetime_tool import datetime_factory
-        node = _make_node("datetime", extra_config={"timezone": "US/Eastern"})
-        tool = datetime_factory(node)
-        result = tool.invoke({})
-        # Should contain a timezone abbreviation
-        assert "E" in result or "UTC" not in result
-
-    def test_invalid_timezone(self):
-        from components.datetime_tool import datetime_factory
-        node = _make_node("datetime", extra_config={"timezone": "Invalid/Nonexistent"})
-        tool = datetime_factory(node)
-        result = tool.invoke({})
-        assert "Error" in result
 
 
 # ── Trigger pass-through ──────────────────────────────────────────────────────
@@ -218,37 +106,22 @@ class TestRunCommand:
         from components.run_command import run_command_factory
         return run_command_factory(_make_node("run_command"))
 
-    def test_echo(self):
+    def test_no_sandbox_returns_error(self):
+        """Without a workspace/sandbox backend, run_command returns an error."""
         tool = self._get_tool()
         result = tool.invoke({"command": "echo hello"})
+        assert "No sandbox backend available" in result
+
+    def test_with_sandbox_backend(self):
+        """With a sandbox backend, run_command uses it."""
+        from components.run_command import run_command_factory
+        mock_backend = MagicMock()
+        mock_backend.execute.return_value = MagicMock(output="hello\n", exit_code=0)
+
+        with patch("components.run_command._resolve_parent_workspace", return_value={"workspace_id": 1}), \
+             patch("components._agent_shared._build_backend", return_value=mock_backend):
+            tool = run_command_factory(_make_node("run_command"))
+        result = tool.invoke({"command": "echo hello"})
         assert "hello" in result
-
-    def test_stderr(self):
-        tool = self._get_tool()
-        result = tool.invoke({"command": "echo error >&2"})
-        assert "STDERR" in result
-        assert "error" in result
-
-    def test_nonzero_exit(self):
-        tool = self._get_tool()
-        result = tool.invoke({"command": "exit 42"})
-        assert "exit code: 42" in result
-
-    def test_no_output(self):
-        tool = self._get_tool()
-        result = tool.invoke({"command": "true"})
-        assert result == "(no output)"
-
-    def test_timeout(self):
-        tool = self._get_tool()
-        with patch("components.run_command.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 60)):
-            result = tool.invoke({"command": "sleep 999"})
-        assert "timed out" in result
-
-    def test_generic_error(self):
-        tool = self._get_tool()
-        with patch("components.run_command.subprocess.run", side_effect=OSError("no such file")):
-            result = tool.invoke({"command": "nonexistent"})
-        assert "Error" in result
 
 

@@ -2173,6 +2173,7 @@ class TestExecuteNodeJobSpawnPaths:
         mock_exec.status = "running"
         mock_exec.execution_id = "exec-2"
         mock_exec.trigger_payload = {}
+        mock_exec.started_at = None
 
         mock_db_node = MagicMock()
         mock_db_node.component_config.system_prompt = None
