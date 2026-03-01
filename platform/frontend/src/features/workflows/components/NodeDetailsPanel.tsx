@@ -622,7 +622,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Compute all upstream ancestor nodes for switch/filter/loop (BFS backward through data edges)
   const upstreamNodes = useMemo(() => {
     if (!workflow) return []
-    const SUB_TYPES = new Set(["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await"])
+    const SUB_TYPES = new Set(["ai_model", "run_command", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await"])
     const visited = new Set<string>()
     const queue = [node.node_id]
     while (queue.length > 0) {
@@ -2054,24 +2054,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             </div>
           </div>
         </>
-      )}
-
-      {node.component_type === "http_request" && (
-        <div className="space-y-2 text-xs text-muted-foreground">
-          <p>Configure via Extra Config: method, headers, timeout</p>
-        </div>
-      )}
-
-      {node.component_type === "web_search" && (
-        <div className="space-y-2 text-xs text-muted-foreground">
-          <p>Configure via Extra Config: searxng_url</p>
-        </div>
-      )}
-
-      {node.component_type === "datetime" && (
-        <div className="space-y-2 text-xs text-muted-foreground">
-          <p>Configure via Extra Config: timezone (optional)</p>
-        </div>
       )}
 
       {!isTriggerNode && (
