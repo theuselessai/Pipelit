@@ -473,6 +473,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 db_node.component_config.extra_config, expr_node_outputs, expr_trigger
             )
 
+        # FIXME: implement MCP server to provide Telegram tools instead of
+        # injecting bot token into system prompt via curl examples.
         # Auto-inject Telegram context when triggered by telegram
         if (
             expr_trigger.get("bot_token")
