@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { X, Trash2, Send, Loader2, Expand, ExternalLink, RotateCcw, CalendarIcon, Plus, Play, Pause, Square, ChevronDown, ChevronUp } from "lucide-react"
+import { X, Trash2, Send, Loader2, Expand, ExternalLink, RotateCcw, CalendarIcon, Plus, Play, Pause, Square, ChevronDown, ChevronUp, Info } from "lucide-react"
 import { format } from "date-fns"
 import ExpressionTextarea from "@/components/ExpressionTextarea"
 import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
@@ -1378,12 +1378,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </div>
               <Switch checked={enableTodos} onCheckedChange={setEnableTodos} />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs">Network Access</Label>
-                <p className="text-xs text-muted-foreground">Allow outbound network (install packages, call APIs)</p>
-              </div>
-              <Switch checked={allowNetwork} onCheckedChange={setAllowNetwork} />
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Info className="h-3 w-3 shrink-0" />
+              <span>Network access is controlled by the workspace setting.</span>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Workspace</Label>
