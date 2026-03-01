@@ -82,6 +82,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to recover scheduled jobs on startup")
 
+    # Recover Telegram polling jobs
+    try:
+        from services.telegram_poller import recover_telegram_polling
+        recovered_tg = recover_telegram_polling()
+        if recovered_tg:
+            logger.info("Recovered %d Telegram polling jobs", recovered_tg)
+    except Exception:
+        logger.exception("Failed to recover Telegram polling on startup")
+
     # Ensure skills directory exists
     try:
         skills_dir = Path(settings.SKILLS_DIR) if settings.SKILLS_DIR else Path.home() / ".config" / "pipelit" / "skills"

@@ -25,3 +25,11 @@ export function useSchedulePause(slug: string) {
 export function useScheduleStop(slug: string) {
   return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/schedule/stop/`, { method: "POST" }) })
 }
+
+export function useTelegramPollStart(slug: string) {
+  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/telegram-poll/start/`, { method: "POST" }) })
+}
+
+export function useTelegramPollStop(slug: string) {
+  return useMutation({ mutationFn: (nodeId: string) => apiFetch<WorkflowNode>(`/workflows/${slug}/nodes/${nodeId}/telegram-poll/stop/`, { method: "POST" }) })
+}

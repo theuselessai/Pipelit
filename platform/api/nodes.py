@@ -421,6 +421,66 @@ def schedule_stop(
     return result
 
 
+# ── Telegram Polling Actions ──────────────────────────────────────────────────
+
+
+def _get_telegram_node(slug: str, node_id: str, db: Session, profile: UserProfile):
+    """Fetch workflow + trigger_telegram node, raising 404/400 as needed."""
+    wf = get_workflow(slug, profile, db)
+    node = (
+        db.query(WorkflowNode)
+        .filter(WorkflowNode.workflow_id == wf.id, WorkflowNode.node_id == node_id)
+        .first()
+    )
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found.")
+    if node.component_type != "trigger_telegram":
+        raise HTTPException(status_code=400, detail="Node is not a trigger_telegram.")
+    return wf, node
+
+
+@router.post("/{slug}/nodes/{node_id}/telegram-poll/start/", response_model=NodeOut)
+def telegram_poll_start(
+    slug: str,
+    node_id: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    wf, node = _get_telegram_node(slug, node_id, db, profile)
+    cc = node.component_config
+    if not cc.credential_id:
+        raise HTTPException(status_code=422, detail="No credential set on this trigger node.")
+
+    cc.is_active = True
+    db.commit()
+    db.refresh(node)
+
+    from services.telegram_poller import start_telegram_polling
+    start_telegram_polling(cc.credential_id)
+
+    result = serialize_node(node, db)
+    broadcast(f"workflow:{slug}", "node_updated", result)
+    return result
+
+
+@router.post("/{slug}/nodes/{node_id}/telegram-poll/stop/", response_model=NodeOut)
+def telegram_poll_stop(
+    slug: str,
+    node_id: str,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    wf, node = _get_telegram_node(slug, node_id, db, profile)
+    cc = node.component_config
+    cc.is_active = False
+    db.commit()
+    db.refresh(node)
+
+    result = serialize_node(node, db)
+    broadcast(f"workflow:{slug}", "node_updated", result)
+    return result
+
+
 # ── Edges ─────────────────────────────────────────────────────────────────────
 
 
