@@ -410,7 +410,8 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
         # Execution timeout enforcement
         if execution.started_at:
-            elapsed = (datetime.now(timezone.utc) - execution.started_at).total_seconds()
+            started = execution.started_at if execution.started_at.tzinfo else execution.started_at.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
             max_seconds = state.get("_max_execution_seconds")
             if max_seconds is None:
                 # Cache workflow timeout in state on first check

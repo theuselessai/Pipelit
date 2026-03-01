@@ -12,7 +12,7 @@ export function useWorkspaces(params?: { limit?: number; offset?: number }) {
 
 export function useWorkspace(id: number | string) {
   return useQuery({
-    queryKey: ["workspace", id],
+    queryKey: ["workspace", String(id)],
     queryFn: () => apiFetch<Workspace>(`/workspaces/${id}/`),
     enabled: !!id,
   })
@@ -27,9 +27,9 @@ export function useUpdateWorkspace() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: WorkspaceUpdate }) => apiFetch<Workspace>(`/workspaces/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
-    onSuccess: (_, vars) => {
+    onSuccess: (data, vars) => {
       qc.invalidateQueries({ queryKey: ["workspaces"] })
-      qc.invalidateQueries({ queryKey: ["workspace", vars.id] })
+      qc.setQueryData(["workspace", String(vars.id)], data)
     },
   })
 }
@@ -51,7 +51,7 @@ export function useResetWorkspace() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset/`, { method: "POST" }),
-    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", id] }),
+    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", String(id)] }),
   })
 }
 
@@ -59,6 +59,6 @@ export function useResetWorkspaceRootfs() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset-rootfs/`, { method: "POST" }),
-    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", id] }),
+    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", String(id)] }),
   })
 }
