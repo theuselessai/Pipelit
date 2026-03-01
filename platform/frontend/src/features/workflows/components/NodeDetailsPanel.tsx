@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
+import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop, useTelegramPollStart, useTelegramPollStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
 import { useWorkspaces } from "@/api/workspaces"
@@ -674,12 +674,18 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const schedulePause = useSchedulePause(slug)
   const scheduleStop = useScheduleStop(slug)
   const [schedJob, setSchedJob] = useState<ScheduleJobInfo | null>(node.schedule_job ?? null)
+  const telegramPollStart = useTelegramPollStart(slug)
+  const telegramPollStop = useTelegramPollStop(slug)
   const queryClient = useQueryClient()
 
   // Sync schedJob when node prop updates (e.g. via WS node_updated)
   useEffect(() => {
     setSchedJob(node.schedule_job ?? null)
   }, [node.schedule_job])
+
+  useEffect(() => {
+    setTriggerIsActive(node.config.is_active ?? true)
+  }, [node.config.is_active])
 
   // Refresh schedule data when executions complete
   useEffect(() => {
@@ -877,6 +883,64 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <div className="flex items-center justify-between">
                 <Label className="text-xs">Active</Label>
                 <Switch checked={triggerIsActive} onCheckedChange={setTriggerIsActive} />
+              </div>
+            </>
+          )}
+
+          {node.component_type === "trigger_telegram" && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Label className="text-xs font-semibold">Telegram Polling</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="text-muted-foreground hover:text-foreground"><Info className="h-3.5 w-3.5" /></button>
+                      </PopoverTrigger>
+                      <PopoverContent side="top" className="text-xs w-72">
+                        All messages and commands (including /start) are sent to your workflow. Use a Switch node after this trigger to route commands (e.g. text starts with /start). Confirmation replies (/confirm_*, /cancel_*) are handled automatically and won't trigger the workflow.
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {!triggerIsActive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title="Start polling"
+                        disabled={telegramPollStart.isPending || !triggerCredentialId}
+                        onClick={() => {
+                          handleSave()
+                          telegramPollStart.mutate(node.node_id, {
+                            onSuccess: () => setTriggerIsActive(true),
+                          })
+                        }}
+                      >
+                        {telegramPollStart.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                    {triggerIsActive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title="Stop polling"
+                        disabled={telegramPollStop.isPending}
+                        onClick={() => telegramPollStop.mutate(node.node_id, {
+                          onSuccess: () => setTriggerIsActive(false),
+                        })}
+                      >
+                        {telegramPollStop.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-block h-2 w-2 rounded-full ${triggerIsActive ? "bg-green-500" : "bg-gray-300"}`} />
+                  <span className="text-xs">{triggerIsActive ? "Polling" : "Stopped"}</span>
+                </div>
               </div>
             </>
           )}

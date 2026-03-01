@@ -473,6 +473,29 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 db_node.component_config.extra_config, expr_node_outputs, expr_trigger
             )
 
+        # FIXME: implement MCP server to provide Telegram tools instead of
+        # injecting bot token into system prompt via curl examples.
+        # Auto-inject Telegram context when triggered by telegram
+        if (
+            expr_trigger.get("bot_token")
+            and expr_trigger.get("chat_id")
+            and db_node.component_type in ("agent", "deep_agent")
+        ):
+            tg_ctx = (
+                "\n\n---\n"
+                "[Telegram Integration]\n"
+                f"Bot Token: {expr_trigger['bot_token']}\n"
+                f"Chat ID: {expr_trigger['chat_id']}\n"
+                "You can interact with this Telegram chat using curl. Examples:\n"
+                "- Send file: curl -F chat_id=CHAT_ID -F document=@/path/to/file "
+                '"https://api.telegram.org/botTOKEN/sendDocument"\n'
+                "- Send photo: curl -F chat_id=CHAT_ID -F photo=@/path/to/image "
+                '"https://api.telegram.org/botTOKEN/sendPhoto"\n'
+                "Replace TOKEN and CHAT_ID with the values above."
+            )
+            prompt = db_node.component_config.system_prompt or ""
+            db_node.component_config.system_prompt = prompt + tg_ctx
+
         from components import get_component_factory
         factory = get_component_factory(node_info["component_type"])
         node_fn = factory(db_node)
