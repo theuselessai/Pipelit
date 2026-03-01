@@ -51,7 +51,7 @@ export function useResetWorkspace() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset/`, { method: "POST" }),
-    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", id] }),
+    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", String(id)] }),
   })
 }
 
@@ -59,6 +59,6 @@ export function useResetWorkspaceRootfs() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => apiFetch<{ ok: boolean; message: string }>(`/workspaces/${id}/reset-rootfs/`, { method: "POST" }),
-    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", id] }),
+    onSuccess: (_, id) => qc.invalidateQueries({ queryKey: ["workspace", String(id)] }),
   })
 }
