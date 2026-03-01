@@ -17,6 +17,7 @@ try:
 except Exception:  # pragma: no cover
     __version__ = "0.0.0-dev"
 
+import logging
 import redis as redis_lib
 from fastapi import FastAPI
 from sqlalchemy import text as sa_text
@@ -29,6 +30,8 @@ from config import settings
 from database import Base, SessionLocal, engine
 from handlers.manual import router as manual_router
 from ws import ws_router
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -151,6 +154,7 @@ def health_check():
         finally:
             r.close()
     except Exception:
+        logger.warning("Redis health check failed", exc_info=True)
         status = "degraded"
 
     # Check Database
@@ -159,6 +163,7 @@ def health_check():
             session.execute(sa_text("SELECT 1"))
         db_ok = True
     except Exception:
+        logger.warning("Database health check failed", exc_info=True)
         status = "degraded"
 
     return {

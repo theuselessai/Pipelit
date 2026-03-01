@@ -178,6 +178,7 @@ class TestPlatformApi:
         # The tool uses settings.PLATFORM_BASE_URL (defaults to http://localhost:8000)
         # and no longer accepts a base_url parameter
         tool = self._get_tool()
+        assert "base_url" not in tool.args_schema.model_fields
         tool.invoke({"method": "GET", "path": "/test"})
         mock_client.get.assert_called_once()
         url = mock_client.get.call_args[0][0]
