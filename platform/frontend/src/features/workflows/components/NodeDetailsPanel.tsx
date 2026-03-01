@@ -573,7 +573,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Deep agent state
   const [workspaceId, setWorkspaceId] = useState<string>((node.config.extra_config?.workspace_id as number)?.toString() ?? "")
   const [enableTodos, setEnableTodos] = useState<boolean>(Boolean(node.config.extra_config?.enable_todos))
-  const [allowNetwork, setAllowNetwork] = useState<boolean>(Boolean(node.config.extra_config?.allow_network))
+  // Network access is controlled at the workspace level (not per-node)
   const [subagents, setSubagents] = useState<{ name: string; description: string; system_prompt: string; model: string }[]>(
     () => (node.config.extra_config?.subagents as { name: string; description: string; system_prompt: string; model: string }[]) ?? []
   )
@@ -722,7 +722,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       parsedExtra = {
         ...parsedExtra,
         enable_todos: enableTodos,
-        allow_network: allowNetwork,
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
       }
     }
@@ -1385,11 +1384,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             <div className="space-y-1">
               <Label className="text-xs">Workspace</Label>
               <p className="text-xs text-muted-foreground">Sandboxed directory for file read/write operations</p>
-              <Select value={workspaceId} onValueChange={(v) => {
-                setWorkspaceId(v)
-                const ws = workspacesData?.items?.find((w) => w.id.toString() === v)
-                if (ws) setAllowNetwork(ws.allow_network)
-              }}>
+              <Select value={workspaceId} onValueChange={setWorkspaceId}>
                 <SelectTrigger className="text-xs h-7">
                   <SelectValue placeholder="Default workspace" />
                 </SelectTrigger>

@@ -12,7 +12,7 @@ export function useWorkspaces(params?: { limit?: number; offset?: number }) {
 
 export function useWorkspace(id: number | string) {
   return useQuery({
-    queryKey: ["workspace", id],
+    queryKey: ["workspace", String(id)],
     queryFn: () => apiFetch<Workspace>(`/workspaces/${id}/`),
     enabled: !!id,
   })
