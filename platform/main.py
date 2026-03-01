@@ -145,9 +145,11 @@ def health_check():
     # Check Redis
     try:
         r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
-        r.ping()
-        r.close()
-        redis_ok = True
+        try:
+            r.ping()
+            redis_ok = True
+        finally:
+            r.close()
     except Exception:
         status = "degraded"
 

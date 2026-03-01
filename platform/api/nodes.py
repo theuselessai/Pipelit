@@ -208,6 +208,10 @@ def update_node(
             elif k == "extra_config":
                 cc.extra_config = v
 
+    # Enforce interrupt_before for human_confirmation nodes
+    if node.component_type == "human_confirmation":
+        data.pop("interrupt_before", None)
+
     for attr, value in data.items():
         setattr(node, attr, value)
 

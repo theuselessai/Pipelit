@@ -73,7 +73,7 @@ def run_command_factory(node):
             backend = _build_backend(parent_extra)
             logger.info("run_command %s: using sandbox backend (workspace_id=%s)", node.node_id, workspace_id)
         except Exception:
-            logger.warning("run_command %s: failed to build sandbox backend, falling back to subprocess", node.node_id, exc_info=True)
+            logger.warning("run_command %s: failed to build sandbox backend, sandbox backend unavailable, commands will be rejected", node.node_id, exc_info=True)
 
     @tool
     def run_command(command: str) -> str:
