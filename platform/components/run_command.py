@@ -87,21 +87,7 @@ def run_command_factory(node):
                     output += f"\n[exit code: {resp.exit_code}]"
                 output = output or "(no output)"
             else:
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                output = result.stdout
-                if result.stderr:
-                    output += f"\nSTDERR:\n{result.stderr}"
-                if result.returncode != 0:
-                    output += f"\n[exit code: {result.returncode}]"
-                output = output or "(no output)"
+                return "Error: No sandbox backend available. run_command requires a workspace with sandbox support."
 
             if len(output) > _MAX_OUTPUT_CHARS:
                 half = _MAX_OUTPUT_CHARS // 2

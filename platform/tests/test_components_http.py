@@ -164,7 +164,8 @@ class TestPlatformApi:
         assert data["success"] is False
 
     @patch("components.platform_api.httpx.Client")
-    def test_custom_base_url(self, mock_cls):
+    def test_base_url_locked_to_config(self, mock_cls):
+        """Verify that base_url uses platform config, not LLM-controlled input."""
         mock_client = MagicMock()
         mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -174,11 +175,15 @@ class TestPlatformApi:
         resp.json.return_value = {}
         mock_client.get.return_value = resp
 
+        # The tool uses settings.PLATFORM_BASE_URL (defaults to http://localhost:8000)
+        # and no longer accepts a base_url parameter
         tool = self._get_tool()
-        tool.invoke({"method": "GET", "path": "/test", "base_url": "http://custom:9000/"})
+        tool.invoke({"method": "GET", "path": "/test"})
         mock_client.get.assert_called_once()
         url = mock_client.get.call_args[0][0]
-        assert url == "http://custom:9000/test"
+        # Should use the platform config URL, not any LLM-provided value
+        assert url.endswith("/test")
+        assert "localhost:8000" in url or "platform" in url
 
 
 # ── Chat Model ────────────────────────────────────────────────────────────────
