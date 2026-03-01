@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 
 from langchain_core.tools import tool
 
@@ -80,14 +79,14 @@ def run_command_factory(node):
     def run_command(command: str) -> str:
         """Run a shell command and return stdout/stderr."""
         try:
-            if backend is not None:
-                resp = backend.execute(command, timeout=timeout)
-                output = resp.output or ""
-                if resp.exit_code is not None and resp.exit_code != 0:
-                    output += f"\n[exit code: {resp.exit_code}]"
-                output = output or "(no output)"
-            else:
+            if backend is None:
                 return "Error: No sandbox backend available. run_command requires a workspace with sandbox support."
+
+            resp = backend.execute(command, timeout=timeout)
+            output = resp.output or ""
+            if resp.exit_code is not None and resp.exit_code != 0:
+                output += f"\n[exit code: {resp.exit_code}]"
+            output = output or "(no output)"
 
             if len(output) > _MAX_OUTPUT_CHARS:
                 half = _MAX_OUTPUT_CHARS // 2
@@ -97,8 +96,6 @@ def run_command_factory(node):
                     + output[-half:]
                 )
             return output
-        except subprocess.TimeoutExpired:
-            return f"Error: command timed out after {timeout} seconds"
         except Exception as e:
             return f"Error: {e}"
 

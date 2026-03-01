@@ -390,10 +390,11 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 _finalize(execution_id, db)
             return
 
+        state = load_state(execution_id)
+
         # Check interrupt_before — skip if resuming (state already has _resume_input)
         if node_info.get("interrupt_before"):
-            peek_state = load_state(execution_id)
-            if "_resume_input" not in peek_state:
+            if "_resume_input" not in state:
                 _handle_interrupt(execution, node_id, "before", db)
                 # Decrement inflight — execution is now "interrupted" so _finalize()
                 # will no-op even if counter reaches 0. resume_node_job() re-increments.
@@ -402,7 +403,6 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 return
             # Resuming — fall through to execute the node
 
-        state = load_state(execution_id)
         state["current_node"] = node_id
 
         from schemas.node_io import NodeStatus

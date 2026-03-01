@@ -182,8 +182,7 @@ class TestPlatformApi:
         mock_client.get.assert_called_once()
         url = mock_client.get.call_args[0][0]
         # Should use the platform config URL, not any LLM-provided value
-        assert url.endswith("/test")
-        assert "localhost:8000" in url or "platform" in url
+        assert url == "http://localhost:8000/test"
 
 
 # ── Chat Model ────────────────────────────────────────────────────────────────

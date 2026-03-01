@@ -1,6 +1,5 @@
 """Register all built-in node type definitions."""
 
-from services.topology import SUB_COMPONENT_TYPES
 from schemas.node_types import DataType, NodeTypeSpec, PortDefinition, register_node_type
 
 # ── Triggers ──────────────────────────────────────────────────────────────────
