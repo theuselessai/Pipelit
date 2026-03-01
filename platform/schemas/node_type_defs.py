@@ -199,37 +199,6 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="http_request",
-    display_name="HTTP Request",
-    category="sub_component",
-    inputs=[PortDefinition(name="url", data_type=DataType.STRING, required=True)],
-    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
-))
-
-register_node_type(NodeTypeSpec(
-    component_type="web_search",
-    display_name="Web Search",
-    category="sub_component",
-    inputs=[PortDefinition(name="query", data_type=DataType.STRING, required=True)],
-    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
-))
-
-register_node_type(NodeTypeSpec(
-    component_type="calculator",
-    display_name="Calculator",
-    category="sub_component",
-    inputs=[PortDefinition(name="expression", data_type=DataType.STRING)],
-    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
-))
-
-register_node_type(NodeTypeSpec(
-    component_type="datetime",
-    display_name="Date & Time",
-    category="sub_component",
-    outputs=[PortDefinition(name="result", data_type=DataType.STRING)],
-))
-
-register_node_type(NodeTypeSpec(
     component_type="create_agent_user",
     display_name="Create Agent User",
     description="Create API credentials for agent use",
@@ -515,14 +484,6 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="aggregator",
-    display_name="Aggregator",
-    category="flow",
-    inputs=[PortDefinition(name="items", data_type=DataType.ARRAY)],
-    outputs=[PortDefinition(name="aggregated", data_type=DataType.ANY)],
-))
-
-register_node_type(NodeTypeSpec(
     component_type="workflow",
     display_name="Subworkflow",
     description="Execute another workflow as a child and return its output",
@@ -554,7 +515,7 @@ register_node_type(NodeTypeSpec(
 
 # ── Mark non-executable types ─────────────────────────────────────────────────
 # Triggers don't execute (they initiate), ai_model and output_parser are config-only.
-# Tools (run_command, http_request, etc.) ARE executable - they run when agents invoke them.
+# Tools (run_command, etc.) ARE executable - they run when agents invoke them.
 
 from schemas.node_types import NODE_TYPE_REGISTRY
 
