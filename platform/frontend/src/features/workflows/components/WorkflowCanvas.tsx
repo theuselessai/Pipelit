@@ -4,11 +4,11 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
 import {
   faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart,
-  faSitemap, faCode, faGlobe, faTriangleExclamation, faUserCheck, faLayerGroup,
+  faSitemap, faCode, faTriangleExclamation, faUserCheck,
   faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
   faCalendarDays, faHandPointer, faHourglass, faHeartPulse,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
-  faTerminal, faMagnifyingGlass, faCalculator, faUserPlus, faPlug, faFingerprint,
+  faTerminal, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard,
   faClipboardList, faListCheck, faRocket, faPenRuler, faCompass, faBrain, faGraduationCap,
 } from "@fortawesome/free-solid-svg-icons"
@@ -65,10 +65,6 @@ const COMPONENT_COLORS: Record<string, string> = {
   router: "#8b5cf6",
   extractor: "#8b5cf6",
   run_command: "#10b981",
-  http_request: "#10b981",
-  web_search: "#10b981",
-  calculator: "#10b981",
-  datetime: "#10b981",
   create_agent_user: "#14b8a6",
   platform_api: "#14b8a6",
   whoami: "#14b8a6",
@@ -104,12 +100,12 @@ const COMPONENT_COLORS: Record<string, string> = {
 const COMPONENT_ICONS: Record<string, IconDefinition> = {
   ai_model: faMicrochip, agent: faRobot, deep_agent: faBrain,
   categorizer: faTags, router: faCodeBranch, switch: faCodeBranch, extractor: faMagnifyingGlassChart,
-  run_command: faTerminal, http_request: faGlobe, web_search: faMagnifyingGlass, calculator: faCalculator, datetime: faClock,
+  run_command: faTerminal,
   create_agent_user: faUserPlus, platform_api: faPlug, whoami: faFingerprint, epic_tools: faClipboardList, task_tools: faListCheck, scheduler_tools: faCalendarDays, system_health: faHeartPulse, spawn_and_await: faRocket, workflow_create: faPenRuler, workflow_discover: faCompass,
   workflow: faSitemap,
   code: faCode, error_handler: faTriangleExclamation,
   memory_read: faDatabase, memory_write: faFloppyDisk, identify_user: faIdCard,
-  human_confirmation: faUserCheck, aggregator: faLayerGroup, output_parser: faFileExport,
+  human_confirmation: faUserCheck, output_parser: faFileExport,
   loop: faRepeat, wait: faClock, merge: faCodeMerge, filter: faFilter,
   trigger_telegram: faTelegram, trigger_schedule: faCalendarDays,
   trigger_manual: faHandPointer, trigger_workflow: faPlay, trigger_error: faBug,
@@ -132,8 +128,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isTrigger = data.componentType.startsWith("trigger_")
   const isLoop = data.componentType === "loop"
   const isFixedWidth = ["router", "categorizer", "agent", "deep_agent", "extractor", "switch", "loop"].includes(data.componentType)
-  const isTool = ["run_command", "http_request", "web_search", "calculator", "datetime", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"].includes(data.componentType)
-  const isSubComponent = ["ai_model", "run_command", "http_request", "web_search", "calculator", "datetime", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "skill"].includes(data.componentType)
+  const isTool = ["run_command", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover"].includes(data.componentType)
+  const isSubComponent = ["ai_model", "run_command", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "skill"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
   const hasModel = ["agent", "deep_agent", "categorizer", "router", "extractor"].includes(data.componentType)
   const hasTools = ["agent", "deep_agent"].includes(data.componentType)

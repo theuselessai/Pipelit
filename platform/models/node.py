@@ -156,22 +156,6 @@ class ToolComponentConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "run_command"}
 
 
-class _HttpRequestConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "http_request"}
-
-
-class _WebSearchConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "web_search"}
-
-
-class _CalculatorConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "calculator"}
-
-
-class _DatetimeConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "datetime"}
-
-
 class _CreateAgentUserConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "create_agent_user"}
 
@@ -213,12 +197,8 @@ class _SystemHealthConfig(BaseComponentConfig):
 
 
 class OtherComponentConfig(BaseComponentConfig):
-    """Config for human_confirmation, aggregator, workflow, output_parser."""
+    """Config for human_confirmation, workflow, output_parser."""
     __mapper_args__ = {"polymorphic_identity": "human_confirmation"}
-
-
-class _AggregatorConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "aggregator"}
 
 
 class _WorkflowConfig(BaseComponentConfig):
@@ -290,10 +270,6 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "wait": CodeComponentConfig,
     "error_handler": CodeComponentConfig,
     "run_command": ToolComponentConfig,
-    "http_request": ToolComponentConfig,
-    "web_search": ToolComponentConfig,
-    "calculator": ToolComponentConfig,
-    "datetime": ToolComponentConfig,
     "create_agent_user": ToolComponentConfig,
     "platform_api": ToolComponentConfig,
     "whoami": ToolComponentConfig,
@@ -306,7 +282,6 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "system_health": _SystemHealthConfig,
     "get_totp_code": ToolComponentConfig,
     "human_confirmation": OtherComponentConfig,
-    "aggregator": OtherComponentConfig,
     "workflow": OtherComponentConfig,
     "output_parser": OtherComponentConfig,
     "memory_read": OtherComponentConfig,

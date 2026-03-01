@@ -390,20 +390,44 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 _finalize(execution_id, db)
             return
 
-        # Check interrupt_before
-        if node_info.get("interrupt_before"):
-            _handle_interrupt(execution, node_id, "before", db)
-            # Decrement inflight — execution is now "interrupted" so _finalize()
-            # will no-op even if counter reaches 0. resume_node_job() re-increments.
-            r = _redis()
-            r.decr(_inflight_key(execution_id))
-            return
-
         state = load_state(execution_id)
+
+        # Check interrupt_before — skip if resuming (state already has _resume_input)
+        if node_info.get("interrupt_before"):
+            if "_resume_input" not in state:
+                _handle_interrupt(execution, node_id, "before", db)
+                # Decrement inflight — execution is now "interrupted" so _finalize()
+                # will no-op even if counter reaches 0. resume_node_job() re-increments.
+                r = _redis()
+                r.decr(_inflight_key(execution_id))
+                return
+            # Resuming — fall through to execute the node
+
         state["current_node"] = node_id
 
         from schemas.node_io import NodeStatus
         slug = topo_data.get("workflow_slug", "")
+
+        # Execution timeout enforcement
+        if execution.started_at:
+            elapsed = (datetime.now(timezone.utc) - execution.started_at).total_seconds()
+            max_seconds = state.get("_max_execution_seconds")
+            if max_seconds is None:
+                # Cache workflow timeout in state on first check
+                from models.workflow import Workflow
+                wf = db.get(Workflow, execution.workflow_id)
+                max_seconds = wf.max_execution_seconds if wf else 600
+                state["_max_execution_seconds"] = max_seconds
+                save_state(execution_id, state)
+            if elapsed > max_seconds:
+                execution.status = "failed"
+                execution.error_message = f"Execution timed out after {int(elapsed)}s (limit: {max_seconds}s)"
+                execution.completed_at = datetime.now(timezone.utc)
+                _persist_execution_costs(execution, state)
+                db.commit()
+                _publish_event(execution_id, "execution_failed", {"error": execution.error_message, "error_code": "timeout"}, workflow_slug=slug)
+                _cleanup_redis(execution_id)
+                return
 
         # Budget enforcement: check epic budget before executing node
         budget_error = _check_budget(execution_id, state, db)
@@ -620,6 +644,9 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         node_results = state.get("node_results", {})
         node_results[node_id] = node_result.model_dump(mode="json")
         state["node_results"] = node_results
+
+        # Clear _resume_input after node execution to prevent stale data on subsequent nodes
+        state.pop("_resume_input", None)
 
         save_state(execution_id, state)
 
@@ -1281,11 +1308,21 @@ def _finalize(execution_id: str, db: Session) -> None:
 def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     """Create a PendingTask and set execution to interrupted."""
     from models.execution import PendingTask
+    from models.node import WorkflowNode
     from models.system import SystemConfig
 
     config = SystemConfig.load(db)
     timeout = config.confirmation_timeout_seconds
     payload = execution.trigger_payload or {}
+
+    # Use the node's configured prompt for human_confirmation nodes
+    prompt = f"Confirmation required at node '{node_id}' ({phase} execution)."
+    node = db.query(WorkflowNode).filter_by(
+        workflow_id=execution.workflow_id, node_id=node_id
+    ).first()
+    if node and node.component_type == "human_confirmation":
+        extra = node.component_config.extra_config or {}
+        prompt = extra.get("prompt", prompt)
 
     pending = PendingTask(
         task_id=uuid.uuid4().hex[:8],
@@ -1293,7 +1330,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
         user_profile_id=execution.user_profile_id,
         telegram_chat_id=payload.get("chat_id", 0),
         node_id=node_id,
-        prompt=f"Confirmation required at node '{node_id}' ({phase} execution).",
+        prompt=prompt,
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=timeout),
     )
     db.add(pending)

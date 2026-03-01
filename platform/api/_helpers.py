@@ -151,6 +151,7 @@ def serialize_workflow(wf: Workflow, db: Session) -> dict:
         "is_default": wf.is_default,
         "tags": wf.tags,
         "error_handler_workflow_id": wf.error_handler_workflow_id,
+        "max_execution_seconds": wf.max_execution_seconds,
         "input_schema": wf.input_schema,
         "output_schema": wf.output_schema,
         "node_count": node_count,

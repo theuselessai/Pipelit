@@ -224,28 +224,28 @@ class TestRunCommandSandbox:
         assert "sandbox_output" in result
         mock_backend.execute.assert_called_once()
 
-    def test_run_command_fallback_no_workspace(self):
-        """When no workspace is configured, subprocess is used (fallback)."""
+    def test_run_command_no_workspace_returns_error(self):
+        """When no workspace is configured, an error is returned (no subprocess fallback)."""
         node = _make_node("run_command", extra_config={})
 
         with patch("components.run_command._resolve_parent_workspace", return_value={}):
             from components.run_command import run_command_factory
             tool = run_command_factory(node)
-            result = tool.invoke({"command": "echo fallback_works"})
+            result = tool.invoke({"command": "echo test"})
 
-        assert "fallback_works" in result
+        assert "No sandbox backend available" in result
 
-    def test_run_command_backend_build_failure(self):
-        """When _build_backend raises, falls back to subprocess."""
+    def test_run_command_backend_build_failure_returns_error(self):
+        """When _build_backend raises, an error is returned (no subprocess fallback)."""
         node = _make_node("run_command", extra_config={})
 
         with patch("components.run_command._resolve_parent_workspace", return_value={"workspace_id": 1}), \
              patch("components._agent_shared._build_backend", side_effect=RuntimeError("boom")):
             from components.run_command import run_command_factory
             tool = run_command_factory(node)
-            result = tool.invoke({"command": "echo fallback_after_error"})
+            result = tool.invoke({"command": "echo test"})
 
-        assert "fallback_after_error" in result
+        assert "No sandbox backend available" in result
 
     def test_run_command_sandbox_nonzero_exit(self):
         """Backend returning non-zero exit code includes [exit code: N]."""
@@ -271,45 +271,19 @@ class TestRunCommandSandbox:
 # ---------------------------------------------------------------------------
 
 
-class TestCodeNodeSubprocessFallback:
-    """Tests for the subprocess fallback path when _build_backend fails."""
+class TestCodeNodeNoSandbox:
+    """Tests that code node raises RuntimeError when no sandbox backend is available."""
 
-    def test_code_node_subprocess_fallback(self):
-        """When _build_backend raises, code runs via subprocess.run."""
+    def test_code_node_no_sandbox_raises(self):
+        """When _build_backend raises, code node raises RuntimeError (no subprocess fallback)."""
         code = "result = 2 + 2"
         node = _make_node(extra_config={"code": code, "language": "python"})
 
         with patch("components.code._build_backend", side_effect=RuntimeError("no sandbox")):
             from components.code import code_factory
             fn = code_factory(node)
-            result = fn({"node_outputs": {}, "messages": []})
-
-        assert result["output"] == "4"
-
-    def test_code_node_subprocess_timeout(self):
-        """subprocess.TimeoutExpired is caught and re-raised as RuntimeError."""
-        code = "import time; time.sleep(30)"
-        node = _make_node(extra_config={"code": code, "language": "python", "timeout": 1})
-
-        with patch("components.code._build_backend", side_effect=RuntimeError("no sandbox")):
-            from components.code import code_factory
-            fn = code_factory(node)
-
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("python3", 1)):
-            with pytest.raises(RuntimeError, match="timed out after 1 seconds"):
+            with pytest.raises(RuntimeError, match="No sandbox backend available"):
                 fn({"node_outputs": {}, "messages": []})
-
-    def test_code_node_return_value(self):
-        """return statements in user code work via subprocess fallback."""
-        code = "return 42"
-        node = _make_node(extra_config={"code": code, "language": "python"})
-
-        with patch("components.code._build_backend", side_effect=RuntimeError("no sandbox")):
-            from components.code import code_factory
-            fn = code_factory(node)
-            result = fn({"node_outputs": {}, "messages": []})
-
-        assert result["output"] == "42"
 
 
 # ---------------------------------------------------------------------------

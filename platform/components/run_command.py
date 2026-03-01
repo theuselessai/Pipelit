@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 
 from langchain_core.tools import tool
 
@@ -74,34 +73,20 @@ def run_command_factory(node):
             backend = _build_backend(parent_extra)
             logger.info("run_command %s: using sandbox backend (workspace_id=%s)", node.node_id, workspace_id)
         except Exception:
-            logger.warning("run_command %s: failed to build sandbox backend, falling back to subprocess", node.node_id, exc_info=True)
+            logger.warning("run_command %s: failed to build sandbox backend, sandbox backend unavailable, commands will be rejected", node.node_id, exc_info=True)
 
     @tool
     def run_command(command: str) -> str:
         """Run a shell command and return stdout/stderr."""
         try:
-            if backend is not None:
-                resp = backend.execute(command, timeout=timeout)
-                output = resp.output or ""
-                if resp.exit_code is not None and resp.exit_code != 0:
-                    output += f"\n[exit code: {resp.exit_code}]"
-                output = output or "(no output)"
-            else:
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                output = result.stdout
-                if result.stderr:
-                    output += f"\nSTDERR:\n{result.stderr}"
-                if result.returncode != 0:
-                    output += f"\n[exit code: {result.returncode}]"
-                output = output or "(no output)"
+            if backend is None:
+                return "Error: No sandbox backend available. run_command requires a workspace with sandbox support."
+
+            resp = backend.execute(command, timeout=timeout)
+            output = resp.output or ""
+            if resp.exit_code is not None and resp.exit_code != 0:
+                output += f"\n[exit code: {resp.exit_code}]"
+            output = output or "(no output)"
 
             if len(output) > _MAX_OUTPUT_CHARS:
                 half = _MAX_OUTPUT_CHARS // 2
@@ -111,8 +96,6 @@ def run_command_factory(node):
                     + output[-half:]
                 )
             return output
-        except subprocess.TimeoutExpired:
-            return f"Error: command timed out after {timeout} seconds"
         except Exception as e:
             return f"Error: {e}"
 

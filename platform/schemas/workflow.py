@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class WorkflowIn(BaseModel):
@@ -14,6 +14,7 @@ class WorkflowIn(BaseModel):
     is_default: bool = False
     tags: list[str] | None = None
     error_handler_workflow_id: int | None = None
+    max_execution_seconds: int = Field(default=600, gt=0)
     input_schema: dict | None = None
     output_schema: dict | None = None
 
@@ -27,6 +28,7 @@ class WorkflowUpdate(BaseModel):
     is_default: bool | None = None
     tags: list[str] | None = None
     error_handler_workflow_id: int | None = None
+    max_execution_seconds: int | None = Field(default=None, gt=0)
     input_schema: dict | None = None
     output_schema: dict | None = None
 
@@ -41,6 +43,7 @@ class WorkflowOut(BaseModel):
     is_default: bool
     tags: list[str] | None = None
     error_handler_workflow_id: int | None = None
+    max_execution_seconds: int = Field(default=600, gt=0)
     input_schema: dict | None = None
     output_schema: dict | None = None
     node_count: int = 0

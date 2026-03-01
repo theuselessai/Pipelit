@@ -8,10 +8,6 @@ export type ComponentType =
   | "deep_agent"
   | "switch"
   | "run_command"
-  | "http_request"
-  | "web_search"
-  | "calculator"
-  | "datetime"
   | "create_agent_user"
   | "get_totp_code"
   | "platform_api"
@@ -23,7 +19,6 @@ export type ComponentType =
   | "spawn_and_await"
   | "workflow_create"
   | "workflow_discover"
-  | "aggregator"
   | "human_confirmation"
   | "workflow"
   | "code"
@@ -50,10 +45,10 @@ export type CredentialType = "git" | "llm" | "telegram" | "tool"
 export type ExecutionStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "cancelled"
 
 // Workflow
-export interface Workflow { id: number; name: string; slug: string; description: string; is_active: boolean; is_public: boolean; is_default: boolean; error_handler_workflow_id: number | null; input_schema: Record<string, unknown> | null; output_schema: Record<string, unknown> | null; node_count: number; edge_count: number; trigger_count: number; created_at: string; updated_at: string }
+export interface Workflow { id: number; name: string; slug: string; description: string; is_active: boolean; is_public: boolean; is_default: boolean; error_handler_workflow_id: number | null; max_execution_seconds: number; input_schema: Record<string, unknown> | null; output_schema: Record<string, unknown> | null; node_count: number; edge_count: number; trigger_count: number; created_at: string; updated_at: string }
 export interface WorkflowDetail extends Workflow { nodes: WorkflowNode[]; edges: WorkflowEdge[] }
-export interface WorkflowCreate { name: string; slug: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean }
-export interface WorkflowUpdate { name?: string; slug?: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean }
+export interface WorkflowCreate { name: string; slug: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean; max_execution_seconds?: number }
+export interface WorkflowUpdate { name?: string; slug?: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean; max_execution_seconds?: number }
 
 // Node
 export interface ComponentConfigData { system_prompt: string; extra_config: Record<string, unknown>; llm_credential_id: number | null; model_name: string; temperature: number | null; max_tokens: number | null; frequency_penalty: number | null; presence_penalty: number | null; top_p: number | null; timeout: number | null; max_retries: number | null; response_format: Record<string, unknown> | null; credential_id: number | null; is_active: boolean; priority: number; trigger_config: Record<string, unknown> }

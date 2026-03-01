@@ -373,6 +373,20 @@ class TestNodeAPI:
         assert resp.status_code == 200
         assert resp.json()["label"] == "Renamed"
 
+    def test_create_human_confirmation_forces_interrupt_before(self, auth_client, workflow):
+        """Creating a human_confirmation node auto-sets interrupt_before=True."""
+        resp = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/",
+            json={
+                "node_id": "hc_1",
+                "component_type": "human_confirmation",
+                "config": {"extra_config": {"prompt": "Approve?"}},
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["interrupt_before"] is True
+
     def test_delete_node(self, auth_client, workflow, node, edge):
         resp = auth_client.delete(
             f"/api/v1/workflows/{workflow.slug}/nodes/{node.node_id}/"

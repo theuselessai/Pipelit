@@ -117,6 +117,11 @@ def create_node(
         kwargs["priority"] = config_data.get("priority", 0)
         kwargs["trigger_config"] = config_data.get("trigger_config", {})
 
+    # Auto-set interrupt_before for human_confirmation nodes
+    interrupt_before = payload.interrupt_before
+    if component_type == "human_confirmation":
+        interrupt_before = True
+
     def _create_and_commit(nid: str) -> WorkflowNode:
         """Create config + node in one transaction."""
         cfg = BaseComponentConfig(**kwargs)
@@ -129,7 +134,7 @@ def create_node(
             component_type=component_type,
             component_config_id=cfg.id,
             is_entry_point=payload.is_entry_point,
-            interrupt_before=payload.interrupt_before,
+            interrupt_before=interrupt_before,
             interrupt_after=payload.interrupt_after,
             position_x=payload.position_x,
             position_y=payload.position_y,
@@ -202,6 +207,10 @@ def update_node(
                 cc.system_prompt = v
             elif k == "extra_config":
                 cc.extra_config = v
+
+    # Enforce interrupt_before for human_confirmation nodes
+    if node.component_type == "human_confirmation":
+        data.pop("interrupt_before", None)
 
     for attr, value in data.items():
         setattr(node, attr, value)

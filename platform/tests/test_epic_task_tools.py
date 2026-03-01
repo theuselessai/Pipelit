@@ -947,21 +947,21 @@ class TestAgentListFactorySupport:
         )
         mock_session.add(agent_node)
 
-        # calculator returns a single tool (not a list)
-        tool_config = BaseComponentConfig(component_type="calculator")
+        # get_totp_code returns a single tool (not a list)
+        tool_config = BaseComponentConfig(component_type="get_totp_code")
         mock_session.add(tool_config)
         mock_session.flush()
         tool_node = WorkflowNode(
             workflow_id=workflow.id,
-            node_id="calc_1",
-            component_type="calculator",
+            node_id="totp_1",
+            component_type="get_totp_code",
             component_config_id=tool_config.id,
         )
         mock_session.add(tool_node)
 
         edge = WorkflowEdge(
             workflow_id=workflow.id,
-            source_node_id="calc_1",
+            source_node_id="totp_1",
             target_node_id="agent_single",
             edge_label="tool",
         )
@@ -972,9 +972,9 @@ class TestAgentListFactorySupport:
         tools, tool_metadata = _resolve_tools(agent_node)
 
         assert len(tools) == 1
-        assert tools[0].name == "calculator"
-        assert "calculator" in tool_metadata
-        assert tool_metadata["calculator"]["tool_node_id"] == "calc_1"
+        assert tools[0].name == "get_totp_code"
+        assert "get_totp_code" in tool_metadata
+        assert tool_metadata["get_totp_code"]["tool_node_id"] == "totp_1"
 
     def test_resolve_tools_exception_returns_empty(self, db, workflow):
         """Cover the except branch in _resolve_tools (L176-177)."""

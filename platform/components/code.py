@@ -7,7 +7,6 @@ import logging
 import os
 import shlex
 import shutil
-import subprocess
 import tempfile
 
 from components import register
@@ -68,15 +67,15 @@ def code_factory(node):
         if not code_snippet:
             raise ValueError("No code provided")
 
+        if backend is None:
+            raise RuntimeError("No sandbox backend available. Code execution requires a workspace with sandbox support.")
+
         if language != "python":
             raise ValueError(f"Language '{language}' not yet supported in sandbox mode")
 
         # Create a unique temp directory per invocation to avoid race conditions
         # when concurrent executions share the same workspace_dir.
-        if backend is not None:
-            invocation_dir = tempfile.mkdtemp(dir=workspace_dir, prefix="code_run_")
-        else:
-            invocation_dir = tempfile.mkdtemp(prefix="pipelit_code_")
+        invocation_dir = tempfile.mkdtemp(dir=workspace_dir, prefix="code_run_")
 
         code_path = os.path.join(invocation_dir, "__code__.py")
         wrapper_path = os.path.join(invocation_dir, "__wrapper__.py")
@@ -97,24 +96,11 @@ def code_factory(node):
             with open(input_path, "w", encoding="utf-8") as f:
                 json.dump(input_data, f)
 
-            # Execute via sandbox backend or plain subprocess
-            if backend is not None:
-                subdir = os.path.basename(invocation_dir)
-                resp = backend.execute(f"cd {shlex.quote(subdir)} && python3 __wrapper__.py", timeout=timeout)
-                exit_code = resp.exit_code
-                stderr = resp.output or ""  # ExecuteResponse.output has combined stdout+stderr
-            else:
-                result = subprocess.run(
-                    ["python3", wrapper_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=invocation_dir,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                exit_code = result.returncode
-                stderr = result.stderr or ""
+            # Execute via sandbox backend
+            subdir = os.path.basename(invocation_dir)
+            resp = backend.execute(f"cd {shlex.quote(subdir)} && python3 __wrapper__.py", timeout=timeout)
+            exit_code = resp.exit_code
+            stderr = resp.output or ""  # ExecuteResponse.output has combined stdout+stderr
 
             if exit_code != 0:
                 raise RuntimeError(f"Code execution failed (exit {exit_code}): {stderr.strip()}")
@@ -128,8 +114,6 @@ def code_factory(node):
 
             return {"output": out_data.get("result", "")}
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Code execution timed out after {timeout} seconds")
         finally:
             shutil.rmtree(invocation_dir, ignore_errors=True)
 

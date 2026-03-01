@@ -11,7 +11,7 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -233,6 +233,7 @@ class TestInflightDecrementOnException:
         mock_execution = MagicMock()
         mock_execution.status = "running"
         mock_execution.execution_id = "exec-1"
+        mock_execution.started_at = None
         mock_execution.parent_execution_id = None
         mock_execution.parent_node_id = None
         mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
@@ -533,3 +534,237 @@ class TestPublishEventSafety:
 
         # Should have published to both channels
         assert mock_r.publish.call_count == 2
+
+
+# ── Execution timeout enforcement ─────────────────────────────────────────────
+
+
+class TestExecutionTimeout:
+    """Tests for execution timeout enforcement in execute_node_job."""
+
+    @patch("services.orchestrator._cleanup_redis")
+    @patch("services.orchestrator._persist_execution_costs")
+    @patch("services.orchestrator._publish_event")
+    @patch("services.orchestrator._redis")
+    @patch("services.orchestrator._load_topology")
+    @patch("services.orchestrator.load_state")
+    def test_execution_times_out(self, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub, mock_costs, mock_cleanup):
+        """When elapsed > max_execution_seconds, execution is marked failed with timeout."""
+        from services.orchestrator import execute_node_job
+
+        mock_r = _mock_redis()
+        mock_redis_fn.return_value = mock_r
+
+        topo_data = _make_topo_data(nodes={
+            "agent_1": {
+                "node_id": "agent_1",
+                "component_type": "agent",
+                "db_id": 10,
+                "component_config_id": 20,
+                "interrupt_before": False,
+                "interrupt_after": False,
+            }
+        })
+        mock_load_topo.return_value = topo_data
+        mock_load_state.return_value = {
+            "messages": [], "node_outputs": {}, "trigger": {},
+            "_max_execution_seconds": 60,
+        }
+
+        mock_db = MagicMock()
+        mock_execution = MagicMock()
+        mock_execution.status = "running"
+        mock_execution.execution_id = "exec-1"
+        mock_execution.started_at = datetime.now(timezone.utc) - timedelta(seconds=100)
+        mock_execution.parent_execution_id = None
+        mock_execution.parent_node_id = None
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
+
+        with patch("database.SessionLocal", return_value=mock_db):
+            execute_node_job("exec-1", "agent_1")
+
+        assert mock_execution.status == "failed"
+        assert "timed out" in mock_execution.error_message
+        mock_cleanup.assert_called_once_with("exec-1")
+
+    @patch("services.orchestrator._publish_event")
+    @patch("services.orchestrator._redis")
+    @patch("services.orchestrator._load_topology")
+    @patch("services.orchestrator.load_state")
+    @patch("services.orchestrator.save_state")
+    @patch("services.orchestrator._check_budget", return_value=None)
+    def test_timeout_cached_in_state(self, mock_budget, mock_save, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub):
+        """When _max_execution_seconds is not in state, it's loaded from workflow and cached."""
+        from services.orchestrator import execute_node_job
+
+        mock_r = _mock_redis()
+        mock_redis_fn.return_value = mock_r
+
+        topo_data = _make_topo_data(nodes={
+            "agent_1": {
+                "node_id": "agent_1",
+                "component_type": "agent",
+                "db_id": 10,
+                "component_config_id": 20,
+                "interrupt_before": False,
+                "interrupt_after": False,
+            }
+        })
+        mock_load_topo.return_value = topo_data
+        mock_load_state.return_value = {
+            "messages": [], "node_outputs": {}, "trigger": {},
+        }
+
+        mock_wf = MagicMock()
+        mock_wf.max_execution_seconds = 600
+
+        mock_db = MagicMock()
+        mock_execution = MagicMock()
+        mock_execution.status = "running"
+        mock_execution.execution_id = "exec-1"
+        mock_execution.started_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+        mock_execution.parent_execution_id = None
+        mock_execution.parent_node_id = None
+        mock_execution.workflow_id = 1
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
+        mock_db.get.return_value = mock_wf
+
+        mock_config = MagicMock()
+        mock_config.system_prompt = ""
+        mock_config.extra_config = {}
+        mock_db_node = MagicMock()
+        mock_db_node.component_config = mock_config
+
+        def mock_get_side_effect(model, id_val):
+            from models.workflow import Workflow
+            if model is Workflow:
+                return mock_wf
+            return mock_db_node
+
+        mock_db.get.side_effect = mock_get_side_effect
+
+        def mock_factory(node):
+            return lambda state: {"output": "done"}
+
+        with patch("database.SessionLocal", return_value=mock_db):
+            with patch("components.get_component_factory", return_value=mock_factory):
+                execute_node_job("exec-1", "agent_1")
+
+        # save_state should have been called with _max_execution_seconds cached
+        assert mock_save.call_count >= 1
+        first_save_state = mock_save.call_args_list[0][0][1]
+        assert first_save_state["_max_execution_seconds"] == 600
+
+
+# ── Interrupt resume path ──────────────────────────────────────────────────────
+
+
+class TestInterruptResumePath:
+    """Tests for the interrupt_before resume path when _resume_input is present."""
+
+    @patch("services.orchestrator._check_budget", return_value=None)
+    @patch("services.orchestrator._publish_event")
+    @patch("services.orchestrator._redis")
+    @patch("services.orchestrator._load_topology")
+    @patch("services.orchestrator.load_state")
+    @patch("services.orchestrator.save_state")
+    def test_interrupt_before_resumes_when_resume_input_present(
+        self, mock_save, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub, mock_budget
+    ):
+        """When state has _resume_input, interrupt_before node should execute normally."""
+        from services.orchestrator import execute_node_job
+
+        mock_r = _mock_redis()
+        mock_redis_fn.return_value = mock_r
+
+        topo_data = _make_topo_data(nodes={
+            "human_1": {
+                "node_id": "human_1",
+                "component_type": "human_confirmation",
+                "db_id": 10,
+                "component_config_id": 20,
+                "interrupt_before": True,
+                "interrupt_after": False,
+            }
+        })
+        mock_load_topo.return_value = topo_data
+        mock_load_state.return_value = {
+            "messages": [], "node_outputs": {}, "trigger": {},
+            "_resume_input": "approved",
+        }
+
+        mock_db = MagicMock()
+        mock_execution = MagicMock()
+        mock_execution.status = "running"
+        mock_execution.execution_id = "exec-1"
+        mock_execution.started_at = None
+        mock_execution.parent_execution_id = None
+        mock_execution.parent_node_id = None
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
+
+        mock_config = MagicMock()
+        mock_config.system_prompt = ""
+        mock_config.extra_config = {}
+        mock_db_node = MagicMock()
+        mock_db_node.component_config = mock_config
+        mock_db.get.return_value = mock_db_node
+
+        def mock_factory(node):
+            return lambda state: {"output": "confirmed"}
+
+        with patch("database.SessionLocal", return_value=mock_db):
+            with patch("components.get_component_factory", return_value=mock_factory):
+                with patch("services.orchestrator._handle_interrupt") as mock_interrupt:
+                    execute_node_job("exec-1", "human_1")
+
+        # _handle_interrupt should NOT be called since _resume_input is present
+        mock_interrupt.assert_not_called()
+
+
+# ── _handle_interrupt prompt lookup ────────────────────────────────────────────
+
+
+class TestHandleInterruptPrompt:
+    """Tests for _handle_interrupt using custom prompt from human_confirmation nodes."""
+
+    def test_uses_custom_prompt_for_human_confirmation(self, db, workflow, user_profile):
+        """_handle_interrupt reads custom prompt from human_confirmation node's extra_config."""
+        from models.node import BaseComponentConfig, WorkflowNode
+        from models.execution import WorkflowExecution, PendingTask
+        from services.orchestrator import _handle_interrupt
+
+        # Create a human_confirmation node with custom prompt
+        cc = BaseComponentConfig(
+            component_type="human_confirmation",
+            extra_config={"prompt": "Custom approval prompt"},
+        )
+        db.add(cc)
+        db.flush()
+        node = WorkflowNode(
+            workflow_id=workflow.id,
+            node_id="hc_1",
+            component_type="human_confirmation",
+            component_config_id=cc.id,
+        )
+        db.add(node)
+
+        # Create execution
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            thread_id="t-test",
+            status="running",
+        )
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+
+        with patch("services.orchestrator._get_workflow_slug", return_value="test-workflow"), \
+             patch("services.orchestrator._publish_event"):
+            _handle_interrupt(execution, "hc_1", "before", db)
+
+        # Verify PendingTask was created with custom prompt
+        pending = db.query(PendingTask).first()
+        assert pending is not None
+        assert pending.prompt == "Custom approval prompt"
+        assert execution.status == "interrupted"

@@ -407,6 +407,7 @@ class TestExecuteNodeJob:
         mock_execution = MagicMock()
         mock_execution.status = "running"
         mock_execution.execution_id = "exec-1"
+        mock_execution.started_at = None
         mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
         mock_db.get.return_value = mock_db_node
 
@@ -484,6 +485,7 @@ class TestExecuteNodeJob:
         mock_execution.status = "running"
         mock_execution.execution_id = "exec-sw"
         mock_execution.trigger_payload = {}
+        mock_execution.started_at = None
         mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
         mock_db.get.return_value = mock_db_node
 
@@ -556,6 +558,7 @@ class TestExecuteNodeJob:
         mock_execution.status = "running"
         mock_execution.execution_id = "exec-legacy"
         mock_execution.trigger_payload = {}
+        mock_execution.started_at = None
         mock_db.query.return_value.filter.return_value.first.return_value = mock_execution
         mock_db.get.return_value = mock_db_node
 
