@@ -17,14 +17,16 @@ try:
 except Exception:  # pragma: no cover
     __version__ = "0.0.0-dev"
 
+import redis as redis_lib
 from fastapi import FastAPI
+from sqlalchemy import text as sa_text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api import api_router
 from api.executions import chat_router
 from config import settings
-from database import Base, engine
+from database import Base, SessionLocal, engine
 from handlers.manual import router as manual_router
 from ws import ws_router
 
@@ -37,6 +39,13 @@ async def lifespan(app: FastAPI):
 
     import logging
     logger = logging.getLogger(__name__)
+
+    # Production safety: refuse to start with default secret key
+    if not settings.DEBUG and settings.SECRET_KEY == "change-me-in-production":
+        raise RuntimeError(
+            "SECRET_KEY is set to the default value. "
+            "Set a secure SECRET_KEY in .env or environment before running in production (DEBUG=False)."
+        )
 
     # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
     Base.metadata.create_all(bind=engine)
@@ -125,6 +134,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint — no auth required."""
+    status = "ok"
+    redis_ok = False
+    db_ok = False
+
+    # Check Redis
+    try:
+        r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+        r.ping()
+        redis_ok = True
+    except Exception:
+        status = "degraded"
+
+    # Check Database
+    try:
+        with SessionLocal() as session:
+            session.execute(sa_text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        status = "degraded"
+
+    return {
+        "status": status,
+        "version": __version__,
+        "redis": redis_ok,
+        "database": db_ok,
+    }
+
 
 # API routes
 app.include_router(api_router)
