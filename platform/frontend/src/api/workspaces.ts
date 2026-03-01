@@ -27,9 +27,9 @@ export function useUpdateWorkspace() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: WorkspaceUpdate }) => apiFetch<Workspace>(`/workspaces/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
-    onSuccess: (_, vars) => {
+    onSuccess: (data, vars) => {
       qc.invalidateQueries({ queryKey: ["workspaces"] })
-      qc.invalidateQueries({ queryKey: ["workspace", vars.id] })
+      qc.setQueryData(["workspace", String(vars.id)], data)
     },
   })
 }
