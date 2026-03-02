@@ -58,7 +58,9 @@ def create_llm_from_db(
             kwargs["presence_penalty"] = presence_penalty
         if response_format is not None:
             kwargs["model_kwargs"] = {"response_format": response_format}
-        return ChatOpenAI(api_key=api_key, base_url=credential.base_url, **kwargs)
+        if credential.base_url:
+            kwargs["base_url"] = credential.base_url
+        return ChatOpenAI(api_key=api_key, **kwargs)
 
     raise ValueError(f"Unsupported provider type: {provider_type}")
 
