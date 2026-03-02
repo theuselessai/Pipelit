@@ -107,6 +107,7 @@ nav:
     - Multi-Agent: tutorials/multi-agent.md
     - Self-Improving Agent: tutorials/self-improving-agent.md
     - YAML DSL: tutorials/yaml-dsl.md
+    - PR Workflow Skill: tutorials/pr-workflow-skill.md
   - Components:
     - components/index.md
     - Triggers:
@@ -180,6 +181,7 @@ nav:
     - Tasks: api/tasks.md
     - Users: api/users.md
     - WebSocket: api/websocket.md
+    - Health: api/health.md
   - Contributing:
     - contributing/index.md
     - Development Setup: contributing/development-setup.md

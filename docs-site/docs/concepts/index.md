@@ -100,4 +100,28 @@ Authentication, authorization, credential encryption, and sandboxed code executi
 
 </div>
 
+<div class="card" markdown>
+
+### [Sandbox](sandbox.md)
+
+OS-level isolation for agent shell commands. bwrap namespace sandboxing with Alpine rootfs, container-mode fallback, network control, and capability detection.
+
+</div>
+
+<div class="card" markdown>
+
+### [Providers](providers.md)
+
+Multi-LLM provider support through a unified credential system. Configure OpenAI, Anthropic, MiniMax, GLM, or any OpenAI-compatible API and select models per agent.
+
+</div>
+
+<div class="card" markdown>
+
+### [Skills](../skills/index.md)
+
+Structured AI-powered workflows that automate repeatable engineering tasks. Skills encode step sequences, approval gates, and tool invocations in prompt-based SKILL.md files.
+
+</div>
+
 </div>

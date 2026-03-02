@@ -4,7 +4,7 @@ Logic components control how data flows through a workflow. They handle branchin
 
 ## Overview
 
-There are nine logic component types:
+There are eight logic component types:
 
 | Component | Purpose | Key Feature |
 |-----------|---------|-------------|
@@ -15,7 +15,6 @@ There are nine logic component types:
 | [Loop](loop.md) | Iterate over arrays | Special `loop_body` / `loop_return` edges |
 | [Wait](wait.md) | Delay execution | Configurable duration and unit |
 | [Human Confirmation](human-confirmation.md) | Pause for user approval | Interrupt/resume execution flow |
-| [Aggregator](aggregator.md) | Collect and combine array items | Flexible aggregation |
 | [Subworkflow](subworkflow.md) | Execute another workflow as a child | Implicit or explicit trigger mode |
 
 ## How logic components work

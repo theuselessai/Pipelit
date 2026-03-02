@@ -97,3 +97,35 @@ No. Run `npm run build` in `platform/frontend/` once, and FastAPI serves the bui
 ### How do I set up WebSocket proxying?
 
 Your reverse proxy must forward WebSocket upgrade requests. See the [Reverse Proxy guide](deployment/reverse-proxy.md) for Nginx and Caddy configurations.
+
+---
+
+## Skills
+
+### What are skills?
+
+Skills are structured AI-powered workflows that automate repeatable engineering tasks. Each skill is a `SKILL.md` file with YAML frontmatter defining when to invoke it and markdown body describing the steps.
+
+### Where do I find available skills?
+
+Skills are maintained in a standalone repository: [github.com/theuselessai/skills](https://github.com/theuselessai/skills). See the [Skills overview](skills/index.md) for concepts and usage.
+
+### Can I write my own skills?
+
+Yes. A skill is just a markdown file with YAML frontmatter. See the skills repository for examples and the authoring guide.
+
+---
+
+## Providers
+
+### How do I add a new LLM provider?
+
+Go to the **Credentials** page, click **Add Credential**, choose **LLM Provider**, and fill in the provider type, API key, and base URL. Pipelit supports Anthropic, OpenAI, MiniMax, GLM, and any OpenAI-compatible API. See [Providers](concepts/providers.md) for setup details.
+
+### Can I use local models?
+
+Yes. Any service that implements the OpenAI `/v1/chat/completions` endpoint works as an OpenAI-compatible provider. This includes Ollama (`http://localhost:11434/v1`), LM Studio, and vLLM. Set the API key to any non-empty string if the service doesn't require authentication.
+
+### Can I use different models for different agents?
+
+Yes. Each agent node connects to its own AI Model sub-component, which specifies both the credential and model. Different agents in the same workflow can use different providers and models.

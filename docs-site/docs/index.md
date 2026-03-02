@@ -110,6 +110,22 @@ Agents can read epics/tasks, spawn child workflows, modify their own graphs, and
 
 </div>
 
+<div class="card" markdown>
+
+### Multi-Provider LLM
+
+Use OpenAI, Anthropic, MiniMax, GLM, or any OpenAI-compatible API. Configure credentials once, select models per agent node.
+
+</div>
+
+<div class="card" markdown>
+
+### Skills
+
+Structured Claude Code workflows for repeatable engineering tasks. Approval gates, CI analysis, review triage — automated with human oversight.
+
+</div>
+
 </div>
 
 ---

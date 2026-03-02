@@ -59,6 +59,19 @@ Agent users are special accounts created for automated operations:
 !!! tip "Best Practice"
     Never use your personal API key for agent operations. Always create separate agent users with their own API keys.
 
+## Sandboxed Code Execution
+
+Agent shell commands run inside an OS-level sandbox that isolates each workspace from the host filesystem, environment variables, and network. The sandbox uses bubblewrap (`bwrap`) on Linux with an Alpine rootfs, or falls back to environment scrubbing when running inside a container (Docker, Codespaces, Kubernetes).
+
+Key protections:
+
+- **Filesystem isolation** — agents can only read/write their workspace directory and `/tmp`
+- **Environment scrubbing** — host secrets in environment variables are not visible
+- **Network isolation** — no network access by default (`--unshare-all`); opt-in per workspace
+- **Process namespace** — agents cannot see host processes
+
+See [Sandbox](sandbox.md) for the full architecture, detection logic, and configuration.
+
 ## Security Checklist
 
 | Item | Development | Production |
@@ -69,3 +82,4 @@ Agent users are special accounts created for automated operations:
 | `DEBUG` | `true` OK | Must be `false` |
 | HTTPS | Not required | Required |
 | Redis auth | Not required | Enable `requirepass` |
+| `SANDBOX_MODE` | `auto` OK | Verify `bwrap` or container |
