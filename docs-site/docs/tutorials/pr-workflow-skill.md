@@ -17,26 +17,26 @@ Walk through using the `pr-workflow` skill with Claude Code to manage the full l
 
 ## What is the pr-workflow skill?
 
-The `pr-workflow` skill is a structured Claude Code workflow that manages the full lifecycle of a GitHub pull request with **three approval gates**. Each gate pauses execution, sends a plan to you via Telegram, and waits for your sign-off before making any code changes.
+The `pr-workflow` skill is a structured Claude Code workflow that manages the full lifecycle of a GitHub pull request with **four approval gates**. Each gate pauses execution, sends a plan to you via Telegram, and waits for your sign-off before making any code changes.
 
 The skill encodes a repeatable engineering process in a `SKILL.md` file — a markdown document with YAML frontmatter that Claude Code reads to understand when and how to execute the workflow. See [Skills](../skills/index.md) for a conceptual overview.
 
 ```mermaid
 flowchart TD
-    Start(["/pr-workflow &lt;PR#&gt;"]) --> CI[Step 1: Check CI status]
-    CI -->|All pass| Review[Step 3: Review triage]
+    Start(["/pr-workflow &lt;PR#&gt;"]) --> CI[Check CI status]
+    CI -->|All pass| Review[Review triage]
     CI -->|Failures| Gate1{Approval Gate 1}
     Gate1 -->|Approved| Fix[Apply CI fixes]
     Fix --> CI
     Review --> Gate2{Approval Gate 2}
     Gate2 -->|Approved| FixReview[Apply review fixes]
-    FixReview --> Coverage[Step 4: Coverage plan]
-    Coverage -->|Passing| Final[Step 5: Final check]
+    FixReview --> Coverage[Coverage plan]
+    Coverage -->|Passing| Final[Final check]
     Coverage -->|Failing| Gate3{Approval Gate 3}
     Gate3 -->|Approved| WriteTests[Write tests]
     WriteTests --> Final
     Final --> Gate4{Confirm merge}
-    Gate4 -->|Confirmed| Merge[Step 6: Squash merge]
+    Gate4 -->|Confirmed| Merge[Squash merge]
 
     style Gate1 fill:#f59e0b,color:white
     style Gate2 fill:#f59e0b,color:white
@@ -105,7 +105,7 @@ It polls until all checks complete, then sends a summary via Telegram:
 ❌ codecov/patch (58%, target 92%)
 ```
 
-If all checks pass, the skill jumps directly to Step 3 (review triage). If any check fails, it proceeds to the CI Fix Plan approval gate.
+If all checks pass, the skill jumps directly to review triage (Step 5). If any check fails, it proceeds to the CI Fix Plan approval gate.
 
 ---
 

@@ -120,7 +120,7 @@ Multi-LLM provider support through a unified credential system. Configure OpenAI
 
 ### [Skills](../skills/index.md)
 
-Structured Claude Code workflows that automate repeatable engineering tasks. Skills encode step sequences, approval gates, and tool invocations in prompt-based SKILL.md files.
+Structured AI-powered workflows that automate repeatable engineering tasks. Skills encode step sequences, approval gates, and tool invocations in prompt-based SKILL.md files.
 
 </div>
 

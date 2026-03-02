@@ -104,11 +104,11 @@ Your reverse proxy must forward WebSocket upgrade requests. See the [Reverse Pro
 
 ### What are skills?
 
-Skills are structured Claude Code workflows that automate repeatable engineering tasks. Each skill is a `SKILL.md` file with YAML frontmatter defining when to invoke it and markdown body describing the steps. Skills are invoked via `/skill-name` in Claude Code.
+Skills are structured AI-powered workflows that automate repeatable engineering tasks. Each skill is a `SKILL.md` file with YAML frontmatter defining when to invoke it and markdown body describing the steps.
 
 ### Where do I find available skills?
 
-Skills are maintained in a standalone repository: [github.com/theuselessai/skills](https://github.com/theuselessai/skills). See the [Skills overview](contributing/skills/index.md) for concepts and usage.
+Skills are maintained in a standalone repository: [github.com/theuselessai/skills](https://github.com/theuselessai/skills). See the [Skills overview](skills/index.md) for concepts and usage.
 
 ### Can I write my own skills?
 
