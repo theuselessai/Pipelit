@@ -33,10 +33,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ANTHROPIC_MODELS = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
     "claude-sonnet-4-20250514",
     "claude-opus-4-0-20250514",
-    "claude-haiku-3-5-20241022",
+    "claude-haiku-4-5-20251001",
     "claude-3-5-sonnet-20241022",
+]
+
+MINIMAX_MODELS = [
+    "MiniMax-M2.5",
+    "MiniMax-M2.5-highspeed",
+    "MiniMax-M2.1",
+    "MiniMax-M2.1-highspeed",
+    "MiniMax-M2",
 ]
 
 
@@ -260,8 +270,9 @@ def test_credential(
     if not cred or not cred.llm_credential:
         raise HTTPException(status_code=404, detail="LLM credential not found.")
     llm = cred.llm_credential
+    is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url
     try:
-        if llm.provider_type == "anthropic":
+        if llm.provider_type == "anthropic" and not is_custom_base:
             resp = httpx.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -270,7 +281,7 @@ def test_credential(
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-3-5-haiku-20241022",
+                    "model": "claude-haiku-4-5-20251001",
                     "max_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
                 },
@@ -279,27 +290,16 @@ def test_credential(
             if resp.status_code >= 400:
                 return {"ok": False, "error": resp.text[:500]}
         else:
-            # Test with a minimal chat completion to verify API key works
+            # Test auth by listing models — no valid model name needed
             base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
-            resp = httpx.post(
-                f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {llm.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "gpt-3.5-turbo",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
+            resp = httpx.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {llm.api_key}"},
                 timeout=15,
             )
-            if resp.status_code == 401:
+            if resp.status_code in (401, 403):
                 return {"ok": False, "error": "Authentication failed - invalid API key"}
             if resp.status_code >= 400:
-                # Model not found is OK - means auth worked
-                if resp.status_code == 404 or "model" in resp.text.lower():
-                    return {"ok": True}
                 return {"ok": False, "error": resp.text[:500]}
         return {"ok": True}
     except Exception as exc:
@@ -321,7 +321,8 @@ def list_credential_models(
         raise HTTPException(status_code=404, detail="LLM credential not found.")
     llm = cred.llm_credential
 
-    if llm.provider_type == "anthropic":
+    is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url
+    if llm.provider_type == "anthropic" and not is_custom_base:
         try:
             from anthropic import Anthropic
             client = Anthropic(api_key=llm.api_key)
@@ -340,8 +341,17 @@ def list_credential_models(
             timeout=15,
         )
         resp.raise_for_status()
-        data = resp.json().get("data", [])
-        models = sorted(data, key=lambda m: m.get("id", ""))
-        return [{"id": m["id"], "name": m["id"]} for m in models]
+        body = resp.json()
+        if isinstance(body, dict):
+            data = body.get("data", [])
+        elif isinstance(body, list):
+            data = body
+        else:
+            logger.warning("Unexpected /models response format: %s", type(body).__name__)
+            data = []
+        models = sorted(data, key=lambda m: m.get("id", "") if isinstance(m, dict) else "")
+        return [{"id": m["id"], "name": m["id"]} for m in models if isinstance(m, dict) and "id" in m]
     except Exception:
+        if "minimax" in base_url.lower():
+            return [{"id": m, "name": m} for m in MINIMAX_MODELS]
         return []

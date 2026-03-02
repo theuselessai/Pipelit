@@ -16,6 +16,34 @@ from langgraph.errors import GraphInterrupt
 logger = logging.getLogger(__name__)
 
 
+def extract_text_content(content) -> str:
+    """Extract text from LLM content that may be a string or Anthropic-style list of blocks."""
+    if isinstance(content, list):
+        text_parts = [
+            block["text"] for block in content
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+        ]
+        return "\n".join(text_parts)
+    return str(content)
+
+
+def strip_thinking_blocks(messages: list) -> list:
+    """Strip thinking blocks from AI message content to avoid cross-provider signature errors.
+
+    Providers like MiniMax return thinking blocks with signatures that are
+    invalid when later sent to Anthropic's API via conversation memory.
+    """
+    for msg in messages:
+        if not (hasattr(msg, "type") and msg.type == "ai"):
+            continue
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        cleaned = [block for block in content if not (isinstance(block, dict) and block.get("type") == "thinking")]
+        msg.content = cleaned
+    return messages
+
+
 # ---------------------------------------------------------------------------
 # Credential field resolution & sandboxed backend construction
 # ---------------------------------------------------------------------------
@@ -181,6 +209,9 @@ class PipelitAgentMiddleware(AgentMiddleware):
             raise
 
     def wrap_model_call(self, request, handler):
+        # Strip thinking blocks before the LLM call so they are never sent
+        # to a different provider AND never persisted by the checkpointer.
+        strip_thinking_blocks(request.messages)
         response = handler(request)
         try:
             exec_id = None
@@ -200,15 +231,7 @@ class PipelitAgentMiddleware(AgentMiddleware):
                 content = getattr(msg, "content", None)
                 if not content:
                     continue
-                # Handle Anthropic list format: [{"type": "text", "text": "..."}]
-                if isinstance(content, list):
-                    text_parts = [
-                        block["text"] for block in content
-                        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
-                    ]
-                    text = "\n".join(text_parts)
-                else:
-                    text = str(content)
+                text = extract_text_content(content)
                 if text.strip():
                     break
 

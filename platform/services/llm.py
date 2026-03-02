@@ -46,6 +46,8 @@ def create_llm_from_db(
 
     if provider_type == "anthropic":
         from langchain_anthropic import ChatAnthropic
+        if credential.base_url:
+            kwargs["base_url"] = credential.base_url
         return ChatAnthropic(api_key=api_key, **kwargs)
 
     if provider_type == "openai_compatible":
