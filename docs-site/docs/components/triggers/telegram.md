@@ -57,6 +57,39 @@ These rules determine which workflow handles a given Telegram message when multi
 https://your-pipelit-domain/api/v1/telegram/webhook/{bot_token}/
 ```
 
+## Polling Mode
+
+As an alternative to webhooks, the Telegram Trigger supports **polling mode** — useful when your Pipelit instance is behind a NAT or firewall and cannot receive inbound HTTP requests from Telegram's servers.
+
+### When to Use Polling
+
+Use polling when:
+
+- Your instance is on a private network or behind a NAT/firewall with no public inbound access.
+- You are running Pipelit locally for development and do not want to set up a tunnel.
+- Your infrastructure does not allow inbound traffic on port 443.
+
+Webhooks are preferred in production when inbound access is available, as they offer lower latency and no polling overhead.
+
+### How It Works
+
+When polling is enabled for a bot token, Pipelit schedules a self-rescheduling RQ job on the `workflows` queue. Each job:
+
+1. Calls the Telegram `getUpdates` API with a long-poll timeout and the last-seen `update_id` as an offset.
+2. Dispatches any received messages through the same trigger resolver used by webhooks.
+3. Re-enqueues itself immediately so polling resumes without interruption.
+
+The `update_id` offset is persisted between poll cycles so messages are never processed twice, even if a worker restarts.
+
+### Setup
+
+1. On the **Credentials** page, open the Telegram credential and enable **Polling Mode**.
+2. Pipelit automatically starts the polling job when the credential is saved; no webhook URL configuration is needed.
+3. To stop polling, disable **Polling Mode** on the credential or delete it.
+
+!!! warning "Webhook conflict"
+    Do not register a webhook URL with Telegram while polling is active. Call `deleteWebhook` first, or Telegram will reject `getUpdates` requests with a 409 conflict error.
+
 ### Accessing Telegram Data Downstream
 
 Reference trigger outputs using Jinja2 expressions:

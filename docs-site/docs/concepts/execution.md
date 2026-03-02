@@ -141,6 +141,38 @@ Factory methods provide a clean API for creating results:
 
 All `NodeResult` objects are stored in `state["node_results"]` keyed by node ID and persisted to Redis during execution.
 
+## Execution Timeout (`max_execution_seconds`)
+
+Every execution is subject to a **wall-clock timeout** controlled by `max_execution_seconds`. This is a hard ceiling on how long a single workflow execution may run from start to finish, regardless of how many nodes it contains or how long individual nodes take.
+
+### Default and Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `max_execution_seconds` | `900` (15 min) | Maximum wall-clock seconds allowed for a single execution |
+
+Override the default in `.env`:
+
+```env
+MAX_EXECUTION_SECONDS=1800
+```
+
+You can also set a per-workflow override in the workflow's advanced settings in the UI. The per-workflow value takes precedence over the global default.
+
+### Enforcement
+
+A watchdog task checks running executions periodically. When an execution's elapsed time exceeds `max_execution_seconds`:
+
+1. All in-flight RQ jobs for the execution are cancelled.
+2. The execution status is set to `failed` with `error_code: ExecutionTimeoutError`.
+3. A `execution_completed` WebSocket event is broadcast so the UI updates immediately.
+4. Redis state for the execution is cleaned up.
+
+Forced termination is best-effort — a node that is actively running inside a worker process may complete after the timeout fires if the worker does not check for cancellation. The execution record is still marked failed.
+
+!!! tip "Long-running workflows"
+    If your workflow regularly runs close to the timeout limit, consider breaking it into subworkflows or increasing `max_execution_seconds` for that workflow. Executions that hit the timeout will not be retried automatically.
+
 ## RQ Worker Processing
 
 Executions run asynchronously on **RQ (Redis Queue)** workers:

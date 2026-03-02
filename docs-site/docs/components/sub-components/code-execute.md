@@ -1,5 +1,8 @@
 # Code Execute
 
+!!! note "Architecture Update (v0.2.0+)"
+    The sandbox was rewritten in v0.2.0. The Code Execute component now uses **bwrap** (bubblewrap) with a per-workspace Alpine rootfs. See [Sandbox Concepts](../../concepts/sandbox.md) for details.
+
 The **Code Execute** sub-component provides a sandboxed code execution tool to agents. When connected to an agent, the agent's LLM can write and run Python or Bash code in an isolated subprocess with security restrictions and timeout enforcement.
 
 | Property | Value |

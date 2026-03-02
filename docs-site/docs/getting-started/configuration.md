@@ -37,6 +37,25 @@ REDIS_URL=redis://localhost:6379/0
 !!! tip "Production Configuration"
     For production deployments, see the [Environment Variables](../deployment/environment.md) reference for the full list of settings and recommended values.
 
+## conf.json
+
+`conf.json` is a second configuration layer that sits alongside `.env`. It is auto-generated on first startup at `platform/conf.json` and stores secrets and settings that Pipelit manages for you, so you do not need to set them manually.
+
+On first startup, Pipelit writes `conf.json` with auto-generated values for any required secrets that are not already present in `.env`:
+
+| Key | Description |
+|-----|-------------|
+| `secret_key` | Random 50-character string used for Django's `SECRET_KEY` setting if `SECRET_KEY` is not set in `.env`. |
+| `field_encryption_key` | Auto-generated Fernet key if `FIELD_ENCRYPTION_KEY` is not present in `.env`. |
+
+Values in `.env` always take precedence over `conf.json`. If a key exists in `.env`, the corresponding entry in `conf.json` is ignored.
+
+!!! tip "What this means in practice"
+    On a fresh install you do not need to generate a Fernet key manually — Pipelit will create one and persist it in `conf.json`. For production deployments you should still set `FIELD_ENCRYPTION_KEY` explicitly in `.env` so the key is under your control and backed up.
+
+!!! warning "Do not delete conf.json"
+    If you delete `conf.json`, the auto-generated keys are lost. Any credentials encrypted with the old `field_encryption_key` will become unreadable.
+
 ## Database
 
 By default, Pipelit uses SQLite for development. The database file is created automatically at `platform/db.sqlite3` on first startup. For production, consider [PostgreSQL](../deployment/database.md).

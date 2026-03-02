@@ -1,10 +1,48 @@
 # Settings
 
-The **Settings** page at `/settings` provides user-level configuration options. Access it from the user menu in the bottom-left corner of the sidebar.
+The **Settings** page at `/settings` provides configuration options for the platform, sandbox, appearance, and security. Access it from the user menu in the bottom-left corner of the sidebar.
+
+The page is organized into four tabs:
+
+| Tab | Description |
+|-----|-------------|
+| **Platform Config** | Global platform settings such as the instance name, base URL, and feature flags |
+| **Sandbox Config** | Resource limits and runtime settings for the code execution sandbox |
+| **Appearance** | Theme selection (light, dark, system) |
+| **Security / MFA** | Two-factor authentication management |
+
+---
+
+## Platform Config
+
+The **Platform Config** tab contains instance-wide settings that apply to all users and workflows.
+
+| Setting | Description |
+|---------|-------------|
+| **Instance Name** | Display name shown in the browser title and emails |
+| **Base URL** | Public-facing URL of this Pipelit instance, used for webhook and callback URL generation |
+| **Feature Flags** | Enable or disable optional platform features |
+
+Changes saved here are written to `conf.json` and take effect without a server restart.
+
+---
+
+## Sandbox Config
+
+The **Sandbox Config** tab controls the code execution sandbox used by **Run Command** and other execution nodes.
+
+| Setting | Description |
+|---------|-------------|
+| **Max CPU time (seconds)** | Maximum CPU time a sandboxed process may consume before being killed |
+| **Max memory (MB)** | Memory limit for sandboxed processes |
+| **Allowed commands** | Allowlist of shell commands that the sandbox permits |
+| **Network access** | Whether sandboxed processes can make outbound network requests |
+
+---
 
 ## Appearance
 
-The appearance card provides a **theme selector** with three options:
+The **Appearance** tab provides a **theme selector** with three options:
 
 | Option | Behavior |
 |--------|----------|
@@ -29,7 +67,11 @@ The `useTheme` hook:
 
 The resolved theme is also passed to the React Flow canvas so the workflow editor matches the application theme.
 
-## Two-Factor Authentication (MFA)
+---
+
+## Security / MFA
+
+### Two-Factor Authentication (MFA)
 
 The MFA card lets you enable or disable TOTP-based two-factor authentication.
 
