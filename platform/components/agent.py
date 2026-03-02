@@ -18,6 +18,7 @@ from components._agent_shared import (
     extract_text_content,
     strip_thinking_blocks,
 )
+from services.activity_watchdog import ActivityWatchdog, DEFAULT_INACTIVITY_TIMEOUT, DEFAULT_MAX_WALL_TIME
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
     calculate_cost,
@@ -74,6 +75,11 @@ def agent_factory(node):
     tools, tool_metadata = _resolve_tools(node)
     skill_paths = _resolve_skills(node)
 
+    # Activity watchdog — extends RQ timeout while agent is active
+    inactivity_timeout = int(extra.get("inactivity_timeout", DEFAULT_INACTIVITY_TIMEOUT))
+    max_wall_time = int(extra.get("max_wall_time", DEFAULT_MAX_WALL_TIME))
+    watchdog = ActivityWatchdog(inactivity_timeout=inactivity_timeout, max_wall_time=max_wall_time)
+
     # Detect spawn_and_await tool
     has_spawn_tool = any(
         getattr(t, "name", "") == "spawn_and_await" for t in tools
@@ -89,7 +95,7 @@ def agent_factory(node):
     elif has_spawn_tool:
         checkpointer = _get_redis_checkpointer()
 
-    middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug)
+    middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug, watchdog=watchdog)
 
     # Build middleware list — optionally prepend SummarizationMiddleware
     middlewares: list = []
@@ -144,6 +150,16 @@ def agent_factory(node):
     )
 
     def agent_node(state: dict) -> dict:
+        from datetime import datetime, timezone
+        from langgraph.types import Command
+
+        watchdog.start()
+        try:
+            return _agent_node_inner(state)
+        finally:
+            watchdog.stop()
+
+    def _agent_node_inner(state: dict) -> dict:
         from datetime import datetime, timezone
         from langgraph.types import Command
 

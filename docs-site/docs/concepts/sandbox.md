@@ -186,6 +186,36 @@ Workspaces support injecting custom environment variables into the sandbox. Vari
 
 These variables are added to the bwrap `--setenv` list alongside the standard ones.
 
+## Debugging / Manual Access
+
+You can enter the sandbox interactively to inspect workspace state, test commands, or debug agent issues. From the workspace directory:
+
+```bash
+cd ~/.config/pipelit/workspaces/default  # or your workspace path
+
+bwrap --unshare-all --share-net \
+    --bind .rootfs/ / \
+    --bind . /workspace \
+    --bind .tmp /tmp \
+    --proc /proc \
+    --dev /dev \
+    --die-with-parent \
+    --clearenv \
+    --setenv HOME /workspace \
+    --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    --setenv TMPDIR /tmp \
+    --setenv LANG C.UTF-8 \
+    --setenv PIP_TARGET /workspace/.packages \
+    --setenv PYTHONPATH /workspace/.packages \
+    --chdir /workspace \
+    bash
+```
+
+This drops you into an interactive shell inside the sandbox with the same filesystem layout agents see.
+
+!!! tip "No-network testing"
+    Remove `--share-net` from the command to test with network access disabled — matching the default sandbox behavior. This is useful for verifying that an agent's commands work without network access.
+
 ## Security Considerations
 
 !!! note "bwrap vs. VM isolation"
