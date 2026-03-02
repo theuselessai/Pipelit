@@ -183,8 +183,30 @@ alembic upgrade head
 
 ## Monitoring
 
+### Health Endpoint
+
+Pipelit exposes a `/health` endpoint that checks Redis and database connectivity. No authentication is required.
+
+```bash
+curl http://localhost:8000/health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "0.2.0",
+  "redis": true,
+  "database": true
+}
+```
+
+Use this for load balancer health probes and automated monitoring. See the [Health Check API reference](../api/health.md) for details.
+
+### What to Monitor
+
 Monitor the following for a healthy deployment:
 
+- **Health endpoint** -- `GET /health` returns `"ok"` or `"degraded"` with per-check breakdown (no auth required)
 - **systemd service status** -- both `pipelit` and `pipelit-worker` should be `active (running)`
 - **Redis connectivity** -- `redis-cli ping` should return `PONG`
 - **Worker queue depth** -- `rq info` shows pending/active/failed job counts
