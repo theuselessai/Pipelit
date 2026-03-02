@@ -35,9 +35,13 @@ def list_executions(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    q = db.query(WorkflowExecution).filter(WorkflowExecution.user_profile_id == profile.id)
+    q = (
+        db.query(WorkflowExecution)
+        .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
+        .filter(Workflow.owner_id == profile.id)
+    )
     if workflow_slug:
-        q = q.join(Workflow).filter(Workflow.slug == workflow_slug)
+        q = q.filter(Workflow.slug == workflow_slug)
     if status:
         q = q.filter(WorkflowExecution.status == status)
     total = q.count()
@@ -53,9 +57,10 @@ def get_execution(
 ):
     execution = (
         db.query(WorkflowExecution)
+        .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
         .filter(
             WorkflowExecution.execution_id == execution_id,
-            WorkflowExecution.user_profile_id == profile.id,
+            Workflow.owner_id == profile.id,
         )
         .first()
     )
@@ -91,9 +96,10 @@ def cancel_execution(
 ):
     execution = (
         db.query(WorkflowExecution)
+        .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
         .filter(
             WorkflowExecution.execution_id == execution_id,
-            WorkflowExecution.user_profile_id == profile.id,
+            Workflow.owner_id == profile.id,
         )
         .first()
     )
@@ -142,12 +148,24 @@ def batch_delete_executions(
 ):
     if not payload.execution_ids:
         return
+    # Only delete executions belonging to workflows owned by this user
+    owned_exec_ids = [
+        e.execution_id for e in
+        db.query(WorkflowExecution.execution_id)
+        .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
+        .filter(
+            WorkflowExecution.execution_id.in_(payload.execution_ids),
+            Workflow.owner_id == profile.id,
+        )
+        .all()
+    ]
+    if not owned_exec_ids:
+        return
     db.query(ExecutionLog).filter(
-        ExecutionLog.execution_id.in_(payload.execution_ids),
+        ExecutionLog.execution_id.in_(owned_exec_ids),
     ).delete(synchronize_session=False)
     db.query(WorkflowExecution).filter(
-        WorkflowExecution.execution_id.in_(payload.execution_ids),
-        WorkflowExecution.user_profile_id == profile.id,
+        WorkflowExecution.execution_id.in_(owned_exec_ids),
     ).delete(synchronize_session=False)
     db.commit()
 

@@ -15,6 +15,8 @@ from components._agent_shared import (
     _get_redis_checkpointer,
     _resolve_tools,
     _resolve_skills,
+    extract_text_content,
+    strip_thinking_blocks,
 )
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
@@ -238,6 +240,7 @@ def agent_factory(node):
                         return _try_create_children(interrupt_val, state, node_id)
 
         out_messages = result.get("messages", [])
+        strip_thinking_blocks(out_messages)
 
         # Add timestamps to AI messages that don't have one
         now = datetime.now(timezone.utc).isoformat() + "Z"
@@ -249,7 +252,7 @@ def agent_factory(node):
         final_content = ""
         for msg in reversed(out_messages):
             if hasattr(msg, "content") and msg.content and msg.type == "ai":
-                final_content = msg.content
+                final_content = extract_text_content(msg.content)
                 break
 
         # Extract token usage from AI messages (best-effort — never crash the node)

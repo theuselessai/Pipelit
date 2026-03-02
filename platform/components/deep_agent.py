@@ -18,6 +18,8 @@ from components._agent_shared import (
     _resolve_credential_field,
     _resolve_tools,
     _resolve_skills,
+    extract_text_content,
+    strip_thinking_blocks,
 )
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
@@ -218,6 +220,7 @@ def deep_agent_factory(node):
             raise
 
         out_messages = result.get("messages", [])
+        strip_thinking_blocks(out_messages)
 
         # Add timestamps to AI messages
         now = datetime.now(timezone.utc).isoformat() + "Z"
@@ -229,7 +232,7 @@ def deep_agent_factory(node):
         final_content = ""
         for msg in reversed(out_messages):
             if hasattr(msg, "content") and msg.content and msg.type == "ai":
-                final_content = msg.content
+                final_content = extract_text_content(msg.content)
                 break
 
         # Extract token usage

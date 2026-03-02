@@ -1481,6 +1481,8 @@ def _write_log(
 
 
 def _extract_output(state: dict) -> dict | None:
+    from components._agent_shared import extract_text_content
+
     output = state.get("output")
     if output is not None:
         return {"output": output}
@@ -1489,13 +1491,14 @@ def _extract_output(state: dict) -> dict | None:
     if messages:
         for msg in reversed(messages):
             if hasattr(msg, "type") and msg.type == "ai" and hasattr(msg, "content") and msg.content:
-                return {"message": msg.content}
+                return {"message": extract_text_content(msg.content)}
     node_outputs = state.get("node_outputs", {})
     if node_outputs:
         return {"node_outputs": node_outputs}
     if messages:
         last = messages[-1]
-        return {"message": last.content if hasattr(last, "content") else str(last)}
+        content = last.content if hasattr(last, "content") else str(last)
+        return {"message": extract_text_content(content)}
     return None
 
 
