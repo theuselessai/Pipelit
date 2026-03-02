@@ -164,7 +164,7 @@ For services that don't require authentication, set the API key to any non-empty
 | Tool calling | Yes | Yes | Model-dependent |
 | Streaming | Yes | Yes | Model-dependent |
 | Vision | Yes (Sonnet/Opus) | Yes (GPT-4o) | Model-dependent |
-| Thinking/reasoning | Yes (claude-3-7+) | Yes (o1/o3) | Model-dependent |
+| Thinking/reasoning | Yes (claude-opus/sonnet) | Yes (o1/o3) | Model-dependent |
 | System prompt | Yes | Yes | Yes |
 | Custom headers | Via credential | Via credential | Via `custom_headers` |
 
@@ -180,7 +180,7 @@ For providers that require additional headers (e.g., API version headers, organi
 ```
 
 !!! note "Header precedence"
-    Custom headers are merged with the default headers for the provider. If a custom header conflicts with a required header (e.g., `Authorization`), the custom header wins.
+    Custom headers are merged with the default headers for the provider. Security-critical headers like `Authorization` cannot be overridden by custom headers.
 
 ## Credential Security
 

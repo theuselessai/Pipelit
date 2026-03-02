@@ -1,6 +1,6 @@
 # Writing Skills
 
-Skills are structured Claude Code workflows defined in YAML-frontmatter Markdown files. This guide covers how to write custom skills.
+Skills are structured Claude Code workflows defined in YAML frontmatter Markdown files. This guide covers how to write custom skills.
 
 ## Skill File Structure
 

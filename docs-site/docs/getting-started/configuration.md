@@ -10,14 +10,14 @@ Pipelit encrypts sensitive credential data (API keys, tokens) at rest using Fern
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 
-Copy the output — you'll need it for your `.env` file.
+Copy the output to use in your `.env` file (for production deployments).
 
 ## Create `.env` File
 
 Create a `.env` file in the project root (not inside `platform/`):
 
 ```env
-FIELD_ENCRYPTION_KEY=your-generated-fernet-key-here
+# FIELD_ENCRYPTION_KEY=your-generated-fernet-key-here  # Optional: auto-generated if not set
 REDIS_URL=redis://localhost:6379/0
 ```
 
