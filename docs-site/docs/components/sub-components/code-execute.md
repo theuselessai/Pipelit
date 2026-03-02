@@ -1,5 +1,8 @@
 # Code Execute
 
+!!! note "Architecture Update (v0.2.0+)"
+    The sandbox was rewritten in v0.2.0. The Code Execute component now uses **bwrap** (bubblewrap) with a per-workspace Alpine rootfs. See [Sandbox Concepts](../../concepts/sandbox.md) for details.
+
 The **Code Execute** sub-component provides a sandboxed code execution tool to agents. When connected to an agent, the agent's LLM can write and run Python or Bash code in an isolated subprocess with security restrictions and timeout enforcement.
 
 | Property | Value |
@@ -55,10 +58,7 @@ Both languages run with a working directory of `/tmp`.
 
 ### Sandbox mode
 
-When `sandbox` is enabled (the default), two protections are applied:
-
-1. **Security pattern checking** -- code is scanned for forbidden patterns before execution
-2. **Environment restriction** -- the subprocess runs with a restricted `PATH` (`/usr/bin:/bin:/usr/local/bin`) and without `HOME` or `USER` environment variables
+When `sandbox` is enabled (the default), the code runs inside a bwrap (bubblewrap) sandbox with a per-workspace Alpine rootfs. See [Sandbox Concepts](../../concepts/sandbox.md) for full details.
 
 ### Forbidden patterns
 

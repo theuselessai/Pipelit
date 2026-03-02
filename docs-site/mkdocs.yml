@@ -96,6 +96,8 @@ nav:
     - Cost Tracking: concepts/cost-tracking.md
     - Scheduler: concepts/scheduler.md
     - Security: concepts/security.md
+    - Sandbox: concepts/sandbox.md
+    - Providers: concepts/providers.md
   - Tutorials:
     - tutorials/index.md
     - Chat Agent: tutorials/chat-agent.md
@@ -115,6 +117,7 @@ nav:
       - Schedule: components/triggers/schedule.md
       - Workflow: components/triggers/workflow.md
       - Error: components/triggers/error.md
+      - Webhook: components/triggers/webhook.md
     - AI:
       - components/ai/index.md
       - Agent: components/ai/agent.md
@@ -156,7 +159,6 @@ nav:
       - Loop: components/logic/loop.md
       - Wait: components/logic/wait.md
       - Human Confirmation: components/logic/human-confirmation.md
-      - Aggregator: components/logic/aggregator.md
       - Subworkflow: components/logic/subworkflow.md
     - Sub-Components:
       - components/sub-components/index.md
@@ -186,6 +188,10 @@ nav:
     - Migrations: contributing/migrations.md
     - Code Style: contributing/code-style.md
     - Releasing: contributing/releasing.md
+    - Skills:
+      - skills/index.md
+      - PR Workflow: skills/pr-workflow.md
+      - Writing Skills: skills/writing-skills.md
     - Frontend Guide:
       - frontend/index.md
       - Dashboard: frontend/dashboard.md

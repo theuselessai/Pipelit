@@ -52,6 +52,7 @@ The Deep Agent supports two sub-component connections via the diamond handles at
 | Filesystem Backend | `enum` | `"state"` | Backend type for filesystem tools (only shown when Filesystem Tools is enabled). |
 | Filesystem Root Dir | `string` | `""` | Root directory for the filesystem backend (only used with `filesystem` backend). |
 | Subagents | `array` | `[]` | Inline subagent definitions for delegation. |
+| Network Access | `boolean` | `false` | Enable network access for the sandbox. When disabled, the agent cannot make outbound HTTP requests. |
 
 ### System Prompt
 
