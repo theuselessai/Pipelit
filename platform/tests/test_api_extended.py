@@ -187,6 +187,116 @@ class TestCredentialsAPI:
         assert _mask("short") == "****"
         assert _mask("abcdefghijklmnop") == "abcd****mnop"
 
+    def _make_llm_cred(self, db, user_profile, provider_type="openai", base_url="", api_key="sk-test"):
+        cred = BaseCredential(user_profile_id=user_profile.id, name="Test LLM", credential_type="llm")
+        db.add(cred)
+        db.flush()
+        llm = LLMProviderCredential(
+            base_credentials_id=cred.id,
+            provider_type=provider_type,
+            api_key=api_key,
+            base_url=base_url,
+        )
+        db.add(llm)
+        db.commit()
+        db.refresh(cred)
+        return cred
+
+    def test_list_models_openai_dict_response(self, auth_client, db, user_profile):
+        """OpenAI-compatible /models returns dict with 'data' key — lines 345-346."""
+        cred = self._make_llm_cred(db, user_profile, provider_type="openai")
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {
+            "data": [{"id": "gpt-4"}, {"id": "gpt-3.5-turbo"}]
+        }
+
+        with patch("api.credentials.httpx.get", return_value=mock_resp):
+            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        ids = [m["id"] for m in data]
+        assert "gpt-4" in ids
+        assert "gpt-3.5-turbo" in ids
+
+    def test_list_models_openai_list_response(self, auth_client, db, user_profile):
+        """OpenAI-compatible /models returns a list directly — lines 347-348."""
+        cred = self._make_llm_cred(db, user_profile, provider_type="openai",
+                                   base_url="https://custom.openai.com/v1")
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = [{"id": "custom-model-1"}, {"id": "custom-model-2"}]
+
+        with patch("api.credentials.httpx.get", return_value=mock_resp):
+            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        ids = [m["id"] for m in data]
+        assert "custom-model-1" in ids
+
+    def test_list_models_unexpected_format_returns_empty(self, auth_client, db, user_profile):
+        """Unexpected /models response format (not dict, not list) — lines 349-351."""
+        cred = self._make_llm_cred(db, user_profile, provider_type="openai")
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = "unexpected string response"
+
+        with patch("api.credentials.httpx.get", return_value=mock_resp):
+            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_list_models_openai_default_url_on_exception(self, auth_client, db, user_profile):
+        """Non-MiniMax exception returns [] — line 357."""
+        cred = self._make_llm_cred(db, user_profile, provider_type="openai", base_url="")
+
+        with patch("api.credentials.httpx.get", side_effect=Exception("connection error")):
+            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_list_models_minimax_fallback_on_exception(self, auth_client, db, user_profile):
+        """MiniMax base_url exception returns MINIMAX_MODELS — lines 355-356."""
+        from api.credentials import MINIMAX_MODELS
+        cred = self._make_llm_cred(
+            db, user_profile, provider_type="openai",
+            base_url="https://api.minimax.io/v1",
+        )
+
+        with patch("api.credentials.httpx.get", side_effect=Exception("timeout")):
+            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        returned_ids = [m["id"] for m in data]
+        assert returned_ids == MINIMAX_MODELS
+
+    def test_list_models_no_base_url_uses_openai_default(self, auth_client, db, user_profile):
+        """No base_url defaults to https://api.openai.com/v1 — line 336."""
+        cred = self._make_llm_cred(db, user_profile, provider_type="openai", base_url="")
+
+        captured_url = []
+
+        def mock_get(url, **kwargs):
+            captured_url.append(url)
+            resp = MagicMock()
+            resp.raise_for_status.return_value = None
+            resp.json.return_value = {"data": [{"id": "gpt-4"}]}
+            return resp
+
+        with patch("api.credentials.httpx.get", side_effect=mock_get):
+            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
+
+        assert resp.status_code == 200
+        assert captured_url[0] == "https://api.openai.com/v1/models"
+
 
 # ── Executions ───────────────────────────────────────────────────────────────
 
@@ -253,6 +363,42 @@ class TestExecutionsAPI:
             "execution_ids": [],
         })
         assert resp.status_code == 204
+
+    def test_batch_delete_only_deletes_owned_executions(self, auth_client, db, workflow, user_profile):
+        """Only executions from workflows owned by the current user are deleted.
+
+        Exercises the Workflow ownership join in batch_delete_executions (line 155).
+        """
+        import bcrypt
+
+        # Execution from the authenticated user's workflow
+        owned_exec = _make_execution(db, workflow, user_profile, status="completed")
+
+        # Create a second user with their own workflow and execution
+        other_user = UserProfile(
+            username="other-user",
+            password_hash=bcrypt.hashpw(b"pass", bcrypt.gensalt()).decode(),
+        )
+        db.add(other_user)
+        db.flush()
+        other_wf = Workflow(name="Other WF", slug="other-wf", owner_id=other_user.id, is_active=True)
+        db.add(other_wf)
+        db.flush()
+        other_exec = _make_execution(db, other_wf, other_user, status="completed")
+
+        resp = auth_client.post("/api/v1/executions/batch-delete/", json={
+            "execution_ids": [
+                str(owned_exec.execution_id),
+                str(other_exec.execution_id),
+            ],
+        })
+        assert resp.status_code == 204
+
+        # Owned execution should be deleted
+        from models.execution import WorkflowExecution as WE
+        assert db.query(WE).filter(WE.execution_id == owned_exec.execution_id).first() is None
+        # Other user's execution must remain (not owned by auth user)
+        assert db.query(WE).filter(WE.execution_id == other_exec.execution_id).first() is not None
 
 
 # ── Users ────────────────────────────────────────────────────────────────────
