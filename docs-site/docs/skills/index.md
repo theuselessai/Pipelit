@@ -32,13 +32,10 @@ Claude Code matches the command against available skills in the `.claude/skills/
 !!! note "Automatic invocation"
     Skills with well-defined trigger descriptions in their frontmatter may be invoked automatically by Claude Code when the user's message matches the trigger condition — without requiring an explicit `/` command.
 
-## Skills catalog
+## Skills repository
 
-| Skill | Description |
-|-------|-------------|
-| [pr-workflow](pr-workflow.md) | Manage GitHub PR lifecycle with CI triage, review analysis, coverage fixing, and human-in-the-loop approval gates before each change |
+Skills are maintained in a standalone repository:
 
-## What's next?
+**[github.com/theuselessai/skills](https://github.com/theuselessai/skills)**
 
-- [PR Workflow](pr-workflow.md) — full reference for the built-in PR workflow skill
-- [Writing Skills](writing-skills.md) — how to create your own skills
+See the repository for the full catalog of available skills, usage instructions, and how to write your own.
