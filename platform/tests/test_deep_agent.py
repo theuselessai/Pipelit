@@ -389,3 +389,197 @@ class TestDeepAgentCapabilityInjection:
         # system_prompt should be passed unchanged (no capability prefix)
         call_kwargs = mock_create.call_args
         assert call_kwargs.kwargs.get("system_prompt") == "You are helpful."
+
+
+# ---------------------------------------------------------------------------
+# extract_text_content
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTextContent:
+    def test_string_input_returned_as_string(self):
+        from components._agent_shared import extract_text_content
+        assert extract_text_content("hello world") == "hello world"
+
+    def test_list_with_single_text_block(self):
+        from components._agent_shared import extract_text_content
+        content = [{"type": "text", "text": "The answer"}]
+        assert extract_text_content(content) == "The answer"
+
+    def test_list_with_multiple_text_blocks_joined(self):
+        from components._agent_shared import extract_text_content
+        content = [
+            {"type": "text", "text": "Hello"},
+            {"type": "text", "text": "World"},
+        ]
+        result = extract_text_content(content)
+        assert result == "Hello\nWorld"
+
+    def test_list_with_thinking_block_filtered_out(self):
+        from components._agent_shared import extract_text_content
+        content = [
+            {"type": "thinking", "thinking": "reasoning...", "signature": "sig123"},
+            {"type": "text", "text": "The real answer"},
+        ]
+        result = extract_text_content(content)
+        assert result == "The real answer"
+
+    def test_empty_list_returns_empty_string(self):
+        from components._agent_shared import extract_text_content
+        assert extract_text_content([]) == ""
+
+    def test_list_with_non_text_types_excluded(self):
+        from components._agent_shared import extract_text_content
+        content = [{"type": "tool_use", "name": "search", "input": {}}]
+        assert extract_text_content(content) == ""
+
+    def test_non_string_non_list_coerced_to_string(self):
+        from components._agent_shared import extract_text_content
+        assert extract_text_content(42) == "42"
+
+
+# ---------------------------------------------------------------------------
+# strip_thinking_blocks
+# ---------------------------------------------------------------------------
+
+
+class TestStripThinkingBlocks:
+    def test_strips_thinking_block_from_ai_message(self):
+        from components._agent_shared import strip_thinking_blocks
+
+        msg = MagicMock()
+        msg.type = "ai"
+        msg.content = [
+            {"type": "thinking", "thinking": "internal reasoning", "signature": "sig"},
+            {"type": "text", "text": "The response"},
+        ]
+
+        result = strip_thinking_blocks([msg])
+        assert len(result) == 1
+        assert msg.content == [{"type": "text", "text": "The response"}]
+
+    def test_non_ai_messages_left_unchanged(self):
+        from components._agent_shared import strip_thinking_blocks
+
+        msg = MagicMock()
+        msg.type = "human"
+        original_content = [{"type": "text", "text": "User input"}]
+        msg.content = original_content
+
+        strip_thinking_blocks([msg])
+        assert msg.content is original_content
+
+    def test_ai_message_with_string_content_left_unchanged(self):
+        from components._agent_shared import strip_thinking_blocks
+
+        msg = MagicMock()
+        msg.type = "ai"
+        msg.content = "plain string response"
+
+        strip_thinking_blocks([msg])
+        assert msg.content == "plain string response"
+
+    def test_empty_messages_list_returns_empty(self):
+        from components._agent_shared import strip_thinking_blocks
+        assert strip_thinking_blocks([]) == []
+
+    def test_all_thinking_blocks_removed_leaving_empty_list(self):
+        from components._agent_shared import strip_thinking_blocks
+
+        msg = MagicMock()
+        msg.type = "ai"
+        msg.content = [
+            {"type": "thinking", "thinking": "step 1"},
+            {"type": "thinking", "thinking": "step 2"},
+        ]
+
+        strip_thinking_blocks([msg])
+        assert msg.content == []
+
+    def test_message_without_type_attr_skipped(self):
+        from components._agent_shared import strip_thinking_blocks
+
+        msg = MagicMock(spec=[])  # no attributes
+        result = strip_thinking_blocks([msg])
+        assert result == [msg]
+
+
+# ---------------------------------------------------------------------------
+# deep_agent_node — strip_thinking_blocks and extract_text_content calls
+# ---------------------------------------------------------------------------
+
+
+class TestDeepAgentNodeFunction:
+    """Test the deep_agent_node closure returned by deep_agent_factory."""
+
+    def _make_node_fn(self, system_prompt=""):
+        """Build deep_agent_factory and return the inner node function with a mock agent."""
+        node = _make_deep_agent_node(system_prompt=system_prompt)
+        mock_agent = MagicMock()
+
+        with patch("components.deep_agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.deep_agent.get_model_name_for_node", return_value="test-model"), \
+             patch("components.deep_agent._resolve_tools", return_value=([], {})), \
+             patch("components.deep_agent._resolve_skills", return_value=[]), \
+             patch("components.deep_agent._get_redis_checkpointer", return_value=None), \
+             patch("components.deep_agent._build_backend", return_value=MagicMock()), \
+             patch("services.capabilities.detect_capabilities", side_effect=ImportError()), \
+             patch("components.deep_agent.create_deep_agent", return_value=mock_agent):
+            from components.deep_agent import deep_agent_factory
+            node_fn = deep_agent_factory(node)
+
+        return node_fn, mock_agent
+
+    def _invoke_node(self, node_fn, mock_agent, ai_msg_content):
+        """Helper: set up mock agent result and invoke node_fn."""
+        ai_msg = MagicMock()
+        ai_msg.type = "ai"
+        ai_msg.content = ai_msg_content
+        ai_msg.additional_kwargs = {}
+
+        mock_agent.invoke.return_value = {"messages": [ai_msg]}
+
+        state = {"messages": [], "execution_id": "exec-test-123"}
+
+        with patch("services.context.trim_messages_for_model", side_effect=lambda msgs, *a, **kw: msgs), \
+             patch("services.token_usage.extract_usage_from_messages",
+                   return_value={"llm_calls": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15}), \
+             patch("services.token_usage.calculate_cost", return_value=0.001):
+            result = node_fn(state)
+
+        return result, ai_msg
+
+    def test_strip_thinking_blocks_called_on_output(self):
+        """Line 223: strip_thinking_blocks(out_messages) removes thinking blocks."""
+        node_fn, mock_agent = self._make_node_fn()
+
+        ai_content = [
+            {"type": "thinking", "thinking": "internal reasoning", "signature": "sig"},
+            {"type": "text", "text": "Final answer"},
+        ]
+        result, ai_msg = self._invoke_node(node_fn, mock_agent, ai_content)
+
+        # thinking block should be stripped from the message content
+        assert ai_msg.content == [{"type": "text", "text": "Final answer"}]
+
+    def test_extract_text_content_called_for_final_output(self):
+        """Line 235: extract_text_content(msg.content) extracts text from AI message list."""
+        node_fn, mock_agent = self._make_node_fn()
+
+        ai_content = [
+            {"type": "text", "text": "Hello"},
+            {"type": "text", "text": "World"},
+        ]
+        result, ai_msg = self._invoke_node(node_fn, mock_agent, ai_content)
+
+        # extract_text_content joins text blocks with newline
+        assert result["output"] == "Hello\nWorld"
+
+    def test_output_extracted_from_last_ai_message(self):
+        """The node function returns the text content from the last AI message."""
+        node_fn, mock_agent = self._make_node_fn()
+
+        ai_content = [{"type": "text", "text": "The deep agent response"}]
+        result, _ = self._invoke_node(node_fn, mock_agent, ai_content)
+
+        assert result["output"] == "The deep agent response"
