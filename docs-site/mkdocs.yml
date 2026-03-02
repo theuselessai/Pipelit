@@ -190,8 +190,6 @@ nav:
     - Releasing: contributing/releasing.md
     - Skills:
       - skills/index.md
-      - PR Workflow: skills/pr-workflow.md
-      - Writing Skills: skills/writing-skills.md
     - Frontend Guide:
       - frontend/index.md
       - Dashboard: frontend/dashboard.md
