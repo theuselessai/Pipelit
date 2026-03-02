@@ -12,7 +12,7 @@ The sandbox has three layers:
 
 ```mermaid
 flowchart TD
-    A[Deep Agent executes shell command] --> B{Sandbox mode?}
+    A[Agent executes shell command] --> B{Sandbox mode?}
     B -->|bwrap| C[bwrap --unshare-all]
     B -->|container| D[Env-scrubbed subprocess]
     B -->|none| E[Unsandboxed fallback ⚠️]
@@ -52,14 +52,17 @@ On startup, Pipelit calls `detect_container()` to determine whether it is alread
 After container detection, `resolve_sandbox_mode()` determines the final mode:
 
 ```
-SANDBOX_MODE = "auto"  (default)
-  ├── On Linux without container → check for bwrap binary
+# Auto-detect (default)
+SANDBOX_MODE = "auto"
+  ├── Linux without container → check for bwrap
   │     ├── bwrap available → mode: bwrap
   │     └── bwrap missing → mode: none
   └── Inside container → mode: container
 
-SANDBOX_MODE = "bwrap"   → force bwrap (fails if not available)
-SANDBOX_MODE = "container" → force container env-scrubbing
+# Explicit modes
+SANDBOX_MODE = "bwrap"     → force bwrap (fails if unavailable)
+SANDBOX_MODE = "container"  → force container env-scrubbing
+SANDBOX_MODE = "none"       → force no isolation (dev only)
 ```
 
 ## Alpine Rootfs

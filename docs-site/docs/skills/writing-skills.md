@@ -47,10 +47,10 @@ Send Telegram message asking for confirmation. Only proceed after user approves.
 
 ## Telegram Integration
 
-Send updates via curl:
+Send updates via curl (replace with your Telegram bot credentials):
 
 ```bash
-curl -s -F chat_id=<CHAT_ID> -F text="<message>" "https://api.telegram.org/bot<TOKEN>/sendMessage"
+curl -s -F chat_id=YOUR_CHAT_ID -F text="Your message" "https://api.telegram.org/botYOUR_BOT_TOKEN/sendMessage"
 ```
 
 ## Best Practices
@@ -63,7 +63,7 @@ curl -s -F chat_id=<CHAT_ID> -F text="<message>" "https://api.telegram.org/bot<T
 
 ## Skill Directory
 
-Place skills in `.claude/skills/` or `docs/skills/`:
+Place skills in `.claude/skills/`:
 
 ```
 .claude/skills/

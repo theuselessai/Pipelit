@@ -90,7 +90,7 @@ The `update_id` offset is persisted between poll cycles so messages are never pr
 !!! warning "Webhook conflict"
     Do not register a webhook URL with Telegram while polling is active. Call `deleteWebhook` first, or Telegram will reject `getUpdates` requests with a 409 conflict error.
 
-### Accessing Telegram Data Downstream
+## Accessing Telegram Data Downstream
 
 Reference trigger outputs using Jinja2 expressions:
 

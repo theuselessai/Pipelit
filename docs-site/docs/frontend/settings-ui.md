@@ -73,11 +73,11 @@ The resolved theme is also passed to the React Flow canvas so the workflow edito
 
 ### Two-Factor Authentication (MFA)
 
-The MFA card lets you enable or disable TOTP-based two-factor authentication.
+The MFA tab lets you enable or disable TOTP-based two-factor authentication.
 
 ### Current Status
 
-A badge in the card header shows whether MFA is currently **Enabled** or **Disabled**. The status is fetched from the server on page load.
+A badge shows whether MFA is currently **Enabled** or **Disabled**. The status is fetched from the server on page load.
 
 ### Enabling MFA
 

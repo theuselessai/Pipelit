@@ -165,7 +165,7 @@ A watchdog task checks running executions periodically. When an execution's elap
 
 1. All in-flight RQ jobs for the execution are cancelled.
 2. The execution status is set to `failed` with `error_code: ExecutionTimeoutError`.
-3. A `execution_completed` WebSocket event is broadcast so the UI updates immediately.
+3. An `execution_completed` WebSocket event is broadcast so the UI updates immediately.
 4. Redis state for the execution is cleaned up.
 
 Forced termination is best-effort — a node that is actively running inside a worker process may complete after the timeout fires if the worker does not check for cancellation. The execution record is still marked failed.

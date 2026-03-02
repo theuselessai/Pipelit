@@ -2,9 +2,9 @@
 
 Pipelit uses a `.env` file in the project root for configuration. The backend loads it via Pydantic Settings.
 
-## Generate Encryption Key
+## Generate Encryption Key (Optional)
 
-Pipelit encrypts sensitive credential data (API keys, tokens) at rest using Fernet symmetric encryption. You must generate a key before first use:
+Pipelit encrypts sensitive credential data (API keys, tokens) at rest using Fernet symmetric encryption. For production, generate your own key:
 
 ```bash
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
@@ -25,7 +25,7 @@ REDIS_URL=redis://localhost:6379/0
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FIELD_ENCRYPTION_KEY` | *(required)* | Fernet key for encrypting credential secrets |
+| `FIELD_ENCRYPTION_KEY` | *(auto-generated if not set)* | Fernet key for encrypting credential secrets |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for RQ and pub/sub |
 | `DATABASE_URL` | `sqlite:///platform/db.sqlite3` | SQLAlchemy database URL |
 | `SECRET_KEY` | `change-me-in-production` | Key for token signing |

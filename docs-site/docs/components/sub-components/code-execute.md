@@ -58,10 +58,7 @@ Both languages run with a working directory of `/tmp`.
 
 ### Sandbox mode
 
-When `sandbox` is enabled (the default), two protections are applied:
-
-1. **Security pattern checking** -- code is scanned for forbidden patterns before execution
-2. **Environment restriction** -- the subprocess runs with a restricted `PATH` (`/usr/bin:/bin:/usr/local/bin`) and without `HOME` or `USER` environment variables
+When `sandbox` is enabled (the default), the code runs inside a bwrap (bubblewrap) sandbox with a per-workspace Alpine rootfs. See [Sandbox Concepts](../../concepts/sandbox.md) for full details.
 
 ### Forbidden patterns
 
