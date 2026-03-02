@@ -21,6 +21,7 @@ from components._agent_shared import (
     extract_text_content,
     strip_thinking_blocks,
 )
+from services.activity_watchdog import ActivityWatchdog, DEFAULT_INACTIVITY_TIMEOUT, DEFAULT_MAX_WALL_TIME
 from services.llm import resolve_llm_for_node
 from services.token_usage import (
     calculate_cost,
@@ -112,6 +113,11 @@ def deep_agent_factory(node):
     tools, tool_metadata = _resolve_tools(node)
     skill_paths = _resolve_skills(node)
 
+    # Activity watchdog — extends RQ timeout while agent is active
+    inactivity_timeout = int(extra.get("inactivity_timeout", DEFAULT_INACTIVITY_TIMEOUT))
+    max_wall_time = int(extra.get("max_wall_time", DEFAULT_MAX_WALL_TIME))
+    watchdog = ActivityWatchdog(inactivity_timeout=inactivity_timeout, max_wall_time=max_wall_time)
+
     # Checkpointer selection (same logic as regular agent)
     checkpointer = None
     if conversation_memory:
@@ -121,7 +127,7 @@ def deep_agent_factory(node):
         checkpointer = _get_redis_checkpointer()
 
     # Build middleware
-    middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug)
+    middleware = PipelitAgentMiddleware(tool_metadata, node_id, workflow_slug, watchdog=watchdog)
 
     # Build memory list for create_deep_agent
     memory_features: list[str] = ["filesystem"]  # always enabled (sandboxed)
@@ -169,6 +175,15 @@ def deep_agent_factory(node):
     )
 
     def deep_agent_node(state: dict) -> dict:
+        from datetime import datetime, timezone
+
+        watchdog.start()
+        try:
+            return _deep_agent_node_inner(state)
+        finally:
+            watchdog.stop()
+
+    def _deep_agent_node_inner(state: dict) -> dict:
         from datetime import datetime, timezone
 
         messages = list(state.get("messages", []))

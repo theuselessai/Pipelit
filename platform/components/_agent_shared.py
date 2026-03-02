@@ -151,13 +151,17 @@ class PipelitAgentMiddleware(AgentMiddleware):
 
     state_schema = PipelitAgentState
 
-    def __init__(self, tool_metadata: dict[str, dict], agent_node_id: str, workflow_slug: str):
+    def __init__(self, tool_metadata: dict[str, dict], agent_node_id: str, workflow_slug: str, watchdog=None):
         super().__init__()
         self._tool_metadata = tool_metadata  # {tool_name: {tool_node_id, component_type}}
         self._agent_node_id = agent_node_id
         self._workflow_slug = workflow_slug
+        self._watchdog = watchdog
 
     def wrap_tool_call(self, request, handler):
+        if self._watchdog:
+            self._watchdog.ping()
+
         tool_name = request.tool_call.get("name", "") if isinstance(request.tool_call, dict) else getattr(request.tool_call, "name", "")
         meta = self._tool_metadata.get(tool_name, {})
         tool_node_id = meta.get("tool_node_id", "")
@@ -181,6 +185,8 @@ class PipelitAgentMiddleware(AgentMiddleware):
         )
         try:
             result = handler(request)
+            if self._watchdog:
+                self._watchdog.ping()
             _publish_tool_status(
                 tool_node_id=tool_node_id, status="success",
                 workflow_slug=self._workflow_slug,
@@ -190,6 +196,8 @@ class PipelitAgentMiddleware(AgentMiddleware):
             )
             return result
         except Exception as e:
+            if self._watchdog:
+                self._watchdog.ping()
             if isinstance(e, GraphInterrupt):
                 _publish_tool_status(
                     tool_node_id=tool_node_id, status="waiting",
@@ -209,10 +217,14 @@ class PipelitAgentMiddleware(AgentMiddleware):
             raise
 
     def wrap_model_call(self, request, handler):
+        if self._watchdog:
+            self._watchdog.ping()
         # Strip thinking blocks before the LLM call so they are never sent
         # to a different provider AND never persisted by the checkpointer.
         strip_thinking_blocks(request.messages)
         response = handler(request)
+        if self._watchdog:
+            self._watchdog.ping()
         try:
             exec_id = None
             state = request.state
