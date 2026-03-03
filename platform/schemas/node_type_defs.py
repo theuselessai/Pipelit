@@ -12,6 +12,7 @@ register_node_type(NodeTypeSpec(
     outputs=[
         PortDefinition(name="text", data_type=DataType.STRING, description="Message text"),
         PortDefinition(name="chat_id", data_type=DataType.NUMBER, description="Telegram chat ID"),
+        PortDefinition(name="files", data_type=DataType.ARRAY, description="Document files (file_id, file_name, mime_type, file_size)"),
         PortDefinition(name="payload", data_type=DataType.OBJECT, description="Full trigger payload"),
     ],
 ))
