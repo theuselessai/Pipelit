@@ -23,7 +23,23 @@ class TelegramTriggerHandler:
         user_id = message.get("from", {}).get("id")
         chat_id = message.get("chat", {}).get("id")
         message_id = message.get("message_id")
-        text = message.get("text", "")
+        text = message.get("text", "") or message.get("caption", "")
+
+        files = []
+        doc = message.get("document")
+        if doc:
+            file_name = doc.get("file_name", "document")
+            file_id = doc.get("file_id", "")
+            mime = doc.get("mime_type", "")
+            file_tag = f"[Attached file: {file_name} | file_id: {file_id} | type: {mime}]"
+            files.append({
+                "file_id": file_id,
+                "file_unique_id": doc.get("file_unique_id"),
+                "file_name": file_name,
+                "mime_type": mime,
+                "file_size": doc.get("file_size", 0),
+            })
+            text = f"{text}\n{file_tag}".strip() if text else file_tag
 
         if not user_id or not chat_id:
             return
@@ -38,6 +54,7 @@ class TelegramTriggerHandler:
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text,
+            "files": files,
             "bot_token": bot_token,
         }
 

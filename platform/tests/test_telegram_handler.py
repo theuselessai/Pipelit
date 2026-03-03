@@ -10,21 +10,26 @@ from models.execution import PendingTask, WorkflowExecution
 from models.user import UserProfile
 
 
-def _make_update(user_id=111222333, chat_id=999, message_id=1, text="hello"):
+def _make_update(user_id=111222333, chat_id=999, message_id=1, text="hello",
+                  document=None, caption=None):
     """Build a minimal Telegram update dict."""
-    return {
-        "message": {
-            "message_id": message_id,
-            "from": {
-                "id": user_id,
-                "first_name": "Test",
-                "last_name": "User",
-                "username": "testuser",
-            },
-            "chat": {"id": chat_id},
-            "text": text,
-        }
+    msg = {
+        "message_id": message_id,
+        "from": {
+            "id": user_id,
+            "first_name": "Test",
+            "last_name": "User",
+            "username": "testuser",
+        },
+        "chat": {"id": chat_id},
     }
+    if text is not None:
+        msg["text"] = text
+    if caption is not None:
+        msg["caption"] = caption
+    if document is not None:
+        msg["document"] = document
+    return {"message": msg}
 
 
 class TestHandleMessage:
@@ -80,6 +85,88 @@ class TestHandleMessage:
             handler.handle_message("123456:ABC-DEF", update, db)
 
         assert db.query(UserProfile).filter(UserProfile.telegram_user_id == 777888999).first() is not None
+
+    def test_document_message_includes_files(self, db, user_profile, telegram_trigger):
+        """A document message should populate the files array in event_data."""
+        handler = TelegramTriggerHandler()
+        update = _make_update(
+            text=None,
+            caption="my notes",
+            document={
+                "file_id": "BQACAgIAAxk",
+                "file_unique_id": "AgADBQAC",
+                "file_name": "notes.txt",
+                "mime_type": "text/plain",
+                "file_size": 1234,
+            },
+        )
+
+        with (
+            patch("handlers.redis"),
+            patch("handlers.Queue") as mock_queue_cls,
+            patch("handlers.telegram.output_delivery"),
+        ):
+            mock_queue_cls.return_value.enqueue.return_value = None
+            handler.handle_message("123456:ABC-DEF", update, db)
+
+        exec_row = db.query(WorkflowExecution).first()
+        assert exec_row is not None
+        payload = exec_row.trigger_payload
+        assert payload["text"].startswith("my notes\n")
+        assert "file_id: BQACAgIAAxk" in payload["text"]
+        assert "notes.txt" in payload["text"]
+        assert len(payload["files"]) == 1
+        assert payload["files"][0]["file_id"] == "BQACAgIAAxk"
+        assert payload["files"][0]["file_name"] == "notes.txt"
+        assert payload["files"][0]["mime_type"] == "text/plain"
+        assert payload["files"][0]["file_size"] == 1234
+
+    def test_document_without_caption_generates_text(self, db, user_profile, telegram_trigger):
+        """A document without caption should generate text with file_id."""
+        handler = TelegramTriggerHandler()
+        update = _make_update(
+            text=None,
+            document={
+                "file_id": "BQACAgIAAxk",
+                "file_unique_id": "AgADBQAC",
+                "file_name": "report.pdf",
+                "mime_type": "application/pdf",
+                "file_size": 5678,
+            },
+        )
+
+        with (
+            patch("handlers.redis"),
+            patch("handlers.Queue") as mock_queue_cls,
+            patch("handlers.telegram.output_delivery"),
+        ):
+            mock_queue_cls.return_value.enqueue.return_value = None
+            handler.handle_message("123456:ABC-DEF", update, db)
+
+        exec_row = db.query(WorkflowExecution).first()
+        assert exec_row is not None
+        text = exec_row.trigger_payload["text"]
+        assert "report.pdf" in text
+        assert "file_id: BQACAgIAAxk" in text
+        assert "application/pdf" in text
+        assert len(exec_row.trigger_payload["files"]) == 1
+
+    def test_text_message_has_empty_files(self, db, user_profile, telegram_trigger):
+        """A plain text message should have an empty files array."""
+        handler = TelegramTriggerHandler()
+        update = _make_update(text="just text")
+
+        with (
+            patch("handlers.redis"),
+            patch("handlers.Queue") as mock_queue_cls,
+            patch("handlers.telegram.output_delivery"),
+        ):
+            mock_queue_cls.return_value.enqueue.return_value = None
+            handler.handle_message("123456:ABC-DEF", update, db)
+
+        exec_row = db.query(WorkflowExecution).first()
+        assert exec_row is not None
+        assert exec_row.trigger_payload["files"] == []
 
 
 class TestHandleConfirmation:
