@@ -10,7 +10,7 @@
   <a href="https://github.com/theuselessai/Pipelit/actions/workflows/ci.yml"><img src="https://github.com/theuselessai/Pipelit/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://app.codecov.io/gh/theuselessai/Pipelit"><img alt="Codecov" src="https://img.shields.io/codecov/c/github/theuselessai/pipelit?style=flat-square"></a>
   <a href="https://github.com/theuselessai/Pipelit/releases"><img src="https://img.shields.io/github/v/tag/theuselessai/Pipelit?label=version&style=flat-square" alt="Version" /></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License: MIT" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" alt="License: Apache 2.0" /></a>
 </p>
 
 ---
@@ -266,4 +266,4 @@ Enable `conversation_memory` on agent nodes that use `spawn_and_await`. This swi
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE) for details.
