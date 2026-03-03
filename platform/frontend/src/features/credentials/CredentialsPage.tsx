@@ -57,6 +57,7 @@ export default function CredentialsPage() {
     else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
     await createCredential.mutateAsync({ name, credential_type: credType, detail })
     setOpen(false)
+    setProviderType("openai_compatible")
     setName("")
     setApiKey("")
     setBaseUrl("")
@@ -168,7 +169,7 @@ export default function CredentialsPage() {
                           title={`${(cred.detail as Record<string, unknown>).is_preferred ? "Unset" : "Set"} as preferred`}
                           onClick={() => updateCredential.mutate({
                             id: cred.id,
-                            data: { detail: { is_preferred: !(cred.detail as Record<string, unknown>).is_preferred } },
+                            data: { detail: { ...cred.detail, is_preferred: !(cred.detail as Record<string, unknown>).is_preferred } },
                           })}
                         >
                           <Star className={`h-4 w-4 ${(cred.detail as Record<string, unknown>).is_preferred ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`} />
