@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -105,5 +105,6 @@ class ToolCredential(Base):
     )
     tool_type: Mapped[str] = mapped_column(String(20))  # searxng, browser, api
     config: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_preferred: Mapped[bool] = mapped_column(Boolean, default=False)
 
     base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="tool_credential")

@@ -554,6 +554,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [topP, setTopP] = useState<string>(node.config.top_p?.toString() ?? "")
   const [frequencyPenalty, setFrequencyPenalty] = useState<string>(node.config.frequency_penalty?.toString() ?? "")
   const [presencePenalty, setPresencePenalty] = useState<string>(node.config.presence_penalty?.toString() ?? "")
+  const [useNativeSearch, setUseNativeSearch] = useState<boolean>(Boolean((node.config.extra_config as Record<string, unknown>)?.use_native_search))
   const [interruptBefore, setInterruptBefore] = useState(node.interrupt_before)
   const [interruptAfter, setInterruptAfter] = useState(node.interrupt_after)
   const [conversationMemory, setConversationMemory] = useState<boolean>(Boolean(node.config.extra_config?.conversation_memory))
@@ -710,6 +711,38 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const hasSystemPrompt = ["agent", "deep_agent", "categorizer", "router"].includes(node.component_type)
   const isTriggerNode = TRIGGER_TYPES.includes(node.component_type)
 
+  const isAnthropicNative = useMemo(() => {
+    if (!isLLMNode || !llmCredentialId) return false
+    const cred = allCredentials.find(c => c.id === Number(llmCredentialId))
+    if (!cred) return false
+    const provider = cred.detail?.provider_type as string
+    const baseUrl = cred.detail?.base_url as string
+    return provider === "anthropic" && (!baseUrl || baseUrl.includes("anthropic.com"))
+  }, [isLLMNode, llmCredentialId, allCredentials])
+
+  const searchBackend = useMemo(() => {
+    if (!isAgentNode || !workflow) return null
+    // Check if connected ai_model has use_native_search enabled
+    const modelEdge = workflow.edges.find(
+      (e) => e.target_node_id === node.node_id && e.edge_label === "llm"
+    )
+    const modelNode = modelEdge ? workflow.nodes.find((n) => n.node_id === modelEdge.source_node_id) : undefined
+    const credId = modelNode?.config.llm_credential_id
+    const cred = credId ? allCredentials.find((c) => c.id === credId) : undefined
+    const provider = (cred?.detail as Record<string, unknown>)?.provider_type as string
+    const baseUrl = (cred?.detail as Record<string, unknown>)?.base_url as string
+    const useNative = !!(modelNode?.config.extra_config as Record<string, unknown>)?.use_native_search
+    // Priority 1: Native opt-in overrides SearXNG
+    if (useNative && provider === "anthropic" && (!baseUrl || baseUrl.includes("anthropic.com")))
+      return "anthropic"
+    // Priority 2: SearXNG is the default
+    const hasSearxng = allCredentials.some(
+      (c) => c.credential_type === "tool" && (c.detail as Record<string, unknown>)?.tool_type === "searxng"
+    )
+    if (hasSearxng) return "searxng"
+    return "unavailable"
+  }, [isAgentNode, workflow, node.node_id, allCredentials])
+
   function handleSave() {
     let parsedExtra: Record<string, unknown> = {}
     try { parsedExtra = JSON.parse(extraConfig) } catch { /* keep empty */ }
@@ -723,6 +756,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         compacting_keep: compacting === "summarize" ? (Number(compactingKeep) || null) : null,
         workspace_id: workspaceId ? Number(workspaceId) : null,
       }
+    }
+    if (isLLMNode) {
+      parsedExtra = { ...parsedExtra, use_native_search: useNativeSearch }
     }
     if (isDeepAgent) {
       parsedExtra = {
@@ -1143,6 +1179,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </div>
             )}
           </div>
+          {isAnthropicNative && (
+            <div className="flex items-center justify-between mt-2">
+              <div>
+                <Label className="text-xs">Use Native Search</Label>
+                <p className="text-xs text-muted-foreground">Use Anthropic's built-in web search instead of SearXNG</p>
+              </div>
+              <Switch checked={useNativeSearch} onCheckedChange={setUseNativeSearch} />
+            </div>
+          )}
         </>
       )}
 
@@ -1383,6 +1428,19 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             </div>
             <Switch checked={conversationMemory} onCheckedChange={setConversationMemory} />
           </div>
+          {searchBackend && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Web Search</Label>
+                <p className="text-xs text-muted-foreground">Auto-detected search backend</p>
+              </div>
+              <span className="text-xs">
+                {searchBackend === "anthropic" && <span className="text-emerald-500">Anthropic native</span>}
+                {searchBackend === "searxng" && <span className="text-blue-500">SearXNG</span>}
+                {searchBackend === "unavailable" && <span className="text-zinc-400">unavailable</span>}
+              </span>
+            </div>
+          )}
           {!isDeepAgent && (
             <div className="flex items-center justify-between">
               <div>

@@ -7,44 +7,45 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.llm import create_llm_from_db, resolve_llm_for_node
+from services.llm import _make_sanitized_chat_openai, _sanitize_message_content, create_llm_from_db, resolve_credential_for_node, resolve_llm_for_node
 
 
 # ── create_llm_from_db ────────────────────────────────────────────────────────
 
 class TestCreateLlmFromDb:
-    @patch("services.llm.ChatOpenAI", create=True)
-    def test_openai_provider(self, mock_cls):
-        # Patch the import
-        with patch.dict("sys.modules", {"langchain_openai": MagicMock(ChatOpenAI=mock_cls)}):
-            cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
-            create_llm_from_db(cred, "gpt-4")
-            mock_cls.assert_called_once_with(api_key="sk-test", model="gpt-4")
+    @patch("services.llm._make_sanitized_chat_openai")
+    def test_openai_provider(self, mock_factory):
+        mock_cls = MagicMock()
+        mock_factory.return_value = mock_cls
+        cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
+        create_llm_from_db(cred, "gpt-4")
+        mock_cls.assert_called_once_with(api_key="sk-test", model="gpt-4")
 
-    @patch("services.llm.ChatOpenAI", create=True)
-    def test_openai_with_all_params(self, mock_cls):
-        with patch.dict("sys.modules", {"langchain_openai": MagicMock(ChatOpenAI=mock_cls)}):
-            cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
-            create_llm_from_db(
-                cred, "gpt-4",
-                temperature=0.7,
-                max_tokens=100,
-                frequency_penalty=0.5,
-                presence_penalty=0.3,
-                top_p=0.9,
-                timeout=30,
-                max_retries=2,
-                response_format={"type": "json_object"},
-            )
-            call_kwargs = mock_cls.call_args[1]
-            assert call_kwargs["temperature"] == 0.7
-            assert call_kwargs["max_tokens"] == 100
-            assert call_kwargs["frequency_penalty"] == 0.5
-            assert call_kwargs["presence_penalty"] == 0.3
-            assert call_kwargs["top_p"] == 0.9
-            assert call_kwargs["timeout"] == 30
-            assert call_kwargs["max_retries"] == 2
-            assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json_object"}}
+    @patch("services.llm._make_sanitized_chat_openai")
+    def test_openai_with_all_params(self, mock_factory):
+        mock_cls = MagicMock()
+        mock_factory.return_value = mock_cls
+        cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
+        create_llm_from_db(
+            cred, "gpt-4",
+            temperature=0.7,
+            max_tokens=100,
+            frequency_penalty=0.5,
+            presence_penalty=0.3,
+            top_p=0.9,
+            timeout=30,
+            max_retries=2,
+            response_format={"type": "json_object"},
+        )
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["temperature"] == 0.7
+        assert call_kwargs["max_tokens"] == 100
+        assert call_kwargs["frequency_penalty"] == 0.5
+        assert call_kwargs["presence_penalty"] == 0.3
+        assert call_kwargs["top_p"] == 0.9
+        assert call_kwargs["timeout"] == 30
+        assert call_kwargs["max_retries"] == 2
+        assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json_object"}}
 
     @patch("services.llm.ChatAnthropic", create=True)
     def test_anthropic_provider(self, mock_cls):
@@ -60,39 +61,67 @@ class TestCreateLlmFromDb:
             create_llm_from_db(cred, "MiniMax-M2.5")
             mock_cls.assert_called_once_with(api_key="sk-mm", base_url="https://api.minimax.io/anthropic", model="MiniMax-M2.5")
 
-    @patch("services.llm.ChatOpenAI", create=True)
-    def test_openai_compatible_provider(self, mock_cls):
-        with patch.dict("sys.modules", {"langchain_openai": MagicMock(ChatOpenAI=mock_cls)}):
-            cred = SimpleNamespace(
-                provider_type="openai_compatible",
-                api_key="custom-key",
-                base_url="http://localhost:11434/v1",
-            )
-            create_llm_from_db(cred, "llama2")
-            mock_cls.assert_called_once_with(
-                api_key="custom-key",
-                base_url="http://localhost:11434/v1",
-                model="llama2",
-            )
+    @patch("services.llm._make_sanitized_chat_openai")
+    def test_glm_provider(self, mock_factory):
+        mock_cls = MagicMock()
+        mock_factory.return_value = mock_cls
+        cred = SimpleNamespace(provider_type="glm", api_key="glm-key", base_url="")
+        create_llm_from_db(cred, "glm-4-plus")
+        mock_cls.assert_called_once_with(
+            api_key="glm-key",
+            base_url="https://api.z.ai/api/paas/v4/",
+            model="glm-4-plus",
+            use_responses_api=False,
+        )
 
-    @patch("services.llm.ChatOpenAI", create=True)
-    def test_openai_compatible_with_params(self, mock_cls):
-        with patch.dict("sys.modules", {"langchain_openai": MagicMock(ChatOpenAI=mock_cls)}):
-            cred = SimpleNamespace(
-                provider_type="openai_compatible",
-                api_key="key",
-                base_url="http://test/v1",
-            )
-            create_llm_from_db(
-                cred, "model",
-                frequency_penalty=0.1,
-                presence_penalty=0.2,
-                response_format={"type": "json"},
-            )
-            call_kwargs = mock_cls.call_args[1]
-            assert call_kwargs["frequency_penalty"] == 0.1
-            assert call_kwargs["presence_penalty"] == 0.2
-            assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json"}}
+    @patch("services.llm._make_sanitized_chat_openai")
+    def test_glm_provider_custom_base_url(self, mock_factory):
+        mock_cls = MagicMock()
+        mock_factory.return_value = mock_cls
+        cred = SimpleNamespace(provider_type="glm", api_key="glm-key", base_url="https://custom.z.ai/v4/")
+        create_llm_from_db(cred, "glm-4")
+        mock_cls.assert_called_once_with(
+            api_key="glm-key",
+            base_url="https://custom.z.ai/v4/",
+            model="glm-4",
+            use_responses_api=False,
+        )
+
+    @patch("services.llm._make_sanitized_chat_openai")
+    def test_openai_compatible_provider(self, mock_factory):
+        mock_cls = MagicMock()
+        mock_factory.return_value = mock_cls
+        cred = SimpleNamespace(
+            provider_type="openai_compatible",
+            api_key="custom-key",
+            base_url="http://localhost:11434/v1",
+        )
+        create_llm_from_db(cred, "llama2")
+        mock_cls.assert_called_once_with(
+            api_key="custom-key",
+            base_url="http://localhost:11434/v1",
+            model="llama2",
+        )
+
+    @patch("services.llm._make_sanitized_chat_openai")
+    def test_openai_compatible_with_params(self, mock_factory):
+        mock_cls = MagicMock()
+        mock_factory.return_value = mock_cls
+        cred = SimpleNamespace(
+            provider_type="openai_compatible",
+            api_key="key",
+            base_url="http://test/v1",
+        )
+        create_llm_from_db(
+            cred, "model",
+            frequency_penalty=0.1,
+            presence_penalty=0.2,
+            response_format={"type": "json"},
+        )
+        call_kwargs = mock_cls.call_args[1]
+        assert call_kwargs["frequency_penalty"] == 0.1
+        assert call_kwargs["presence_penalty"] == 0.2
+        assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json"}}
 
     def test_unsupported_provider(self):
         cred = SimpleNamespace(provider_type="unknown_provider", api_key="key")
@@ -238,3 +267,234 @@ class TestResolveLlmForNode:
 
         with pytest.raises(ValueError, match="no connected ai_model"):
             resolve_llm_for_node(node, db=mock_db)
+
+
+# ── resolve_credential_for_node ───────────────────────────────────────────────
+
+class TestResolveCredentialForNode:
+    def test_ai_model_node(self):
+        cc = SimpleNamespace(
+            component_type="ai_model",
+            llm_credential_id=10,
+            llm_model_config_id=None,
+        )
+        node = SimpleNamespace(node_id="model_1", component_config=cc)
+
+        mock_llm_cred = MagicMock()
+        mock_base_cred = MagicMock()
+        mock_base_cred.llm_credential = mock_llm_cred
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_base_cred
+
+        result = resolve_credential_for_node(node, db=mock_db)
+        assert result is mock_llm_cred
+
+    def test_agent_via_llm_model_config(self):
+        cc = SimpleNamespace(
+            component_type="agent",
+            llm_credential_id=None,
+            llm_model_config_id=42,
+        )
+        node = SimpleNamespace(node_id="agent_1", component_config=cc)
+
+        ai_model_config = SimpleNamespace(
+            component_type="ai_model",
+            llm_credential_id=5,
+        )
+        mock_llm_cred = MagicMock()
+        mock_base_cred = MagicMock()
+        mock_base_cred.llm_credential = mock_llm_cred
+        mock_db = MagicMock()
+        mock_db.get.return_value = ai_model_config
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_base_cred
+
+        result = resolve_credential_for_node(node, db=mock_db)
+        assert result is mock_llm_cred
+
+    def test_no_model_raises(self):
+        cc = SimpleNamespace(
+            component_type="agent",
+            llm_credential_id=None,
+            llm_model_config_id=None,
+        )
+        node = SimpleNamespace(node_id="agent_1", component_config=cc)
+        mock_db = MagicMock()
+
+        with pytest.raises(ValueError, match="no connected ai_model"):
+            resolve_credential_for_node(node, db=mock_db)
+
+
+# ── _sanitize_message_content ─────────────────────────────────────────────────
+
+class TestSanitizeMessageContent:
+    def test_strips_dict_empty_text_blocks(self):
+        msg = SimpleNamespace(content=[
+            {"type": "text", "text": ""},
+            {"type": "text", "text": "Keep"},
+        ])
+        _sanitize_message_content([msg])
+        assert len(msg.content) == 1
+        assert msg.content[0]["text"] == "Keep"
+
+    def test_strips_pydantic_empty_text_blocks(self):
+        """Pydantic v2 TextBlock objects from checkpointer are caught."""
+        pydantic_block = SimpleNamespace(type="text", text="")
+        msg = SimpleNamespace(content=[
+            pydantic_block,
+            {"type": "text", "text": "Keep"},
+        ])
+        _sanitize_message_content([msg])
+        assert len(msg.content) == 1
+        assert msg.content[0]["text"] == "Keep"
+
+    def test_keeps_nonempty_pydantic_blocks(self):
+        pydantic_block = SimpleNamespace(type="text", text="Has content")
+        msg = SimpleNamespace(content=[
+            pydantic_block,
+            {"type": "text", "text": "Also has content"},
+        ])
+        _sanitize_message_content([msg])
+        assert len(msg.content) == 2
+
+    def test_strips_mixed_dict_and_pydantic_empty(self):
+        msg = SimpleNamespace(content=[
+            {"type": "text", "text": ""},
+            SimpleNamespace(type="text", text=""),
+            {"type": "text", "text": "Survivor"},
+        ])
+        _sanitize_message_content([msg])
+        assert len(msg.content) == 1
+        assert msg.content[0]["text"] == "Survivor"
+
+    def test_ignores_string_content(self):
+        msg = SimpleNamespace(content="just a string")
+        _sanitize_message_content([msg])
+        assert msg.content == "just a string"
+
+    def test_ignores_non_text_pydantic_blocks(self):
+        """Pydantic blocks with type != 'text' should not be stripped."""
+        pydantic_block = SimpleNamespace(type="tool_use", text="")
+        msg = SimpleNamespace(content=[
+            pydantic_block,
+            {"type": "text", "text": "Keep"},
+        ])
+        _sanitize_message_content([msg])
+        assert len(msg.content) == 2
+
+
+# ── SanitizedChatOpenAI._get_request_payload ─────────────────────────────────
+
+class TestSanitizedPayloadSanitization:
+    """Test that _get_request_payload strips empty text blocks from final payload."""
+
+    def test_strips_empty_text_from_payload(self):
+        """Empty text blocks in the serialized payload are removed."""
+        SanitizedChatOpenAI = _make_sanitized_chat_openai()
+        instance = SanitizedChatOpenAI.__new__(SanitizedChatOpenAI)
+
+        fake_payload = {
+            "model": "glm-4-plus",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Hello",
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "text", "text": "Real answer"},
+                        {"type": "text", "text": ""},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Follow-up"},
+                    ],
+                },
+            ],
+        }
+
+        with patch.object(
+            SanitizedChatOpenAI.__bases__[0],
+            "_get_request_payload",
+            return_value=fake_payload,
+        ):
+            result = instance._get_request_payload([], stop=None)
+
+        # String content untouched
+        assert result["messages"][0]["content"] == "Hello"
+        # Empty text blocks stripped, only real content remains
+        assert result["messages"][1]["content"] == [
+            {"type": "text", "text": "Real answer"},
+        ]
+        # No empty blocks → unchanged
+        assert result["messages"][2]["content"] == [
+            {"type": "text", "text": "Follow-up"},
+        ]
+
+    def test_preserves_non_text_blocks(self):
+        """Non-text blocks (tool_calls, images, etc.) are never stripped."""
+        SanitizedChatOpenAI = _make_sanitized_chat_openai()
+        instance = SanitizedChatOpenAI.__new__(SanitizedChatOpenAI)
+
+        fake_payload = {
+            "model": "glm-4-plus",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": ""},
+                        {"type": "image_url", "image_url": {"url": "http://img"}},
+                    ],
+                },
+            ],
+        }
+
+        with patch.object(
+            SanitizedChatOpenAI.__bases__[0],
+            "_get_request_payload",
+            return_value=fake_payload,
+        ):
+            result = instance._get_request_payload([], stop=None)
+
+        assert len(result["messages"][0]["content"]) == 1
+        assert result["messages"][0]["content"][0]["type"] == "image_url"
+
+    def test_strips_pydantic_empty_text_from_payload(self):
+        """Pydantic objects (not dicts) with empty text are also stripped."""
+        SanitizedChatOpenAI = _make_sanitized_chat_openai()
+        instance = SanitizedChatOpenAI.__new__(SanitizedChatOpenAI)
+
+        # Simulate Pydantic v2 TextBlock objects that _format_message_content()
+        # passes through unchanged via its catch-all `else` branch.
+        pydantic_empty = SimpleNamespace(type="text", text="")
+        pydantic_real = SimpleNamespace(type="text", text="Real content")
+
+        fake_payload = {
+            "model": "glm-4-plus",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        pydantic_empty,
+                        {"type": "text", "text": "Dict content"},
+                        pydantic_real,
+                        {"type": "text", "text": ""},
+                    ],
+                },
+            ],
+        }
+
+        with patch.object(
+            SanitizedChatOpenAI.__bases__[0],
+            "_get_request_payload",
+            return_value=fake_payload,
+        ):
+            result = instance._get_request_payload([], stop=None)
+
+        content = result["messages"][0]["content"]
+        assert len(content) == 2
+        assert content[0] == {"type": "text", "text": "Dict content"}
+        assert content[1] is pydantic_real
