@@ -148,7 +148,7 @@ export default function CredentialsPage() {
                       {cred.credential_type === "tool" && (
                         <span className="flex items-center gap-1">
                           {cred.detail.tool_type as string ?? ""}
-                          {(cred.detail as Record<string, unknown>).is_preferred && (
+                          {!!(cred.detail as Record<string, unknown>).is_preferred && (
                             <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
                           )}
                         </span>
