@@ -133,7 +133,7 @@ def deep_agent_factory(node):
         elif lc_tools:
             logger.info("DeepAgent %s: added %d search tools", node_id, len(lc_tools))
     except Exception:
-        logger.warning("Failed to resolve web search for deep_agent %s", node_id)
+        logger.warning("Failed to resolve web search for deep_agent %s", node_id, exc_info=True)
 
     if native_search_tools:
         llm = _wrap_llm_with_native_tools(llm, native_search_tools)

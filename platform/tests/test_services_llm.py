@@ -15,16 +15,16 @@ from services.llm import _make_sanitized_chat_openai, _sanitize_message_content,
 class TestCreateLlmFromDb:
     @patch("services.llm._make_sanitized_chat_openai")
     def test_openai_provider(self, mock_factory):
-        mock_cls = MagicMock()
-        mock_factory.return_value = mock_cls
+        mock_instance = MagicMock()
+        mock_factory.return_value = mock_instance
         cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
         create_llm_from_db(cred, "gpt-4")
-        mock_cls.assert_called_once_with(api_key="sk-test", model="gpt-4")
+        mock_instance.assert_called_once_with(api_key="sk-test", model="gpt-4")
 
     @patch("services.llm._make_sanitized_chat_openai")
     def test_openai_with_all_params(self, mock_factory):
-        mock_cls = MagicMock()
-        mock_factory.return_value = mock_cls
+        mock_instance = MagicMock()
+        mock_factory.return_value = mock_instance
         cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
         create_llm_from_db(
             cred, "gpt-4",
@@ -37,7 +37,7 @@ class TestCreateLlmFromDb:
             max_retries=2,
             response_format={"type": "json_object"},
         )
-        call_kwargs = mock_cls.call_args[1]
+        call_kwargs = mock_instance.call_args[1]
         assert call_kwargs["temperature"] == 0.7
         assert call_kwargs["max_tokens"] == 100
         assert call_kwargs["frequency_penalty"] == 0.5
@@ -63,11 +63,11 @@ class TestCreateLlmFromDb:
 
     @patch("services.llm._make_sanitized_chat_openai")
     def test_glm_provider(self, mock_factory):
-        mock_cls = MagicMock()
-        mock_factory.return_value = mock_cls
+        mock_instance = MagicMock()
+        mock_factory.return_value = mock_instance
         cred = SimpleNamespace(provider_type="glm", api_key="glm-key", base_url="")
         create_llm_from_db(cred, "glm-4-plus")
-        mock_cls.assert_called_once_with(
+        mock_instance.assert_called_once_with(
             api_key="glm-key",
             base_url="https://api.z.ai/api/paas/v4/",
             model="glm-4-plus",
@@ -76,11 +76,11 @@ class TestCreateLlmFromDb:
 
     @patch("services.llm._make_sanitized_chat_openai")
     def test_glm_provider_custom_base_url(self, mock_factory):
-        mock_cls = MagicMock()
-        mock_factory.return_value = mock_cls
+        mock_instance = MagicMock()
+        mock_factory.return_value = mock_instance
         cred = SimpleNamespace(provider_type="glm", api_key="glm-key", base_url="https://custom.z.ai/v4/")
         create_llm_from_db(cred, "glm-4")
-        mock_cls.assert_called_once_with(
+        mock_instance.assert_called_once_with(
             api_key="glm-key",
             base_url="https://custom.z.ai/v4/",
             model="glm-4",
@@ -89,15 +89,15 @@ class TestCreateLlmFromDb:
 
     @patch("services.llm._make_sanitized_chat_openai")
     def test_openai_compatible_provider(self, mock_factory):
-        mock_cls = MagicMock()
-        mock_factory.return_value = mock_cls
+        mock_instance = MagicMock()
+        mock_factory.return_value = mock_instance
         cred = SimpleNamespace(
             provider_type="openai_compatible",
             api_key="custom-key",
             base_url="http://localhost:11434/v1",
         )
         create_llm_from_db(cred, "llama2")
-        mock_cls.assert_called_once_with(
+        mock_instance.assert_called_once_with(
             api_key="custom-key",
             base_url="http://localhost:11434/v1",
             model="llama2",
@@ -105,8 +105,8 @@ class TestCreateLlmFromDb:
 
     @patch("services.llm._make_sanitized_chat_openai")
     def test_openai_compatible_with_params(self, mock_factory):
-        mock_cls = MagicMock()
-        mock_factory.return_value = mock_cls
+        mock_instance = MagicMock()
+        mock_factory.return_value = mock_instance
         cred = SimpleNamespace(
             provider_type="openai_compatible",
             api_key="key",
@@ -118,7 +118,7 @@ class TestCreateLlmFromDb:
             presence_penalty=0.2,
             response_format={"type": "json"},
         )
-        call_kwargs = mock_cls.call_args[1]
+        call_kwargs = mock_instance.call_args[1]
         assert call_kwargs["frequency_penalty"] == 0.1
         assert call_kwargs["presence_penalty"] == 0.2
         assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json"}}
