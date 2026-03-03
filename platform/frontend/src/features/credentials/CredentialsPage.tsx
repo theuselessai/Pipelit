@@ -51,6 +51,9 @@ export default function CredentialsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
+    if (credType === "tool" && !toolUrl.trim()) {
+      return // URL is required
+    }
     let detail: Record<string, unknown> = {}
     if (credType === "llm") detail = { provider_type: providerType, api_key: apiKey, base_url: baseUrl, organization_id: organizationId }
     else if (credType === "telegram") detail = { bot_token: botToken }
@@ -253,7 +256,7 @@ export default function CredentialsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>URL</Label>
-                  <Input value={toolUrl} onChange={(e) => setToolUrl(e.target.value)} placeholder="http://localhost:8888" />
+                  <Input value={toolUrl} onChange={(e) => setToolUrl(e.target.value)} placeholder="http://localhost:8888" required />
                 </div>
                 <div className="flex items-center gap-2">
                   <Checkbox checked={toolPreferred} onCheckedChange={(v) => setToolPreferred(v === true)} />
