@@ -52,14 +52,14 @@ class TestCreateLlmFromDb:
         with patch.dict("sys.modules", {"langchain_anthropic": MagicMock(ChatAnthropic=mock_cls)}):
             cred = SimpleNamespace(provider_type="anthropic", api_key="sk-ant-test", base_url="")
             create_llm_from_db(cred, "claude-3-opus-20240229")
-            mock_instance.assert_called_once_with(api_key="sk-ant-test", model="claude-3-opus-20240229")
+            mock_cls.assert_called_once_with(api_key="sk-ant-test", model="claude-3-opus-20240229")
 
     @patch("services.llm.ChatAnthropic", create=True)
     def test_anthropic_with_custom_base_url(self, mock_cls):
         with patch.dict("sys.modules", {"langchain_anthropic": MagicMock(ChatAnthropic=mock_cls)}):
             cred = SimpleNamespace(provider_type="anthropic", api_key="sk-mm", base_url="https://api.minimax.io/anthropic")
             create_llm_from_db(cred, "MiniMax-M2.5")
-            mock_instance.assert_called_once_with(api_key="sk-mm", base_url="https://api.minimax.io/anthropic", model="MiniMax-M2.5")
+            mock_cls.assert_called_once_with(api_key="sk-mm", base_url="https://api.minimax.io/anthropic", model="MiniMax-M2.5")
 
     @patch("services.llm._make_sanitized_chat_openai")
     def test_glm_provider(self, mock_factory):

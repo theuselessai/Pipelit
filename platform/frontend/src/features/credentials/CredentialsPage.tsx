@@ -57,6 +57,7 @@ export default function CredentialsPage() {
     else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
     await createCredential.mutateAsync({ name, credential_type: credType, detail })
     setOpen(false)
+    setCredType("llm")
     setProviderType("openai_compatible")
     setName("")
     setApiKey("")
