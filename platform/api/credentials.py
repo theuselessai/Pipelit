@@ -294,7 +294,7 @@ def test_credential(
             if resp.status_code >= 400:
                 return {"ok": False, "error": resp.text[:500]}
         elif llm.provider_type == "glm":
-            base = (llm.base_url or "https://api.z.ai/api/paas/v4/").rstrip("/")
+            base = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
             resp = httpx.get(
                 f"{base}/models",
                 headers={"Authorization": f"Bearer {llm.api_key}"},
@@ -349,7 +349,7 @@ def list_credential_models(
             return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
 
     if llm.provider_type == "glm":
-        base_url = (llm.base_url or "https://api.z.ai/api/paas/v4/").rstrip("/")
+        base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
     else:
         base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
     try:
