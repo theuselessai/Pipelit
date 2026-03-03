@@ -12,14 +12,17 @@ from components import register
 from components._agent_shared import (
     PipelitAgentMiddleware,
     _build_backend,
+    _get_ai_model_extra,
     _get_checkpointer,
     _get_redis_checkpointer,
     _make_skill_aware_backend,
     _resolve_credential_field,
     _resolve_tools,
     _resolve_skills,
+    _wrap_llm_with_native_tools,
     extract_text_content,
     strip_thinking_blocks,
+    strip_web_search_blocks,
 )
 from services.activity_watchdog import ActivityWatchdog, DEFAULT_INACTIVITY_TIMEOUT, DEFAULT_MAX_WALL_TIME
 from services.llm import resolve_llm_for_node
@@ -112,6 +115,28 @@ def deep_agent_factory(node):
     # Resolve canvas-connected external tools (same as regular agent)
     tools, tool_metadata = _resolve_tools(node)
     skill_paths = _resolve_skills(node)
+
+    # Web search — always resolve best available search backend
+    native_search_tools: list[dict] = []
+    try:
+        from services.web_search import resolve_web_search_tools
+        from services.llm import resolve_credential_for_node
+        cred = resolve_credential_for_node(node)
+        use_native = _get_ai_model_extra(node).get("use_native_search", False)
+        from database import SessionLocal
+        with SessionLocal() as search_db:
+            native, lc_tools = resolve_web_search_tools(cred, search_db, use_native_search=use_native)
+            native_search_tools = native
+            tools.extend(lc_tools)
+        if native_search_tools:
+            logger.info("DeepAgent %s: injecting %d native search tools", node_id, len(native_search_tools))
+        elif lc_tools:
+            logger.info("DeepAgent %s: added %d search tools", node_id, len(lc_tools))
+    except Exception:
+        logger.warning("Failed to resolve web search for deep_agent %s", node_id, exc_info=True)
+
+    if native_search_tools:
+        llm = _wrap_llm_with_native_tools(llm, native_search_tools)
 
     # Activity watchdog — extends RQ timeout while agent is active
     inactivity_timeout = int(extra.get("inactivity_timeout", DEFAULT_INACTIVITY_TIMEOUT))
@@ -236,6 +261,7 @@ def deep_agent_factory(node):
 
         out_messages = result.get("messages", [])
         strip_thinking_blocks(out_messages)
+        strip_web_search_blocks(out_messages)
 
         # Add timestamps to AI messages
         now = datetime.now(timezone.utc).isoformat() + "Z"

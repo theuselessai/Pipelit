@@ -94,6 +94,7 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
         data["detail"] = {
             "tool_type": tool.tool_type,
             "config": tool.config,
+            "is_preferred": tool.is_preferred,
         }
     return data
 
@@ -158,6 +159,7 @@ def create_credential(
             base_credentials_id=base.id,
             tool_type=detail.get("tool_type", "api"),
             config=detail.get("config", {}),
+            is_preferred=detail.get("is_preferred", False),
         )
         db.add(sub)
 
@@ -216,6 +218,8 @@ def update_credential(
                 tool.tool_type = detail["tool_type"]
             if "config" in detail:
                 tool.config = detail["config"]
+            if "is_preferred" in detail:
+                tool.is_preferred = detail["is_preferred"]
 
     db.commit()
     db.refresh(cred)
@@ -289,6 +293,17 @@ def test_credential(
             )
             if resp.status_code >= 400:
                 return {"ok": False, "error": resp.text[:500]}
+        elif llm.provider_type == "glm":
+            base = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
+            resp = httpx.get(
+                f"{base}/models",
+                headers={"Authorization": f"Bearer {llm.api_key}"},
+                timeout=15,
+            )
+            if resp.status_code in (401, 403):
+                return {"ok": False, "error": "Authentication failed - invalid API key"}
+            if resp.status_code >= 400:
+                return {"ok": False, "error": resp.text[:500]}
         else:
             # Test auth by listing models — no valid model name needed
             base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
@@ -333,7 +348,10 @@ def list_credential_models(
             logger.debug("Anthropic models API failed, using fallback list", exc_info=True)
             return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
 
-    base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
+    if llm.provider_type == "glm":
+        base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
+    else:
+        base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
     try:
         resp = httpx.get(
             f"{base_url}/models",

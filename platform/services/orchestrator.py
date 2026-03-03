@@ -509,27 +509,45 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)
             exc_type = type(exc).__name__
+            error_msg = str(exc)
+            skip_retry = False
+
+            # Detect corrupted checkpoint data (empty text blocks baked into
+            # conversation memory).  Retrying would replay the same bad data,
+            # so clear the affected thread and tell the user.
+            if "text cannot be empty" in error_msg.lower():
+                logger.warning(
+                    "Detected empty text block error for node %s — clearing checkpoints",
+                    node_id,
+                )
+                _clear_stale_checkpoints(execution_id, db)
+                error_msg += (
+                    "\n\nConversation memory contained corrupted data. "
+                    "Checkpoints cleared automatically — please retry."
+                )
+                skip_retry = True
+
             node_result = NodeResult.failed(
-                error_code=exc_type, message=str(exc), node_id=node_id,
-                recoverable=retry_count < MAX_NODE_RETRIES,
+                error_code=exc_type, message=error_msg, node_id=node_id,
+                recoverable=not skip_retry and retry_count < MAX_NODE_RETRIES,
             )
             node_result.started_at = started_at
             node_result.completed_at = datetime.now(timezone.utc)
 
             _write_log(
                 db, execution_id, node_id, "failed",
-                duration_ms=duration_ms, error=str(exc),
+                duration_ms=duration_ms, error=error_msg,
                 error_code=exc_type,
                 metadata=node_result.metadata,
             )
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.FAILED.value,
-                "error": str(exc)[:500], "error_code": exc_type,
+                "error": error_msg[:500], "error_code": exc_type,
                 **_node_meta,
             }, workflow_slug=slug)
 
             # Retry logic
-            if retry_count < MAX_NODE_RETRIES:
+            if not skip_retry and retry_count < MAX_NODE_RETRIES:
                 logger.warning("Node %s failed (attempt %d), retrying", node_id, retry_count + 1)
                 from tasks import execute_node_job as _enqueue_node
                 q = _queue()
@@ -566,7 +584,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                     state = load_state(execution_id)
                     loop_errors = state.get("_loop_errors", {})
                     loop_errors.setdefault(owning_loop_id, {})[node_id] = {
-                        "error": str(exc)[:500], "error_code": exc_type,
+                        "error": error_msg[:500], "error_code": exc_type,
                     }
                     state["_loop_errors"] = loop_errors
                     save_state(execution_id, state)
@@ -592,19 +610,19 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             # on_error == "stop" (default) — fail the entire execution
             logger.exception("Node %s failed permanently in execution %s", node_id, execution_id)
             execution.status = "failed"
-            execution.error_message = f"Node {node_id}: {str(exc)[:1900]}"
+            execution.error_message = f"Node {node_id}: {error_msg[:1900]}"
             execution.completed_at = datetime.now(timezone.utc)
             _persist_execution_costs(execution, load_state(execution_id))
             db.commit()
             _clear_stale_checkpoints(execution_id, db)
             _sync_task_costs(execution_id, db)
-            _publish_event(execution_id, "execution_failed", {"error": str(exc)[:500]}, workflow_slug=slug)
+            _publish_event(execution_id, "execution_failed", {"error": error_msg[:500]}, workflow_slug=slug)
             _complete_episode(
                 execution_id=execution_id,
                 success=False,
                 final_output=None,
                 error_code=exc_type,
-                error_message=f"Node {node_id}: {str(exc)[:500]}",
+                error_message=f"Node {node_id}: {error_msg[:500]}",
             )
             _propagate_failure_to_parent(execution, exc)
             _cleanup_redis(execution_id)

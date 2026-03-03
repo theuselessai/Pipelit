@@ -27,11 +27,27 @@ def extract_text_content(content) -> str:
     return str(content)
 
 
+def _is_empty_text_block(block) -> bool:
+    """True if block is a text content block with empty text.
+
+    Handles both plain dicts and Pydantic v2 model instances (e.g.
+    anthropic.types.TextBlock) which the LangGraph checkpointer preserves
+    via msgpack EXT_PYDANTIC_V2 serialisation.
+    """
+    if isinstance(block, dict):
+        return block.get("type") == "text" and not block.get("text")
+    # Pydantic v2 models (e.g. anthropic.types.TextBlock) from checkpointer
+    if hasattr(block, "type") and hasattr(block, "text"):
+        return getattr(block, "type") == "text" and not getattr(block, "text")
+    return False
+
+
 def strip_thinking_blocks(messages: list) -> list:
     """Strip thinking blocks from AI message content to avoid cross-provider signature errors.
 
     Providers like MiniMax return thinking blocks with signatures that are
     invalid when later sent to Anthropic's API via conversation memory.
+    Also removes empty text blocks that some providers reject.
     """
     for msg in messages:
         if not (hasattr(msg, "type") and msg.type == "ai"):
@@ -39,9 +55,109 @@ def strip_thinking_blocks(messages: list) -> list:
         content = getattr(msg, "content", None)
         if not isinstance(content, list):
             continue
-        cleaned = [block for block in content if not (isinstance(block, dict) and block.get("type") == "thinking")]
+        cleaned = [
+            block for block in content
+            if not (isinstance(block, dict) and block.get("type") == "thinking")
+            and not _is_empty_text_block(block)
+        ]
         msg.content = cleaned
     return messages
+
+
+_WEB_SEARCH_BLOCK_TYPES = {"server_tool_use", "web_search_tool_result", "web_search_result"}
+
+
+def strip_web_search_blocks(messages: list) -> list:
+    """Strip native web search blocks from AI message content.
+
+    Prevents cross-provider errors when conversation memory contains
+    Anthropic/GLM-specific web search blocks that other models can't parse.
+    Also removes empty text blocks that some providers reject.
+    """
+    for msg in messages:
+        if not (hasattr(msg, "type") and msg.type == "ai"):
+            continue
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        cleaned = [
+            block for block in content
+            if not (isinstance(block, dict) and block.get("type") in _WEB_SEARCH_BLOCK_TYPES)
+            and not _is_empty_text_block(block)
+        ]
+        # Strip citations that reference now-removed search results
+        for block in cleaned:
+            if isinstance(block, dict) and "citations" in block:
+                del block["citations"]
+        msg.content = cleaned
+    return messages
+
+
+def strip_empty_text_blocks(messages: list) -> list:
+    """Strip empty text blocks from ALL message types (not just AI).
+
+    Some providers like GLM reject empty text content blocks in any role.
+    The thinking/web-search strip functions only clean AI messages, so this
+    catches empty text blocks in human, tool, and system messages too.
+    """
+    for msg in messages:
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        cleaned = [block for block in content if not _is_empty_text_block(block)]
+        if len(cleaned) != len(content):
+            msg.content = cleaned
+    return messages
+
+
+def _get_ai_model_extra(node) -> dict:
+    """Extract extra_config from the connected ai_model node.
+
+    If the node is itself an ai_model, returns its own extra_config.
+    Otherwise follows llm_model_config_id to find the connected ai_model.
+    """
+    cc = node.component_config
+    if cc.component_type == "ai_model":
+        return getattr(cc, "extra_config", None) or {}
+    config_id = getattr(cc, "llm_model_config_id", None)
+    if not config_id:
+        return {}
+    from database import SessionLocal
+    from models.node import BaseComponentConfig as BCC
+    with SessionLocal() as db:
+        tc = db.get(BCC, config_id)
+        return (tc.extra_config if tc else None) or {}
+
+
+class _NativeToolLLMWrapper:
+    """Proxy that injects native tools into every bind_tools() call.
+
+    LLM objects are Pydantic models and don't allow setting arbitrary
+    attributes, so we use a wrapper that delegates everything to the
+    underlying LLM but intercepts bind_tools().
+    """
+
+    def __init__(self, llm, native_tools: list[dict]):
+        object.__setattr__(self, "_llm", llm)
+        object.__setattr__(self, "_native_tools", native_tools)
+
+    def bind_tools(self, tools, **kwargs):
+        return self._llm.bind_tools(list(tools) + self._native_tools, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._llm, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._llm, name, value)
+
+
+def _wrap_llm_with_native_tools(llm, native_tools: list[dict]):
+    """Wrap LLM so native tools are injected into every bind_tools call.
+
+    Native tools (e.g. Anthropic web_search) must reach the API but should
+    never touch LangGraph's ToolNode (they're server-side executed).
+    """
+    return _NativeToolLLMWrapper(llm, native_tools)
 
 
 # ---------------------------------------------------------------------------
@@ -219,9 +335,11 @@ class PipelitAgentMiddleware(AgentMiddleware):
     def wrap_model_call(self, request, handler):
         if self._watchdog:
             self._watchdog.ping()
-        # Strip thinking blocks before the LLM call so they are never sent
-        # to a different provider AND never persisted by the checkpointer.
+        # Strip thinking/web-search blocks before the LLM call so they are
+        # never sent to a different provider AND never persisted by the checkpointer.
         strip_thinking_blocks(request.messages)
+        strip_web_search_blocks(request.messages)
+        strip_empty_text_blocks(request.messages)
         response = handler(request)
         if self._watchdog:
             self._watchdog.ping()
