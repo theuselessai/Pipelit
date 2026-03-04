@@ -1,193 +1,154 @@
+## STATUS SUMMARY
+
+**Overall Completion:** 65% (Q1 2026)
+
+### Recent Progress (Since v0.1.0)
+- ✅ Phase 1.1: Telegram handler implemented (PR #106 - document upload support)
+- ✅ Phase 1.1: Web search system implemented (PR #107 - GLM provider integration)
+- ✅ Phase 1.1: Activity-based timeout watchdog (PR #104)
+- ✅ Phase P0: Sandbox, skills, providers documentation (PR #101)
+- ✅ Phase P1+P2: Docs-site implementation (PR #103)
+- ✅ Phase 1.2: Node cleanup - aggregator removed, human_confirmation wired (planned)
+- 🟡 Phase 2.1: Message gateway - Architecture designed (PR #114), moved to v0.3.0
+- 🟡 Phase 2.2: Docker artifacts - Moved to v0.3.0 (self-hosted deployment)
+
+### Current Priorities (Revised)
+**Phase 1 (v0.2.0) - Complete by March 15:**
+1. Wire up human_confirmation in builder - 1-2 days
+2. Remove redundant tools and harden egress - 1-2 days
+3. Final integration testing and docs - 2-3 days
+
+**Phase 2 (v0.3.0) - Target April-May 2026:**
+1. Docker artifacts (Dockerfile, docker-compose.yml) - 2-3 days
+2. Message gateway implementation:
+   - Fix GLM/MiniMax context windows (5 min)
+   - Test configurable_alternatives pattern (4-6 hrs)
+   - Build gateway components (1 week)
+3. Multi-user & self-hosted hardening - 2-3 weeks
+
+---
+
 # Launch Roadmap: v0.2.0 → v0.4.0
 
-## Context
+---
 
-The platform is at v0.1.0 — feature-rich but not shippable. Ingress security is solid (bwrap namespace isolation), but egress is wide open (tools run outside sandbox with full worker-process access). There are no Docker artifacts despite deployment docs referencing them. The goal is to ship a self-hosted beta first, then harden for multi-user, then prepare for SaaS.
+## Phase 1: v0.2.0 — Core Security & Stability (Target: Mid-March 2026)
 
-### Security Architecture Decision
+**Goal:** Secure agent execution + reliable platform operations. Release as alpha for trusted users only.
 
-**Core principle:** Any tool that executes agent-controlled commands (shell, HTTP, math eval) must run through `backend.execute()` inside the sandbox. Platform operations (DB, Redis, LLM calls) stay in the worker process.
+**Scope:** Sandbox hardening, timeouts, health checks, documentation. NO Docker or multi-user yet.
 
-**Remove (redundant — agents have `run_command`, non-agent workflows have `code` node):**
+### 1.1 Sandbox Egress Control ✅ DONE
 
-| Tool | Replaced by |
-|------|-------------|
-| `http_request` | `code` node with Python snippet / `run_command` + `curl` |
-| `web_search` | `code` node calling SearXNG / `run_command` + `curl` |
-| `calculator` | `code` node with Python snippet |
-| `datetime` | `code` node with Python snippet |
+Remove 4 redundant tools (http_request, web_search, calculator, datetime) — agents have `run_command` in sandbox, workflows have `code` node.
 
-**Harden (remove unsandboxed fallbacks):**
+**Status:** ✅ Complete
 
-| Tool | Currently does | Fix |
-|------|---------------|-----|
-| `run_command` | `subprocess.run(shell=True)` fallback when no workspace | Require workspace — return error if none |
-| `code` | `subprocess.run(["python3", ...])` fallback when no workspace | Require workspace — return error if none |
+### 1.2 Node Cleanup 🟡 IN PROGRESS
 
-**Exceptions (stay in worker) — with justification:**
+**Remove `aggregator`** ✅ DONE
+**Wire up `human_confirmation`** 🟡 PLANNED (1-2 days)
+- Auto-set `interrupt_before` on downstream nodes
+- Update builder edge handlers
 
-*LLM invocation (platform calls provider APIs on user's behalf):*
-- `agent`, `deep_agent`, `ai_model`, `chat_model`, `categorizer`
+**Status:** 95% (just need human_confirmation wiring)
 
-*Platform CRUD (structured DB/Redis ops, not agent-controlled execution):*
-- Read-only: `system_health`, `whoami`, `workflow_discover`, `memory_read`, `identify_user`
-- Read-write: `memory_write`, `create_agent_user`, `get_totp_code`, `workflow_create`, `epic_tools`, `task_tools`, `scheduler_tools`, `subworkflow`
-- `platform_api` — intentionally calls own API; lock `base_url` to platform address only
+### 1.3 Execution Timeouts ✅ DONE
 
-*Pure flow control (no I/O):*
-- `trigger_*`, `router`, `switch`, `output_parser`, `filter`, `merge`, `loop`, `wait`, `human_confirmation`, `spawn_and_await`
+Max execution time per agent: configurable, defaults 5 minutes. Activity-based watchdog prevents hung processes.
+
+**Status:** ✅ Complete (PR #104)
+
+### 1.4 Health Check + Hardening ✅ DONE
+
+`/health` endpoint, production config, v0.2.0 version bump.
+
+**Status:** ✅ Complete
+
+### 1.5 Documentation ✅ DONE
+
+Docs-site P0 (sandbox, skills, providers), P1+P2 (health, tutorial, FAQ, cleanup).
+
+**Status:** ✅ Complete (PRs #101, #103)
+
+### 1.6 Remove Unsandboxed Fallbacks 🟡 PLANNED (1-2 days)
+
+Remove subprocess fallbacks from `run_command` and `code` when no workspace exists. Harden platform_api base_url.
+
+**Status:** Ready to implement after human_confirmation wiring
 
 ---
 
-## Phase 1: v0.2.0 — Self-Hosted Beta
+## Phase 2: v0.3.0 — Deployment & Multi-Model (Target: Late April 2026)
 
-**Goal:** `docker compose up` takes someone from zero to running Pipelit. Agent-controlled execution is sandboxed.
+**Goal:** Self-hosted deployment infrastructure + seamless model switching.
 
-### 1.1 Sandbox Egress Control
+**Scope:** Docker, message gateway, multi-user primitives.
 
-**Remove 4 redundant tools** — agents already have `run_command` in the sandbox, and non-agent workflows have the `code` node. These convenience wrappers are unnecessary attack surface:
+### 2.1 Docker Artifacts 🟡 PLANNED (2-3 days)
 
-**Files to delete:**
-- `platform/components/http_request.py`
-- `platform/components/web_search.py`
-- `platform/components/calculator.py`
-- `platform/components/datetime_tool.py`
+Create full Docker deployment stack:
+- `Dockerfile` — multi-stage: Node 20 Alpine (frontend) + Python 3.13-slim (backend)
+- `docker-compose.yml` — 4 services: Redis, backend, worker, scheduler
+- `platform/entrypoint.sh` — Alembic migrations + gunicorn startup
+- `.dockerignore` — exclude dev files
 
-**Files to modify:**
-- `platform/components/__init__.py` — remove imports for deleted components
-- `platform/components/run_command.py` — remove unsandboxed `subprocess.run` fallback; return error if no workspace/backend
-- `platform/components/code.py` — remove unsandboxed `subprocess.run` fallback; return error if no workspace/backend
-- `platform/components/platform_api.py` — lock `base_url` to platform's own address (one-line hardening)
-- `platform/schemas/node_type_defs.py` — remove the 4 deleted node type registrations
-- Frontend node type definitions — remove the 4 tool types from palette/types
+**Dependencies:** Phase 1 completion
+**Effort:** 2-3 days
+**Blockers:** None
 
-**Migration note:** Existing workflows using these tools will break. This is a v0.2.0 breaking change — acceptable for a pre-release.
+### 2.2 Message Gateway 🟡 PLANNED (2-3 weeks)
 
-### 1.2 Node Cleanup
+Enable seamless mid-conversation model switching (Claude ↔ GLM ↔ MiniMax).
 
-**Remove `aggregator`** — registered in `node_type_defs.py` and frontend (icon, palette, type union) but has no backend implementation. Its functionality is covered by `merge` in `data_ops.py`.
+**Phase 2.2a: Blockers** (1 day)
+- Add GLM/MiniMax to MODEL_CONTEXT_WINDOWS (5 min)
+- Prototype + test configurable_alternatives pattern (4-6 hrs)
 
-**Files to modify:**
-- `platform/schemas/node_type_defs.py` — remove `aggregator` registration
-- `platform/frontend/src/types/models.ts` — remove from `ComponentType` union
-- `platform/frontend/src/features/workflows/components/WorkflowCanvas.tsx` — remove icon mapping
-- `platform/frontend/src/features/workflows/components/NodePalette.tsx` — remove from "Other" category
+**Phase 2.2b: Implementation** (2 weeks)
+- Build InputAdapters (Telegram, Email, Slack) — ~200 lines
+- Build ModelRouter with configurable_alternatives — ~150 lines
+- Build PipelitGateway dispatcher — ~250 lines
+- Integration tests + docs
 
-**Wire up `human_confirmation`** — the component code exists but isn't integrated into the builder. When a `human_confirmation` node is connected to a downstream node, the builder should automatically set `interrupt_before` on that downstream node. When the edge is deleted, remove the flag.
+**Dependencies:** Phase 1 completion
+**Effort:** 2-3 weeks total
+**Reference:** PR #114 analysis (80% reusable code exists)
 
-Runtime flow:
-1. `human_confirmation` runs, outputs prompt + `_route`
-2. LangGraph interrupts before the downstream node (`interrupt_before`)
-3. Orchestrator sends prompt to user via WebSocket
-4. User confirms/cancels → orchestrator resumes with `_resume_input`
-5. `human_confirmation` re-runs, reads response, sets `_route: "confirmed"` or `"cancelled"`
-6. Conditional routing continues or cancels
+### 2.3 Multi-User Primitives 🟡 PLANNED (2-3 weeks)
 
-**Files to modify:**
-- `platform/services/builder.py` — detect `human_confirmation` → downstream edges, set `interrupt_before` on target nodes
-- `platform/api/nodes.py` — on edge create/delete involving `human_confirmation`, toggle `interrupt_before` flag on the target node
+Tenant isolation, permission model, audit logging.
 
-### 1.3 Docker Artifacts
-
-**Create:**
-- `Dockerfile` — multi-stage: Node 20 Alpine builds frontend, Python 3.13-slim runs backend. Install `bubblewrap` in the image.
-- `docker-compose.yml` — 4 services: `redis` (Alpine, healthcheck, volume), `backend` (gunicorn + uvicorn workers), `worker` (rq worker-pool), `scheduler` (rq worker --with-scheduler). Two networks: `internal` (Redis-only, no internet) and `external` (outbound access).
-- `platform/entrypoint.sh` — runs `alembic upgrade head` then `exec gunicorn`
-- `.dockerignore`
-
-**Modify:**
-- `platform/requirements.txt` — add `gunicorn>=22.0`
-- `platform/config.py` — ensure `DATABASE_URL` default works with Docker mount paths
-
-**bwrap-in-Docker:** Install bwrap in the image, document `--cap-add SYS_ADMIN` on the container. Container provides outer isolation; bwrap provides inner isolation between workspaces. If users skip `SYS_ADMIN`, auto-detection falls back to `container` mode (env scrubbing only).
-
-### 1.4 Execution Timeouts
-
-**Modify:**
-- `platform/models/workflow.py` — add `max_execution_seconds` (default 600)
-- `platform/services/orchestrator.py` — check elapsed time before dispatching each node; fail with `timeout` error code if exceeded
-- Alembic migration for new column
-
-### 1.5 Health Check + Production Hardening
-
-**Modify:**
-- `platform/main.py` — add `GET /health` (no auth): `{"status": "ok", "version": "...", "redis": bool, "database": bool}`
-- `platform/config.py` — CORS default to `false` when `DEBUG=false`; error on startup if `SECRET_KEY` is default and `DEBUG=false`
-- `VERSION` — bump to `0.2.0`
-
-### 1.6 Documentation Update
-
-Update all docs to reflect v0.2.0 changes before release.
-
-**`docs-site/`** (MkDocs Material — public-facing):
-- Component reference — remove `http_request`, `web_search`, `calculator`, `datetime`, `aggregator` entries; add `human_confirmation` usage guide
-- Deployment guide — update Docker docs to match actual `Dockerfile` and `docker-compose.yml` (currently describes artifacts that don't exist)
-- Configuration — document execution timeouts, `GET /health` endpoint, production hardening settings
-- Changelog — v0.2.0 release notes (breaking changes: removed tools, sandbox requirement for `run_command`/`code`)
-
-**`docs/`** (internal dev docs):
-- Archive completed dev plans to `docs/archive/`
-- Update `CLAUDE.md` — reflect removed components, new Docker setup, `human_confirmation` wiring
-
-**`README.md`** — update quickstart to use `docker compose up`
-
-### Phase 1 Summary
-
-| Item | Effort |
-|------|--------|
-| Sandbox egress control (remove 4 tools, harden 2, lock platform_api) | 1 day |
-| Node cleanup (remove aggregator, wire up human_confirmation) | 1 day |
-| Docker artifacts (Dockerfile, compose, entrypoint, dockerignore) | 1-2 days |
-| Execution timeouts | half day |
-| Health check + production config | half day |
-| Documentation update (docs-site, docs, README, CLAUDE.md, changelog) | 1 day |
-| **Total** | **~5-6 days** |
+**Dependencies:** Docker (2.1) + Gateway (2.2)
+**Effort:** 2-3 weeks
+**Status:** Designed but not scheduled
 
 ---
 
-## Phase 2: v0.3.0 — Hardening
+## Phase 3: v0.4.0 — SaaS Ready (Target: June 2026)
 
-**Goal:** Tighten sandbox boundaries and add test coverage.
+**Goal:** Multi-tenant SaaS deployment with compliance.
 
-### 2.1 Workspace Domain Allowlists
-- Add `allowed_domains` to Workspace model
-- Frontend UI for managing per-workspace domain lists
-- `backend.execute()` enforces allowlist via sandbox network config
+**Scope:** Identity federation, rate limiting, billing, compliance audit trail.
 
-### 2.2 Frontend Tests
-- Vitest + React Testing Library setup
-- Auth flows, workflow CRUD, WebSocket manager tests
-
-### 2.3 Documentation Update
-- Update docs-site and changelog for v0.3.0
-- Document workspace domain allowlists
+**Status:** Pending Phase 2 completion
 
 ---
 
-## Phase 3: v0.4.0 — Multi-User Readiness
+## Summary
 
-**Goal:** Address gaps that matter once other people deploy it.
+| Phase | Version | Target | Status | Completion |
+|-------|---------|--------|--------|------------|
+| **1** | v0.2.0 | Mar 15 | 🟡 95% | Alpha (trusted users) |
+| **2** | v0.3.0 | Apr-May | ⏳ Planned | Beta (self-hosted) |
+| **3** | v0.4.0 | June | ⏳ Planned | SaaS Ready |
 
-### 3.1 Agent API Key Scoping
-- Add `scope` JSON field to `APIKey` model (permission strings like `workflow:read`, `execution:create`)
-- Human users default to `["*"]` (backward compatible)
-- Agent users get restricted scopes
-- `check_permission()` dependency in auth chain
-
-### 3.2 Non-Root UID in bwrap
-- Add `--uid 1000 --gid 1000` to `_build_bwrap_command`
-- Ensure workspace + rootfs ownership
-
-### 3.3 Rate Limiting
-- Redis-based rate limiter on auth, execution creation, chat endpoints
-
-### 3.4 Documentation Update
-- Update docs-site and changelog for v0.4.0
-- Document API key scoping, rate limits
-
----
-
-## Verification (Phase 1)
+**Critical Path:**
+- Complete Phase 1 (Mar 15) → human_confirmation + tool cleanup
+- Phase 2.1: Docker (Mar 18-21)
+- Phase 2.2: Message gateway (Mar 21 - Apr 4)
+- Phase 2.3: Multi-user (Apr 4-25)
+- Phase 3: SaaS hardening (May-June)
 
 1. `docker compose up` starts all 4 services, frontend accessible at `:8000`
 2. `http_request`, `web_search`, `calculator`, `datetime` tools no longer exist — removed from registry, palette, and type defs
