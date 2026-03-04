@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure skills directory exists
     try:
-        skills_dir = Path(settings.SKILLS_DIR) if settings.SKILLS_DIR else Path.home() / ".config" / "pipelit" / "skills"
+        skills_dir = Path(settings.SKILLS_DIR) if settings.SKILLS_DIR else Path.home() / ".config" / "pipelit" / "community_skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Skills directory: %s", skills_dir)
     except Exception:

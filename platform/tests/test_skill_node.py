@@ -303,7 +303,8 @@ def test_resolve_skills_empty_path_uses_default(db, workflow):
         result = _resolve_skills(agent_node)
         assert len(result) == 1
         # Should end with the platform default path
-        assert result[0].endswith(".config/pipelit/skills")
+        # May end with community_skills or community_skills/skills (auto-detected subdir)
+        assert ".config/pipelit/community_skills" in result[0]
 
 
 # ── Workflow validation tests ─────────────────────────────────────────────────
@@ -899,9 +900,157 @@ class TestDeepAgentFactorySkills:
             deep_agent_factory(mock_node)
 
             # _make_skill_aware_backend should have been called with the backend and paths
-            mock_make_skill.assert_called_once_with(mock_backend, ["/skills/code"])
+            mock_make_skill.assert_called_once()
+            call_args = mock_make_skill.call_args
+            assert call_args[0][0] is mock_backend
+            # When no bwrap, host paths are used directly
+            assert call_args[0][1] == ["/skills/code"]
 
             # create_deep_agent should receive the skill-aware factory as backend and skill_paths
             create_call_kwargs = mock_create.call_args[1]
             assert create_call_kwargs["backend"] is mock_skill_factory
             assert create_call_kwargs["skills"] == ["/skills/code"]
+
+    def test_deep_agent_factory_with_skills_bwrap_mode(self):
+        """deep_agent_factory uses sandbox paths when bwrap mode is active."""
+        mock_node = MagicMock()
+        mock_node.node_id = "deep_agent_002"
+        mock_node.workflow_id = 1
+        mock_node.workflow.slug = "test-wf"
+        mock_node.component_config.concrete.system_prompt = "You are helpful."
+        mock_node.component_config.concrete.extra_config = {}
+        mock_node.component_config.concrete.max_tokens = None
+
+        mock_backend = MagicMock()
+        mock_backend._resolution = MagicMock()
+        mock_backend._resolution.mode = "bwrap"
+        mock_skill_factory = MagicMock()
+
+        with patch("components.deep_agent._resolve_skills", return_value=["/home/user/skills/web", "/home/user/skills/code"]), \
+             patch("components.deep_agent.resolve_llm_for_node", return_value=MagicMock()), \
+             patch("components.deep_agent._resolve_tools", return_value=([], {})), \
+             patch("components.deep_agent.get_model_name_for_node", return_value="test-model"), \
+             patch("components.deep_agent._build_backend", return_value=mock_backend), \
+             patch("components.deep_agent._make_skill_aware_backend", return_value=mock_skill_factory) as mock_make_skill, \
+             patch("components.deep_agent._get_redis_checkpointer", return_value=MagicMock()), \
+             patch("components.deep_agent.create_deep_agent") as mock_create:
+            mock_create.return_value = MagicMock(invoke=MagicMock(return_value={"messages": []}))
+            from components.deep_agent import deep_agent_factory
+            deep_agent_factory(mock_node)
+
+            # _make_skill_aware_backend should use sandbox paths in bwrap mode
+            mock_make_skill.assert_called_once()
+            call_args = mock_make_skill.call_args
+            assert call_args[0][1] == ["/.skill_providers/web", "/.skill_providers/code"]
+            assert call_args[1]["sandbox_to_host"] == {
+                "/.skill_providers/web": "/home/user/skills/web",
+                "/.skill_providers/code": "/home/user/skills/code",
+            }
+
+            # create_deep_agent should receive sandbox paths as skills
+            create_call_kwargs = mock_create.call_args[1]
+            assert create_call_kwargs["skills"] == ["/.skill_providers/web", "/.skill_providers/code"]
+
+
+# ── _compute_skill_path_mapping tests ───────────────────────────────────────
+
+
+class TestComputeSkillPathMapping:
+    """Tests for _compute_skill_path_mapping() helper."""
+
+    def test_single_path(self):
+        from components._agent_shared import _compute_skill_path_mapping
+        sandbox_paths, mapping = _compute_skill_path_mapping(["/home/user/skills"])
+        assert sandbox_paths == ["/.skill_providers/skills"]
+        assert mapping == {"/.skill_providers/skills": "/home/user/skills"}
+
+    def test_multiple_paths(self):
+        from components._agent_shared import _compute_skill_path_mapping
+        sandbox_paths, mapping = _compute_skill_path_mapping(["/skills/web", "/skills/code"])
+        assert sandbox_paths == ["/.skill_providers/web", "/.skill_providers/code"]
+        assert mapping == {
+            "/.skill_providers/web": "/skills/web",
+            "/.skill_providers/code": "/skills/code",
+        }
+
+    def test_collision_handling(self):
+        from components._agent_shared import _compute_skill_path_mapping
+        sandbox_paths, mapping = _compute_skill_path_mapping([
+            "/a/skills", "/b/skills", "/c/skills",
+        ])
+        assert sandbox_paths == [
+            "/.skill_providers/skills",
+            "/.skill_providers/skills_1",
+            "/.skill_providers/skills_2",
+        ]
+        assert mapping["/.skill_providers/skills"] == "/a/skills"
+        assert mapping["/.skill_providers/skills_1"] == "/b/skills"
+        assert mapping["/.skill_providers/skills_2"] == "/c/skills"
+
+    def test_trailing_slash_stripped(self):
+        from components._agent_shared import _compute_skill_path_mapping
+        sandbox_paths, mapping = _compute_skill_path_mapping(["/home/user/skills/"])
+        assert sandbox_paths == ["/.skill_providers/skills"]
+        assert mapping["/.skill_providers/skills"] == "/home/user/skills"
+
+    def test_empty_basename_uses_default(self):
+        from components._agent_shared import _compute_skill_path_mapping
+        sandbox_paths, mapping = _compute_skill_path_mapping(["/"])
+        assert sandbox_paths == ["/.skill_providers/default"]
+        assert mapping["/.skill_providers/default"] == ""
+
+
+# ── SkillAwareBackend path translation tests ────────────────────────────────
+
+
+class TestSkillAwareBackendTranslation:
+    """Tests for SkillAwareBackend._translate_to_host_path()."""
+
+    def _make_backend(self, skill_paths, sandbox_to_host):
+        from components._agent_shared import SkillAwareBackend
+        default = MagicMock()
+        return SkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host), default
+
+    def test_translate_exact_match(self):
+        backend, _ = self._make_backend(
+            ["/.skill_providers/web"],
+            {"/.skill_providers/web": "/home/user/skills/web"},
+        )
+        assert backend._translate_to_host_path("/.skill_providers/web") == "/home/user/skills/web"
+
+    def test_translate_child_path(self):
+        backend, _ = self._make_backend(
+            ["/.skill_providers/web"],
+            {"/.skill_providers/web": "/home/user/skills/web"},
+        )
+        assert backend._translate_to_host_path("/.skill_providers/web/SKILL.md") == "/home/user/skills/web/SKILL.md"
+
+    def test_translate_no_mapping_passthrough(self):
+        backend, _ = self._make_backend(
+            ["/.skill_providers/web"],
+            {"/.skill_providers/web": "/home/user/skills/web"},
+        )
+        assert backend._translate_to_host_path("/workspace/file.py") == "/workspace/file.py"
+
+    def test_translate_empty_mapping(self):
+        backend, _ = self._make_backend(["/skills"], None)
+        assert backend._translate_to_host_path("/skills/web/SKILL.md") == "/skills/web/SKILL.md"
+
+    def test_read_translates_sandbox_path(self):
+        backend, default = self._make_backend(
+            ["/.skill_providers/web"],
+            {"/.skill_providers/web": "/home/user/skills/web"},
+        )
+        with patch.object(backend._fs, "read", return_value="# SKILL.md") as fs_read:
+            result = backend.read("/.skill_providers/web/SKILL.md")
+            fs_read.assert_called_once_with("/home/user/skills/web/SKILL.md", 0, 2000)
+            assert result == "# SKILL.md"
+
+    def test_ls_info_translates_sandbox_path(self):
+        backend, default = self._make_backend(
+            ["/.skill_providers/code"],
+            {"/.skill_providers/code": "/opt/skills/code"},
+        )
+        with patch.object(backend._fs, "ls_info", return_value=[]) as fs_ls:
+            backend.ls_info("/.skill_providers/code")
+            fs_ls.assert_called_once_with("/opt/skills/code")
