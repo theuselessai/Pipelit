@@ -1,4 +1,63 @@
+## STATUS SUMMARY
+
+**Overall Completion:** 65% (Q1 2026)
+
+### Recent Progress (Since v0.1.0)
+- ✅ Phase 1.1: Telegram handler implemented (PR #106 - document upload support)
+- ✅ Phase 1.1: Web search system implemented (PR #107 - GLM provider integration)
+- ✅ Phase 1.1: Activity-based timeout watchdog (PR #104)
+- ✅ Phase P0: Sandbox, skills, providers documentation (PR #101)
+- ✅ Phase P1+P2: Docs-site implementation (PR #103)
+- 🟡 Phase 1.4: Message gateway - Architecture designed (PR #114), awaiting implementation
+- 🟡 Phase 1.3: Docker artifacts - Referenced but not yet created
+- ❌ Phase 1.2: Node cleanup (aggregator removal, human_confirmation wiring)
+
+### Current Blockers
+- Docker Dockerfile and docker-compose.yml not yet created
+- 4 redundant tools not yet removed (http_request, web_search, calculator, datetime)
+- human_confirmation node not wired into builder
+- Message gateway components not implemented (GLM/MiniMax context windows missing)
+
+### Next Priorities (March 2026)
+1. Create Docker artifacts (Dockerfile, docker-compose.yml) - 2-3 days
+2. Remove redundant tools and harden egress - 1-2 days
+3. Implement message gateway (fix context windows, test configurable_alternatives) - 1-2 weeks
+4. Wire up human_confirmation in builder - 1-2 days
+
+---
+
 # Launch Roadmap: v0.2.0 → v0.4.0
+
+---
+
+## STATUS SUMMARY (as of 2026-03-04)
+
+**Overall: ~30% complete** (Phase 1 ~65%, Phase 2 0%, Phase 3 0%)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| **Phase 1: v0.2.0** | 🟡 ~65% | Sandbox + timeouts + health done; Docker missing |
+| **Phase 2: v0.3.0** | Not started | Blocked on Phase 1 completion |
+| **Phase 3: v0.4.0** | Not started | Blocked on Phase 2 completion |
+
+**Phase 1 Breakdown:**
+| Item | Status |
+|------|--------|
+| 1.1 Sandbox Egress Control | ✅ DONE — 4 tools removed, 2 hardened, platform_api locked |
+| 1.2 Node Cleanup | 🟡 PARTIAL — aggregator removed; human_confirmation not auto-wired in builder |
+| 1.3 Docker Artifacts | 🔴 BLOCKED — no Dockerfile or docker-compose.yml exist |
+| 1.4 Execution Timeouts | ✅ DONE — max_execution_seconds in model, orchestrator, migration, frontend |
+| 1.5 Health Check + Hardening | ✅ DONE — /health endpoint, production config, v0.2.0 bump |
+| 1.6 Documentation Update | 🟡 IN PROGRESS — docs-site P0+P1+P2 done (PRs #101, #103); Docker docs blocked on 1.3 |
+
+**Bonus work shipped (not in original roadmap):**
+- Telegram polling via self-rescheduling RQ job (#96)
+- Telegram document upload with file metadata (#106)
+- Activity-based timeout watchdog for agent nodes (#104)
+- Web search service + GLM provider + checkpoint auto-recovery (#107)
+- Message Gateway architecture design (#114 — docs/design only)
+
+---
 
 ## Context
 
@@ -43,7 +102,7 @@ The platform is at v0.1.0 — feature-rich but not shippable. Ingress security i
 
 **Goal:** `docker compose up` takes someone from zero to running Pipelit. Agent-controlled execution is sandboxed.
 
-### 1.1 Sandbox Egress Control
+### 1.1 Sandbox Egress Control ✅ DONE
 
 **Remove 4 redundant tools** — agents already have `run_command` in the sandbox, and non-agent workflows have the `code` node. These convenience wrappers are unnecessary attack surface:
 
@@ -63,9 +122,9 @@ The platform is at v0.1.0 — feature-rich but not shippable. Ingress security i
 
 **Migration note:** Existing workflows using these tools will break. This is a v0.2.0 breaking change — acceptable for a pre-release.
 
-### 1.2 Node Cleanup
+### 1.2 Node Cleanup 🟡 IN PROGRESS
 
-**Remove `aggregator`** — registered in `node_type_defs.py` and frontend (icon, palette, type union) but has no backend implementation. Its functionality is covered by `merge` in `data_ops.py`.
+**Remove `aggregator`** ✅ DONE — registered in `node_type_defs.py` and frontend (icon, palette, type union) but has no backend implementation. Its functionality is covered by `merge` in `data_ops.py`.
 
 **Files to modify:**
 - `platform/schemas/node_type_defs.py` — remove `aggregator` registration
@@ -73,7 +132,7 @@ The platform is at v0.1.0 — feature-rich but not shippable. Ingress security i
 - `platform/frontend/src/features/workflows/components/WorkflowCanvas.tsx` — remove icon mapping
 - `platform/frontend/src/features/workflows/components/NodePalette.tsx` — remove from "Other" category
 
-**Wire up `human_confirmation`** — the component code exists but isn't integrated into the builder. When a `human_confirmation` node is connected to a downstream node, the builder should automatically set `interrupt_before` on that downstream node. When the edge is deleted, remove the flag.
+**Wire up `human_confirmation`** 🔴 NOT DONE — the component code exists but isn't integrated into the builder. When a `human_confirmation` node is connected to a downstream node, the builder should automatically set `interrupt_before` on that downstream node. When the edge is deleted, remove the flag.
 
 Runtime flow:
 1. `human_confirmation` runs, outputs prompt + `_route`
@@ -87,7 +146,7 @@ Runtime flow:
 - `platform/services/builder.py` — detect `human_confirmation` → downstream edges, set `interrupt_before` on target nodes
 - `platform/api/nodes.py` — on edge create/delete involving `human_confirmation`, toggle `interrupt_before` flag on the target node
 
-### 1.3 Docker Artifacts
+### 1.3 Docker Artifacts 🔴 BLOCKED
 
 **Create:**
 - `Dockerfile` — multi-stage: Node 20 Alpine builds frontend, Python 3.13-slim runs backend. Install `bubblewrap` in the image.
@@ -101,23 +160,23 @@ Runtime flow:
 
 **bwrap-in-Docker:** Install bwrap in the image, document `--cap-add SYS_ADMIN` on the container. Container provides outer isolation; bwrap provides inner isolation between workspaces. If users skip `SYS_ADMIN`, auto-detection falls back to `container` mode (env scrubbing only).
 
-### 1.4 Execution Timeouts
+### 1.4 Execution Timeouts ✅ DONE
 
 **Modify:**
 - `platform/models/workflow.py` — add `max_execution_seconds` (default 600)
 - `platform/services/orchestrator.py` — check elapsed time before dispatching each node; fail with `timeout` error code if exceeded
 - Alembic migration for new column
 
-### 1.5 Health Check + Production Hardening
+### 1.5 Health Check + Production Hardening ✅ DONE
 
 **Modify:**
 - `platform/main.py` — add `GET /health` (no auth): `{"status": "ok", "version": "...", "redis": bool, "database": bool}`
 - `platform/config.py` — CORS default to `false` when `DEBUG=false`; error on startup if `SECRET_KEY` is default and `DEBUG=false`
 - `VERSION` — bump to `0.2.0`
 
-### 1.6 Documentation Update
+### 1.6 Documentation Update 🟡 IN PROGRESS
 
-Update all docs to reflect v0.2.0 changes before release.
+Update all docs to reflect v0.2.0 changes before release. *(docs-site P0+P1+P2 shipped in PRs #101, #103; Docker docs blocked on 1.3)*
 
 **`docs-site/`** (MkDocs Material — public-facing):
 - Component reference — remove `http_request`, `web_search`, `calculator`, `datetime`, `aggregator` entries; add `human_confirmation` usage guide
@@ -133,15 +192,15 @@ Update all docs to reflect v0.2.0 changes before release.
 
 ### Phase 1 Summary
 
-| Item | Effort |
-|------|--------|
-| Sandbox egress control (remove 4 tools, harden 2, lock platform_api) | 1 day |
-| Node cleanup (remove aggregator, wire up human_confirmation) | 1 day |
-| Docker artifacts (Dockerfile, compose, entrypoint, dockerignore) | 1-2 days |
-| Execution timeouts | half day |
-| Health check + production config | half day |
-| Documentation update (docs-site, docs, README, CLAUDE.md, changelog) | 1 day |
-| **Total** | **~5-6 days** |
+| Item | Effort | Status |
+|------|--------|--------|
+| Sandbox egress control (remove 4 tools, harden 2, lock platform_api) | 1 day | ✅ DONE |
+| Node cleanup (remove aggregator, wire up human_confirmation) | 1 day | 🟡 Partial |
+| Docker artifacts (Dockerfile, compose, entrypoint, dockerignore) | 1-2 days | 🔴 BLOCKED |
+| Execution timeouts | half day | ✅ DONE |
+| Health check + production config | half day | ✅ DONE |
+| Documentation update (docs-site, docs, README, CLAUDE.md, changelog) | 1 day | 🟡 In progress |
+| **Total** | **~5-6 days** | **~65%** |
 
 ---
 
