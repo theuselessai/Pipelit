@@ -1,30 +1,34 @@
 ## STATUS SUMMARY
 
-**Overall Completion:** 65% (Q1 2026)
+**Last Updated:** March 5, 2026
+**Overall Completion:** 95% (v0.2.0 Alpha)
+
+### v0.2.0 Alpha Release — March 7, 2026
+
+v0.2.0 is **95% complete** and releasing this weekend (March 7, 2026) as an alpha for trusted users.
+
+**Remaining work (2-4 days):**
+1. Wire up `human_confirmation` in builder — 1-2 days
+2. Remove unsandboxed fallbacks from `run_command`/`code` — 1-2 days
+
+**Deferred to v0.3.0:**
+- Message gateway implementation (architecture designed in PR #114)
+- Docker artifacts (Dockerfile, docker-compose.yml)
 
 ### Recent Progress (Since v0.1.0)
-- ✅ Phase 1.1: Telegram handler implemented (PR #106 - document upload support)
-- ✅ Phase 1.1: Web search system implemented (PR #107 - GLM provider integration)
+- ✅ Phase 1.1: Sandbox egress control — redundant tools removed
+- ✅ Phase 1.1: Telegram handler implemented (PR #106 — document upload support)
+- ✅ Phase 1.1: Web search system implemented (PR #107 — GLM provider integration)
 - ✅ Phase 1.1: Activity-based timeout watchdog (PR #104)
-- ✅ Phase P0: Sandbox, skills, providers documentation (PR #101)
-- ✅ Phase P1+P2: Docs-site implementation (PR #103)
-- ✅ Phase 1.2: Node cleanup - aggregator removed, human_confirmation wired (planned)
-- 🟡 Phase 2.1: Message gateway - Architecture designed (PR #114), moved to v0.3.0
-- 🟡 Phase 2.2: Docker artifacts - Moved to v0.3.0 (self-hosted deployment)
-
-### Current Priorities (Revised)
-**Phase 1 (v0.2.0) - Complete by March 15:**
-1. Wire up human_confirmation in builder - 1-2 days
-2. Remove redundant tools and harden egress - 1-2 days
-3. Final integration testing and docs - 2-3 days
-
-**Phase 2 (v0.3.0) - Target April-May 2026:**
-1. Docker artifacts (Dockerfile, docker-compose.yml) - 2-3 days
-2. Message gateway implementation:
-   - Fix GLM/MiniMax context windows (5 min)
-   - Test configurable_alternatives pattern (4-6 hrs)
-   - Build gateway components (1 week)
-3. Multi-user & self-hosted hardening - 2-3 weeks
+- ✅ Phase 1.2: Aggregator node removed
+- ✅ Phase 1.3: Execution timeouts — configurable, defaults 5 min
+- ✅ Phase 1.4: Health check + production hardening
+- ✅ Phase 1.5: Documentation — sandbox, skills, providers, health, tutorial, FAQ (PRs #101, #103)
+- ✅ Phase P0+P1+P2: Docs-site implementation (PR #103)
+- ✅ Skill directories mounted into bwrap sandbox (PR #116)
+- ✅ Telegram trigger matching by bot token + concurrent polling fix (PR #117)
+- 🟡 Phase 1.2: `human_confirmation` wiring — planned (1-2 days)
+- 🟡 Phase 1.6: Unsandboxed fallback removal — planned (1-2 days)
 
 ---
 
@@ -32,11 +36,13 @@
 
 ---
 
-## Phase 1: v0.2.0 — Core Security & Stability (Target: Mid-March 2026)
+## Phase 1: v0.2.0 — Core Security & Stability (Release: March 7, 2026)
 
 **Goal:** Secure agent execution + reliable platform operations. Release as alpha for trusted users only.
 
 **Scope:** Sandbox hardening, timeouts, health checks, documentation. NO Docker or multi-user yet.
+
+**Status:** 95% complete — releasing March 7
 
 ### 1.1 Sandbox Egress Control ✅ DONE
 
@@ -79,7 +85,7 @@ Remove subprocess fallbacks from `run_command` and `code` when no workspace exis
 
 ---
 
-## Phase 2: v0.3.0 — Deployment & Multi-Model (Target: Late April 2026)
+## Phase 2: v0.3.0 — Deployment & Multi-Model (Target: April–May 2026)
 
 **Goal:** Self-hosted deployment infrastructure + seamless model switching.
 
@@ -93,7 +99,7 @@ Create full Docker deployment stack:
 - `platform/entrypoint.sh` — Alembic migrations + gunicorn startup
 - `.dockerignore` — exclude dev files
 
-**Dependencies:** Phase 1 completion
+**Dependencies:** v0.2.0 release
 **Effort:** 2-3 days
 **Blockers:** None
 
@@ -111,7 +117,7 @@ Enable seamless mid-conversation model switching (Claude ↔ GLM ↔ MiniMax).
 - Build PipelitGateway dispatcher — ~250 lines
 - Integration tests + docs
 
-**Dependencies:** Phase 1 completion
+**Dependencies:** v0.2.0 release
 **Effort:** 2-3 weeks total
 **Reference:** PR #114 analysis (80% reusable code exists)
 
@@ -139,23 +145,25 @@ Tenant isolation, permission model, audit logging.
 
 | Phase | Version | Target | Status | Completion |
 |-------|---------|--------|--------|------------|
-| **1** | v0.2.0 | Mar 15 | 🟡 95% | Alpha (trusted users) |
-| **2** | v0.3.0 | Apr-May | ⏳ Planned | Beta (self-hosted) |
+| **1** | v0.2.0 | **Mar 7** | 🟡 95% — releasing this weekend | Alpha (trusted users) |
+| **2** | v0.3.0 | Apr–May | ⏳ Planned | Beta (self-hosted) |
 | **3** | v0.4.0 | June | ⏳ Planned | SaaS Ready |
 
 **Critical Path:**
-- Complete Phase 1 (Mar 15) → human_confirmation + tool cleanup
-- Phase 2.1: Docker (Mar 18-21)
-- Phase 2.2: Message gateway (Mar 21 - Apr 4)
-- Phase 2.3: Multi-user (Apr 4-25)
-- Phase 3: SaaS hardening (May-June)
+- ~~Complete Phase 1 (Mar 15) → human_confirmation + tool cleanup~~
+- **v0.2.0 Alpha Release (Mar 7)** — human_confirmation + unsandboxed fallback removal
+- Phase 2.1: Docker (mid-April)
+- Phase 2.2: Message gateway (April–May)
+- Phase 2.3: Multi-user (May)
+- Phase 3: SaaS hardening (June)
 
-1. `docker compose up` starts all 4 services, frontend accessible at `:8000`
-2. `http_request`, `web_search`, `calculator`, `datetime` tools no longer exist — removed from registry, palette, and type defs
-3. `aggregator` removed from frontend and node type registry
-4. `human_confirmation` → downstream edge triggers `interrupt_before`; removing the edge clears it
-5. `run_command` / `code` without workspace return error, not unsandboxed execution
-6. `platform_api` tool `base_url` cannot be overridden by LLM
-7. Execution with timeout configured fails gracefully after limit
-8. `GET /health` returns service status without auth
-9. Existing test suite passes (`python -m pytest tests/ -v`)
+## Acceptance Criteria (v0.2.0)
+
+1. `http_request`, `web_search`, `calculator`, `datetime` tools no longer exist — removed from registry, palette, and type defs
+2. `aggregator` removed from frontend and node type registry
+3. `human_confirmation` → downstream edge triggers `interrupt_before`; removing the edge clears it
+4. `run_command` / `code` without workspace return error, not unsandboxed execution
+5. `platform_api` tool `base_url` cannot be overridden by LLM
+6. Execution with timeout configured fails gracefully after limit
+7. `GET /health` returns service status without auth
+8. Existing test suite passes (`python -m pytest tests/ -v`)
