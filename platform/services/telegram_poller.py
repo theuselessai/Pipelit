@@ -144,13 +144,28 @@ def _backoff(error_count: int) -> int:
 
 
 def _enqueue_poll(credential_id: int, error_count: int) -> None:
-    """Enqueue the next poll cycle with deterministic job ID."""
+    """Enqueue the next poll cycle with deterministic job ID.
+
+    Cleans up any finished/failed job with the same ID first to prevent
+    stale jobs from blocking re-enqueue.
+    """
+    from rq.job import Job
     from tasks import poll_telegram_credential_task
 
     conn = redis.from_url(settings.REDIS_URL)
     q = Queue("telegram", connection=conn)
-    delay = _backoff(error_count)
     rq_job_id = f"tg-poll-{credential_id}"
+
+    # Clean up stale job with same ID (finished/failed/canceled)
+    try:
+        old = Job.fetch(rq_job_id, connection=conn)
+        status = old.get_status()
+        if status in ("finished", "failed", "canceled", "stopped"):
+            old.delete()
+    except Exception as e:
+        logger.debug("No existing job %s to clean up: %s", rq_job_id, e)
+
+    delay = _backoff(error_count)
     if delay > 0:
         q.enqueue_in(
             timedelta(seconds=delay),
