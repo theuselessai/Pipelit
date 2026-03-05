@@ -238,6 +238,7 @@ def recover_telegram_polling() -> int:
         # Check each credential's RQ job status before deciding to recover.
         # If a worker is actively handling it (started/queued/scheduled),
         # leave it alone — this avoids 409 conflicts on server --reload.
+        conn = None
         if credential_ids:
             from rq.job import Job
 
@@ -260,10 +261,13 @@ def recover_telegram_polling() -> int:
                         logger.info("Poll job %s is actively running, skipping recovery", rq_job_id)
                         continue
                     logger.info("Poll job %s is stale STARTED (started %s), cleaning up", rq_job_id, started_at)
-                if status in ("finished", "failed", "canceled", "stopped", "started"):
                     old.delete()
-                conn.delete(lock_key)
-            except Exception:
+                    conn.delete(lock_key)
+                elif status in ("finished", "failed", "canceled", "stopped"):
+                    old.delete()
+                    conn.delete(lock_key)
+            except Exception as e:
+                logger.debug("Job %s not found or error fetching: %s", rq_job_id, e)
                 conn.delete(lock_key)
 
             logger.info("Recovering Telegram polling for credential %s", cid)
