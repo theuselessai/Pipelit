@@ -187,6 +187,7 @@ class TestPollTelegramCredential:
 
         mock_redis = MagicMock()
         mock_redis.get.return_value = b"50"
+        mock_redis.set.return_value = True  # SETNX succeeds
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = api_response
@@ -201,13 +202,15 @@ class TestPollTelegramCredential:
         ):
             poll_telegram_credential(telegram_credential.id)
 
-        # Check offset was set for each update
+        # Check offset was set for each update (first call is SETNX lock)
         set_calls = [c for c in mock_redis.set.call_args_list]
-        assert len(set_calls) == 2
-        # First update: 50 + 1 = 51
-        assert set_calls[0] == call(f"tg_poll_offset:{telegram_credential.id}", "51", ex=30 * 24 * 3600)
-        # Second update: 51 + 1 = 52
-        assert set_calls[1] == call(f"tg_poll_offset:{telegram_credential.id}", "52", ex=30 * 24 * 3600)
+        assert len(set_calls) == 3
+        # First: lock acquisition
+        assert set_calls[0] == call(f"tg-poll-active:{telegram_credential.id}", "1", nx=True, ex=120)
+        # Second update: 50 + 1 = 51
+        assert set_calls[1] == call(f"tg_poll_offset:{telegram_credential.id}", "51", ex=30 * 24 * 3600)
+        # Third update: 51 + 1 = 52
+        assert set_calls[2] == call(f"tg_poll_offset:{telegram_credential.id}", "52", ex=30 * 24 * 3600)
 
     def test_offset_advances_on_processing_failure(self, db, telegram_credential, telegram_trigger):
         """Offset should advance even if processing a single update fails."""
@@ -216,6 +219,7 @@ class TestPollTelegramCredential:
 
         mock_redis = MagicMock()
         mock_redis.get.return_value = None
+        mock_redis.set.return_value = True  # SETNX succeeds
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = api_response
@@ -230,8 +234,8 @@ class TestPollTelegramCredential:
         ):
             poll_telegram_credential(telegram_credential.id)
 
-        # Offset should still be set
-        mock_redis.set.assert_called_once()
+        # Offset should still be set (2 calls: lock + offset)
+        assert mock_redis.set.call_count == 2
         # Should still reschedule with error_count=0 (it's per-update error, not poll error)
         mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
 
@@ -318,6 +322,24 @@ class TestPollTelegramCredential:
 
         mock_redis.delete.assert_called_once_with(f"tg-poll-active:{telegram_credential.id}")
         assert call_order == ["delete", "enqueue"]
+
+    def test_skips_duplicate_task_when_lock_held(self, db, telegram_credential, telegram_trigger):
+        """If SETNX fails at execution start, the task should skip without calling Telegram API."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = False  # SETNX fails — another task is running
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_redis),
+            patch("services.telegram_poller.requests.post") as mock_post,
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            poll_telegram_credential(telegram_credential.id)
+
+        # Should NOT call Telegram API
+        mock_post.assert_not_called()
+        # Should NOT reschedule (task is skipped entirely)
+        mock_enqueue.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +533,7 @@ class TestUpdateIdGuard:
 
         mock_redis = MagicMock()
         mock_redis.get.return_value = None
+        mock_redis.set.return_value = True  # SETNX succeeds
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = api_response
@@ -527,8 +550,8 @@ class TestUpdateIdGuard:
 
         # Only the valid update (update_id=200) should be routed
         mock_route.assert_called_once()
-        # Offset should only be set for the valid update
-        mock_redis.set.assert_called_once()
+        # 2 set calls: SETNX lock + offset for valid update
+        assert mock_redis.set.call_count == 2
         # Should still reschedule
         mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
 

@@ -31,6 +31,15 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
     """
     db = SessionLocal()
     _next_error_count = None  # None = don't reschedule (credential gone / no active nodes)
+
+    lock_key = f"tg-poll-active:{credential_id}"
+    r = redis.from_url(settings.REDIS_URL)
+
+    if not r.set(lock_key, "1", nx=True, ex=120):
+        logger.warning("Duplicate poll task for credential %s, skipping", credential_id)
+        db.close()
+        return
+
     try:
         # Load credential
         base_cred = db.get(BaseCredential, credential_id)
@@ -59,7 +68,6 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
             return
 
         # Get offset from Redis
-        r = redis.from_url(settings.REDIS_URL)
         offset_key = OFFSET_KEY.format(credential_id=credential_id)
         raw_offset = r.get(offset_key)
         offset = int(raw_offset) if raw_offset else 0
@@ -105,8 +113,7 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
     finally:
         db.close()
         # Release lock THEN re-enqueue (order matters!)
-        conn = redis.from_url(settings.REDIS_URL)
-        conn.delete(f"tg-poll-active:{credential_id}")
+        r.delete(lock_key)
         if _next_error_count is not None:
             _enqueue_poll(credential_id, _next_error_count)
 
