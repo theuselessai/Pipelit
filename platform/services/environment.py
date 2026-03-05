@@ -208,7 +208,7 @@ def _detect_network() -> dict:
     # DNS check
     try:
         result = subprocess.run(
-            ["getent", "hosts", "github.com"],
+            ["getent", "hosts", "dl-cdn.alpinelinux.org"],
             capture_output=True,
             timeout=_SUBPROCESS_TIMEOUT,
         )
@@ -222,10 +222,10 @@ def _detect_network() -> dict:
             try:
                 if cmd == "curl":
                     args = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                            "--max-time", "3", "https://github.com/"]
+                            "--max-time", "3", "https://dl-cdn.alpinelinux.org/alpine/"]
                 else:
                     args = ["wget", "-q", "--spider", "--timeout=3",
-                            "https://github.com/"]
+                            "https://dl-cdn.alpinelinux.org/alpine/"]
                 result = subprocess.run(args, capture_output=True, timeout=_SUBPROCESS_TIMEOUT + 2)
                 network["http"] = result.returncode == 0
             except (subprocess.TimeoutExpired, OSError):

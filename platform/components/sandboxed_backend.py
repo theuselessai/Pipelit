@@ -5,7 +5,7 @@ shell commands run inside an isolated namespace.
 
 Three execution modes:
 
-- **bwrap**: Debian rootfs mounted as ``/``, workspace bound at ``/workspace``,
+- **bwrap**: Alpine rootfs mounted as ``/``, workspace bound at ``/workspace``,
   ``--clearenv`` with explicit env vars.  Full filesystem isolation.
 - **container**: Already inside Docker/Codespaces/etc — scrubs env vars and
   runs with a clean ``PATH``/``HOME``.
@@ -61,7 +61,7 @@ def _build_bwrap_command(
     extra_ro_binds: list[tuple[str, str]] | None = None,
     allow_network: bool = False,
 ) -> list[str]:
-    """Build a bwrap command line for Linux sandboxing with Debian rootfs.
+    """Build a bwrap command line for Linux sandboxing with Alpine rootfs.
 
     The rootfs is mounted as ``/`` (rw), the workspace data at ``/workspace``
     (rw), and ``workspace/.tmp`` at ``/tmp`` (persistent temp).  ``--clearenv``
@@ -73,7 +73,7 @@ def _build_bwrap_command(
 
     args = ["bwrap", "--unshare-all"]
 
-    # Rootfs as root (rw)
+    # Rootfs as root (rw — apk cache, etc.)
     args += ["--bind", workspace_rootfs, "/"]
 
     # Workspace data
@@ -207,7 +207,7 @@ class SandboxedShellBackend(LocalShellBackend):
         workspace: str,
         effective_timeout: int,
     ) -> ExecuteResponse:
-        """Execute a command inside a bwrap sandbox with Debian rootfs."""
+        """Execute a command inside a bwrap sandbox with Alpine rootfs."""
         rootfs = self._ensure_workspace_rootfs(workspace)
 
         sandbox_cmd = _build_bwrap_command(
