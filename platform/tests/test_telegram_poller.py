@@ -289,6 +289,36 @@ class TestPollTelegramCredential:
 
         mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
 
+    def test_poll_releases_lock_before_reschedule(self, db, telegram_credential, telegram_trigger):
+        """Lock should be released in finally block before calling _enqueue_poll."""
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"ok": True, "result": []}
+        mock_resp.raise_for_status.return_value = None
+
+        call_order = []
+
+        def track_delete(*args):
+            call_order.append("delete")
+
+        def track_enqueue(*args):
+            call_order.append("enqueue")
+
+        mock_redis.delete.side_effect = track_delete
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_redis),
+            patch("services.telegram_poller.requests.post", return_value=mock_resp),
+            patch("services.telegram_poller._enqueue_poll", side_effect=track_enqueue),
+        ):
+            poll_telegram_credential(telegram_credential.id)
+
+        mock_redis.delete.assert_called_once_with(f"tg-poll-active:{telegram_credential.id}")
+        assert call_order == ["delete", "enqueue"]
+
 
 # ---------------------------------------------------------------------------
 # Recovery Tests
@@ -537,7 +567,7 @@ class TestTelegramPollAPI:
 # ---------------------------------------------------------------------------
 
 class TestEnqueuePoll:
-    """Tests for _enqueue_poll stale job cleanup and backoff logic."""
+    """Tests for _enqueue_poll SETNX lock and backoff logic."""
 
     def test_enqueue_poll_cleans_finished_job(self):
         """Finished job with same ID should be deleted before re-enqueue."""
@@ -545,8 +575,8 @@ class TestEnqueuePoll:
 
         mock_old_job = MagicMock()
         mock_old_job.get_status.return_value = "finished"
-
         mock_conn = MagicMock()
+        mock_conn.set.return_value = True  # SETNX succeeds
         mock_queue = MagicMock()
 
         with (
@@ -559,14 +589,14 @@ class TestEnqueuePoll:
         mock_old_job.delete.assert_called_once()
         mock_queue.enqueue.assert_called_once()
 
-    def test_enqueue_poll_skips_started_job(self):
-        """Started job should NOT be deleted."""
+    def test_enqueue_poll_skips_delete_for_started_job(self):
+        """Started job should NOT be deleted (still running), but enqueue should proceed."""
         from services.telegram_poller import _enqueue_poll
 
         mock_old_job = MagicMock()
         mock_old_job.get_status.return_value = "started"
-
         mock_conn = MagicMock()
+        mock_conn.set.return_value = True  # SETNX succeeds
         mock_queue = MagicMock()
 
         with (
@@ -579,11 +609,31 @@ class TestEnqueuePoll:
         mock_old_job.delete.assert_not_called()
         mock_queue.enqueue.assert_called_once()
 
+    def test_enqueue_poll_skips_when_lock_held(self):
+        """SETNX returning False should skip enqueue entirely."""
+        from services.telegram_poller import _enqueue_poll
+
+        mock_conn = MagicMock()
+        mock_conn.set.return_value = False  # SETNX fails — lock held
+        mock_queue = MagicMock()
+
+        with (
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("services.telegram_poller.Queue", return_value=mock_queue),
+            patch("rq.job.Job.fetch") as mock_fetch,
+        ):
+            _enqueue_poll(42, 0)
+
+        mock_fetch.assert_not_called()
+        mock_queue.enqueue.assert_not_called()
+        mock_queue.enqueue_in.assert_not_called()
+
     def test_enqueue_poll_handles_missing_job(self):
         """Job.fetch raising exception should not prevent enqueue."""
         from services.telegram_poller import _enqueue_poll
 
         mock_conn = MagicMock()
+        mock_conn.set.return_value = True  # SETNX succeeds
         mock_queue = MagicMock()
 
         with (
@@ -600,6 +650,7 @@ class TestEnqueuePoll:
         from services.telegram_poller import _enqueue_poll
 
         mock_conn = MagicMock()
+        mock_conn.set.return_value = True  # SETNX succeeds
         mock_queue = MagicMock()
 
         with (
@@ -621,6 +672,7 @@ class TestEnqueuePoll:
         from services.telegram_poller import _enqueue_poll
 
         mock_conn = MagicMock()
+        mock_conn.set.return_value = True  # SETNX succeeds
         mock_queue = MagicMock()
 
         with (
