@@ -226,6 +226,81 @@ class TestDefaultWorkflowFallback:
         assert result is None
 
 
+class TestBotTokenMatching:
+    """Tests for bot_token credential matching in _match_telegram."""
+
+    @pytest.fixture
+    def cc(self):
+        return MagicMock(credential_id=1)
+
+    def test_match_telegram_filters_by_bot_token(self, resolver, cc):
+        """Trigger with credential_id=1 should reject event with mismatched bot_token."""
+        cred_cache = {1: "abc"}
+        assert not resolver._match_telegram(cc, {}, {"bot_token": "xyz"}, cred_cache)
+
+    def test_match_telegram_accepts_matching_bot_token(self, resolver, cc):
+        """Event with matching bot_token should pass."""
+        cred_cache = {1: "abc"}
+        assert resolver._match_telegram(cc, {}, {"bot_token": "abc"}, cred_cache)
+
+    def test_match_telegram_no_credential_matches_any(self, resolver):
+        """Trigger without credential_id matches any bot_token."""
+        cc = MagicMock(credential_id=None)
+        cred_cache = {1: "abc"}
+        assert resolver._match_telegram(cc, {}, {"bot_token": "xyz"}, cred_cache)
+
+    def test_match_telegram_no_bot_token_in_event_matches(self, resolver, cc):
+        """Event without bot_token matches any trigger."""
+        cred_cache = {1: "abc"}
+        assert resolver._match_telegram(cc, {}, {"text": "hello"}, cred_cache)
+
+    def test_resolve_builds_cred_cache_for_telegram(self, resolver, db, user_profile):
+        """Integration: two telegram triggers with different credentials route by bot_token."""
+        from models.credential import BaseCredential, TelegramCredential
+        from models.node import BaseComponentConfig, WorkflowNode
+        from models.workflow import Workflow
+
+        # Create two credentials with different bot tokens
+        base1 = BaseCredential(user_profile_id=user_profile.id, name="Bot A", credential_type="telegram")
+        db.add(base1)
+        db.flush()
+        db.add(TelegramCredential(base_credentials_id=base1.id, bot_token="token_a", allowed_user_ids=""))
+        db.commit()
+
+        base2 = BaseCredential(user_profile_id=user_profile.id, name="Bot B", credential_type="telegram")
+        db.add(base2)
+        db.flush()
+        db.add(TelegramCredential(base_credentials_id=base2.id, bot_token="token_b", allowed_user_ids=""))
+        db.commit()
+
+        # Create two workflows, each with a telegram trigger bound to a different credential
+        wf1 = Workflow(name="WF-A", slug="wf-a", owner_id=user_profile.id, is_active=True)
+        wf2 = Workflow(name="WF-B", slug="wf-b", owner_id=user_profile.id, is_active=True)
+        db.add_all([wf1, wf2])
+        db.commit()
+
+        cc1 = BaseComponentConfig(component_type="trigger_telegram", credential_id=base1.id, trigger_config={}, is_active=True, priority=0)
+        cc2 = BaseComponentConfig(component_type="trigger_telegram", credential_id=base2.id, trigger_config={}, is_active=True, priority=0)
+        db.add_all([cc1, cc2])
+        db.flush()
+
+        db.add(WorkflowNode(workflow_id=wf1.id, node_id="tg_a", component_type="trigger_telegram", component_config_id=cc1.id))
+        db.add(WorkflowNode(workflow_id=wf2.id, node_id="tg_b", component_type="trigger_telegram", component_config_id=cc2.id))
+        db.commit()
+
+        # Event from bot B should match wf2
+        result = resolver.resolve("telegram_message", {"bot_token": "token_b", "text": "hi"}, db)
+        assert result is not None
+        wf, node = result
+        assert wf.id == wf2.id
+
+        # Event from bot A should match wf1
+        result = resolver.resolve("telegram_message", {"bot_token": "token_a", "text": "hi"}, db)
+        assert result is not None
+        wf, node = result
+        assert wf.id == wf1.id
+
+
 class TestErrorMatching:
     def test_error_event_always_matches(self, resolver):
         config_obj = MagicMock()

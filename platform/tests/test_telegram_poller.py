@@ -530,3 +530,105 @@ class TestTelegramPollAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["config"]["is_active"] is False
+
+
+# ---------------------------------------------------------------------------
+# _enqueue_poll stale job cleanup Tests
+# ---------------------------------------------------------------------------
+
+class TestEnqueuePoll:
+    """Tests for _enqueue_poll stale job cleanup and backoff logic."""
+
+    def test_enqueue_poll_cleans_finished_job(self):
+        """Finished job with same ID should be deleted before re-enqueue."""
+        from services.telegram_poller import _enqueue_poll
+
+        mock_old_job = MagicMock()
+        mock_old_job.get_status.return_value = "finished"
+
+        mock_conn = MagicMock()
+        mock_queue = MagicMock()
+
+        with (
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("services.telegram_poller.Queue", return_value=mock_queue),
+            patch("rq.job.Job.fetch", return_value=mock_old_job),
+        ):
+            _enqueue_poll(42, 0)
+
+        mock_old_job.delete.assert_called_once()
+        mock_queue.enqueue.assert_called_once()
+
+    def test_enqueue_poll_skips_started_job(self):
+        """Started/queued job should NOT be deleted."""
+        from services.telegram_poller import _enqueue_poll
+
+        mock_old_job = MagicMock()
+        mock_old_job.get_status.return_value = "started"
+
+        mock_conn = MagicMock()
+        mock_queue = MagicMock()
+
+        with (
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("services.telegram_poller.Queue", return_value=mock_queue),
+            patch("rq.job.Job.fetch", return_value=mock_old_job),
+        ):
+            _enqueue_poll(42, 0)
+
+        mock_old_job.delete.assert_not_called()
+        mock_queue.enqueue.assert_called_once()
+
+    def test_enqueue_poll_handles_missing_job(self):
+        """Job.fetch raising exception should not prevent enqueue."""
+        from services.telegram_poller import _enqueue_poll
+
+        mock_conn = MagicMock()
+        mock_queue = MagicMock()
+
+        with (
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("services.telegram_poller.Queue", return_value=mock_queue),
+            patch("rq.job.Job.fetch", side_effect=Exception("NoSuchJobError")),
+        ):
+            _enqueue_poll(42, 0)
+
+        mock_queue.enqueue.assert_called_once()
+
+    def test_enqueue_poll_with_backoff(self):
+        """error_count > 0 should use enqueue_in with delay."""
+        from services.telegram_poller import _enqueue_poll
+
+        mock_conn = MagicMock()
+        mock_queue = MagicMock()
+
+        with (
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("services.telegram_poller.Queue", return_value=mock_queue),
+            patch("rq.job.Job.fetch", side_effect=Exception("no job")),
+        ):
+            _enqueue_poll(42, 2)
+
+        mock_queue.enqueue_in.assert_called_once()
+        mock_queue.enqueue.assert_not_called()
+        # Check delay is timedelta(seconds=10) for error_count=2
+        from datetime import timedelta
+        args = mock_queue.enqueue_in.call_args
+        assert args[0][0] == timedelta(seconds=10)
+
+    def test_enqueue_poll_no_backoff(self):
+        """error_count=0 should use enqueue (no delay)."""
+        from services.telegram_poller import _enqueue_poll
+
+        mock_conn = MagicMock()
+        mock_queue = MagicMock()
+
+        with (
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("services.telegram_poller.Queue", return_value=mock_queue),
+            patch("rq.job.Job.fetch", side_effect=Exception("no job")),
+        ):
+            _enqueue_poll(42, 0)
+
+        mock_queue.enqueue.assert_called_once()
+        mock_queue.enqueue_in.assert_not_called()
