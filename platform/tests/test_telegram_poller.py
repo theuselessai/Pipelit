@@ -327,8 +327,114 @@ class TestPollTelegramCredential:
 class TestRecovery:
     def test_recovers_active_credentials(self, db, telegram_credential, telegram_trigger):
         """Recovery should enqueue polling for active telegram triggers."""
+        mock_conn = MagicMock()
+        mock_conn.delete.return_value = 0
+
         with (
             patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", side_effect=Exception("no job")),
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            count = recover_telegram_polling()
+
+        assert count == 1
+        mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
+
+    def test_clears_stale_locks_and_jobs_before_enqueue(self, db, telegram_credential, telegram_trigger):
+        """Recovery should delete terminal RQ jobs and stale SETNX locks."""
+        mock_conn = MagicMock()
+        mock_conn.delete.return_value = 1  # lock existed and was deleted
+
+        mock_old_job = MagicMock()
+        mock_old_job.get_status.return_value = "failed"
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", return_value=mock_old_job),
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            count = recover_telegram_polling()
+
+        assert count == 1
+        mock_conn.delete.assert_called_with(f"tg-poll-active:{telegram_credential.id}")
+        mock_old_job.delete.assert_called_once()
+        mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
+
+    def test_recovery_skips_running_jobs(self, db, telegram_credential, telegram_trigger):
+        """Recovery should NOT re-enqueue or clear lock when job is actively running (< 120s)."""
+        import datetime
+
+        mock_conn = MagicMock()
+
+        mock_old_job = MagicMock()
+        mock_old_job.get_status.return_value = "started"
+        mock_old_job.started_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=30)
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", return_value=mock_old_job),
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            count = recover_telegram_polling()
+
+        assert count == 0
+        mock_enqueue.assert_not_called()
+        mock_conn.delete.assert_not_called()
+
+    def test_recovery_cleans_stale_started_jobs(self, db, telegram_credential, telegram_trigger):
+        """Recovery should clean up STARTED jobs that have been running too long (> 120s)."""
+        import datetime
+
+        mock_conn = MagicMock()
+
+        mock_old_job = MagicMock()
+        mock_old_job.get_status.return_value = "started"
+        mock_old_job.started_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=180)
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", return_value=mock_old_job),
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            count = recover_telegram_polling()
+
+        assert count == 1
+        mock_old_job.delete.assert_called_once()
+        mock_conn.delete.assert_called_with(f"tg-poll-active:{telegram_credential.id}")
+        mock_enqueue.assert_called_once_with(telegram_credential.id, 0)
+
+    def test_recovery_skips_queued_jobs(self, db, telegram_credential, telegram_trigger):
+        """Recovery should NOT re-enqueue or clear lock when job is already queued."""
+        mock_conn = MagicMock()
+
+        mock_old_job = MagicMock()
+        mock_old_job.get_status.return_value = "queued"
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", return_value=mock_old_job),
+            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
+        ):
+            count = recover_telegram_polling()
+
+        assert count == 0
+        mock_enqueue.assert_not_called()
+        mock_conn.delete.assert_not_called()
+
+    def test_recovery_tolerates_missing_old_job(self, db, telegram_credential, telegram_trigger):
+        """Recovery should not fail if no old RQ job exists for a credential."""
+        mock_conn = MagicMock()
+        mock_conn.delete.return_value = 0  # no stale lock
+
+        with (
+            patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", side_effect=Exception("NoSuchJobError")),
             patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
         ):
             count = recover_telegram_polling()
@@ -375,8 +481,13 @@ class TestRecovery:
             db.add(node)
         db.commit()
 
+        mock_conn = MagicMock()
+        mock_conn.delete.return_value = 0
+
         with (
             patch("services.telegram_poller.SessionLocal", return_value=db),
+            patch("services.telegram_poller.redis.from_url", return_value=mock_conn),
+            patch("rq.job.Job.fetch", side_effect=Exception("no job")),
             patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
         ):
             count = recover_telegram_polling()

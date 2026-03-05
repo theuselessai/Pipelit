@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 from datetime import timedelta
 
@@ -233,10 +234,42 @@ def recover_telegram_polling() -> int:
             .all()
         )
         credential_ids = [row[0] for row in rows]
+
+        # Check each credential's RQ job status before deciding to recover.
+        # If a worker is actively handling it (started/queued/scheduled),
+        # leave it alone — this avoids 409 conflicts on server --reload.
+        if credential_ids:
+            from rq.job import Job
+
+            conn = redis.from_url(settings.REDIS_URL)
+
+        recovered = 0
+        now = datetime.datetime.now(datetime.timezone.utc)
         for cid in credential_ids:
+            lock_key = f"tg-poll-active:{cid}"
+            rq_job_id = f"tg-poll-{cid}"
+            try:
+                old = Job.fetch(rq_job_id, connection=conn)
+                status = old.get_status()
+                if status in ("queued", "scheduled"):
+                    logger.info("Poll job %s is %s, skipping recovery", rq_job_id, status)
+                    continue
+                if status == "started":
+                    started_at = old.started_at
+                    if started_at and (now - started_at).total_seconds() < 120:
+                        logger.info("Poll job %s is actively running, skipping recovery", rq_job_id)
+                        continue
+                    logger.info("Poll job %s is stale STARTED (started %s), cleaning up", rq_job_id, started_at)
+                if status in ("finished", "failed", "canceled", "stopped", "started"):
+                    old.delete()
+                conn.delete(lock_key)
+            except Exception:
+                conn.delete(lock_key)
+
             logger.info("Recovering Telegram polling for credential %s", cid)
             _enqueue_poll(cid, 0)
-        return len(credential_ids)
+            recovered += 1
+        return recovered
     except Exception:
         logger.exception("Error recovering Telegram polling jobs")
         return 0
