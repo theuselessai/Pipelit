@@ -162,8 +162,8 @@ def _enqueue_poll(credential_id: int, error_count: int) -> None:
         status = old.get_status()
         if status in ("finished", "failed", "canceled", "stopped"):
             old.delete()
-    except Exception:
-        pass  # Job doesn't exist — fine
+    except Exception as e:
+        logger.debug("No existing job %s to clean up: %s", rq_job_id, e)
 
     delay = _backoff(error_count)
     if delay > 0:
