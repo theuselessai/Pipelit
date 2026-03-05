@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 from datetime import timedelta
 
@@ -30,6 +31,11 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
     """
     db = SessionLocal()
     _next_error_count = None  # None = don't reschedule (credential gone / no active nodes)
+
+    lock_key = f"tg-poll-active:{credential_id}"
+    r = redis.from_url(settings.REDIS_URL)
+    r.set(lock_key, "1", ex=120)  # Set/refresh lock (no NX — we're the active task)
+
     try:
         # Load credential
         base_cred = db.get(BaseCredential, credential_id)
@@ -58,7 +64,6 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
             return
 
         # Get offset from Redis
-        r = redis.from_url(settings.REDIS_URL)
         offset_key = OFFSET_KEY.format(credential_id=credential_id)
         raw_offset = r.get(offset_key)
         offset = int(raw_offset) if raw_offset else 0
@@ -104,8 +109,7 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
     finally:
         db.close()
         # Release lock THEN re-enqueue (order matters!)
-        conn = redis.from_url(settings.REDIS_URL)
-        conn.delete(f"tg-poll-active:{credential_id}")
+        r.delete(lock_key)
         if _next_error_count is not None:
             _enqueue_poll(credential_id, _next_error_count)
 
@@ -233,10 +237,46 @@ def recover_telegram_polling() -> int:
             .all()
         )
         credential_ids = [row[0] for row in rows]
+
+        # Check each credential's RQ job status before deciding to recover.
+        # If a worker is actively handling it (started/queued/scheduled),
+        # leave it alone — this avoids 409 conflicts on server --reload.
+        conn = None
+        if credential_ids:
+            from rq.job import Job
+
+            conn = redis.from_url(settings.REDIS_URL)
+
+        recovered = 0
+        now = datetime.datetime.now(datetime.timezone.utc)
         for cid in credential_ids:
+            lock_key = f"tg-poll-active:{cid}"
+            rq_job_id = f"tg-poll-{cid}"
+            try:
+                old = Job.fetch(rq_job_id, connection=conn)
+                status = old.get_status()
+                if status in ("queued", "scheduled"):
+                    logger.info("Poll job %s is %s, skipping recovery", rq_job_id, status)
+                    continue
+                if status == "started":
+                    started_at = old.started_at
+                    if started_at and (now - started_at).total_seconds() < 120:
+                        logger.info("Poll job %s is actively running, skipping recovery", rq_job_id)
+                        continue
+                    logger.info("Poll job %s is stale STARTED (started %s), cleaning up", rq_job_id, started_at)
+                    old.delete()
+                    conn.delete(lock_key)
+                elif status in ("finished", "failed", "canceled", "stopped"):
+                    old.delete()
+                    conn.delete(lock_key)
+            except Exception as e:
+                logger.debug("Job %s not found or error fetching: %s", rq_job_id, e)
+                conn.delete(lock_key)
+
             logger.info("Recovering Telegram polling for credential %s", cid)
             _enqueue_poll(cid, 0)
-        return len(credential_ids)
+            recovered += 1
+        return recovered
     except Exception:
         logger.exception("Error recovering Telegram polling jobs")
         return 0
