@@ -12,6 +12,7 @@ from components import register
 from components._agent_shared import (
     PipelitAgentMiddleware,
     _build_backend,
+    _compute_skill_path_mapping,
     _get_ai_model_extra,
     _get_checkpointer,
     _get_redis_checkpointer,
@@ -160,7 +161,7 @@ def deep_agent_factory(node):
         memory_features.append("todos")
 
     # Build backend — always sandboxed to workspace directory
-    backend = _build_backend(extra)
+    backend = _build_backend(extra, skill_paths=skill_paths if skill_paths else None)
 
     # Build subagents
     subagents = _build_subagents(extra)
@@ -181,11 +182,28 @@ def deep_agent_factory(node):
     if subagents:
         agent_kwargs["subagents"] = subagents
     if skill_paths:
+        # Compute sandbox path mapping for bwrap mounts
+        sandbox_skill_paths, sandbox_to_host = _compute_skill_path_mapping(skill_paths)
+
+        # Check if bwrap is active — if so, use sandbox paths; otherwise use host paths
+        use_sandbox_paths = getattr(backend, "_resolution", None) and backend._resolution.mode == "bwrap"
+        effective_skill_paths = sandbox_skill_paths if use_sandbox_paths else skill_paths
+        effective_sandbox_to_host = sandbox_to_host if use_sandbox_paths else None
+
         # Wrap the sandboxed backend so SkillsMiddleware reads skill files
         # from real filesystem while agent writes stay sandboxed.
-        agent_kwargs["backend"] = _make_skill_aware_backend(backend, skill_paths)
-        agent_kwargs["skills"] = skill_paths
-        logger.info("DeepAgent %s: passing %d skill sources with SkillAwareBackend", node_id, len(skill_paths))
+        agent_kwargs["backend"] = _make_skill_aware_backend(
+            backend, effective_skill_paths, sandbox_to_host=effective_sandbox_to_host,
+        )
+        agent_kwargs["skills"] = effective_skill_paths
+        logger.info("DeepAgent %s: passing %d skill sources with SkillAwareBackend (bwrap=%s)", node_id, len(skill_paths), use_sandbox_paths)
+
+        # Inject skill provider paths into system prompt so agent knows about them
+        if use_sandbox_paths and sandbox_skill_paths:
+            provider_list = ", ".join(f"`{p}/`" for p in sandbox_skill_paths)
+            skill_context = f"\nSkill providers (read-only): {provider_list}"
+            system_prompt = f"{system_prompt}{skill_context}" if system_prompt else skill_context.lstrip()
+            agent_kwargs["system_prompt"] = system_prompt
 
     agent = create_deep_agent(**agent_kwargs)
 

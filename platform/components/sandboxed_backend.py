@@ -58,7 +58,7 @@ def _build_bwrap_command(
     workspace: str,
     workspace_rootfs: str,
     *,
-    extra_ro_binds: list[str] | None = None,
+    extra_ro_binds: list[tuple[str, str]] | None = None,
     allow_network: bool = False,
 ) -> list[str]:
     """Build a bwrap command line for Linux sandboxing with Alpine rootfs.
@@ -92,11 +92,13 @@ def _build_bwrap_command(
             args += ["--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf"]
         args += ["--share-net"]
 
-    # Extra read-only binds (e.g. skill directories)
+    # Extra read-only binds (e.g. skill directories) — (host_path, sandbox_path)
     if extra_ro_binds:
-        for path in extra_ro_binds:
-            if os.path.exists(path):
-                args += ["--ro-bind", path, path]
+        for host_path, sandbox_path in extra_ro_binds:
+            if os.path.exists(host_path):
+                rootfs_mount_point = os.path.join(workspace_rootfs, sandbox_path.lstrip("/"))
+                os.makedirs(rootfs_mount_point, exist_ok=True)
+                args += ["--ro-bind", host_path, sandbox_path]
 
     args += ["--die-with-parent"]
 
@@ -134,9 +136,9 @@ class SandboxedShellBackend(LocalShellBackend):
         Workspace directory — the only writable location inside the sandbox.
     allow_network : bool
         Whether to allow network access inside the sandbox (default False).
-    extra_ro_binds : list[str] | None
-        Additional paths to mount read-only inside the sandbox (e.g. skill
-        directories).
+    extra_ro_binds : list[tuple[str, str]] | None
+        Additional (host_path, sandbox_path) pairs to mount read-only inside
+        the sandbox (e.g. skill directories at ``/.skill_providers/``).
     timeout : int
         Default timeout in seconds for shell commands.
     max_output_bytes : int
@@ -148,7 +150,7 @@ class SandboxedShellBackend(LocalShellBackend):
         root_dir: str | Path,
         *,
         allow_network: bool = False,
-        extra_ro_binds: list[str] | None = None,
+        extra_ro_binds: list[tuple[str, str]] | None = None,
         custom_env: dict[str, str] | None = None,
         timeout: int = _DEFAULT_TIMEOUT,
         max_output_bytes: int = 100_000,

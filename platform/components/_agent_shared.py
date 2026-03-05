@@ -184,13 +184,16 @@ def _resolve_credential_field(cred, field: str) -> str | None:
     return None
 
 
-def _build_backend(extra: dict):
+def _build_backend(extra: dict, skill_paths: list[str] | None = None):
     """Build a sandboxed shell backend.
 
     Returns a ``SandboxedShellBackend`` that wraps ``execute()`` in OS-level
     sandboxing (bwrap on Linux, sandbox-exec on macOS) so shell commands are
     confined to the workspace directory.  Filesystem tools are also sandboxed
     via ``virtual_mode=True``.
+
+    When *skill_paths* is given, the host directories are mounted read-only
+    at ``/.skill_providers/<basename>/`` inside the bwrap sandbox.
     """
     from components.sandboxed_backend import SandboxedShellBackend
 
@@ -231,10 +234,17 @@ def _build_backend(extra: dict):
 
     root_dir = os.path.expanduser(root_dir)
     os.makedirs(root_dir, exist_ok=True)
+
+    extra_ro_binds: list[tuple[str, str]] | None = None
+    if skill_paths:
+        _, sandbox_to_host = _compute_skill_path_mapping(skill_paths)
+        extra_ro_binds = [(host, sandbox) for sandbox, host in sandbox_to_host.items()]
+
     return SandboxedShellBackend(
         root_dir=root_dir,
         allow_network=allow_network,
         custom_env=env_vars if env_vars else None,
+        extra_ro_binds=extra_ro_binds,
     )
 
 
@@ -531,7 +541,7 @@ def _resolve_skills(node) -> list[str]:
                         from pathlib import Path
                         from config import settings
                         skill_path = settings.SKILLS_DIR if settings.SKILLS_DIR else str(
-                            Path.home() / ".config" / "pipelit" / "skills"
+                            Path.home() / ".config" / "pipelit" / "community_skills"
                         )
 
                     try:
@@ -573,6 +583,35 @@ def _resolve_skills(node) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Skill path mapping — host paths → sandbox mount paths
+# ---------------------------------------------------------------------------
+
+
+def _compute_skill_path_mapping(host_paths: list[str]) -> tuple[list[str], dict[str, str]]:
+    """Map host skill directories to sandbox mount paths under ``/.skill_providers/``.
+
+    Returns:
+        (sandbox_paths, sandbox_to_host) where sandbox_to_host maps
+        ``/.skill_providers/<name>`` → ``/host/path``.
+    """
+    sandbox_paths: list[str] = []
+    sandbox_to_host: dict[str, str] = {}
+    seen: dict[str, int] = {}
+    for host_path in host_paths:
+        basename = os.path.basename(host_path.rstrip("/")) or "default"
+        if basename in seen:
+            seen[basename] += 1
+            name = f"{basename}_{seen[basename]}"
+        else:
+            seen[basename] = 0
+            name = basename
+        sp = f"/.skill_providers/{name}"
+        sandbox_paths.append(sp)
+        sandbox_to_host[sp] = host_path.rstrip("/")
+    return sandbox_paths, sandbox_to_host
+
+
+# ---------------------------------------------------------------------------
 # SkillAwareBackend — routes skill-path file reads to the real filesystem
 # ---------------------------------------------------------------------------
 
@@ -583,13 +622,18 @@ class SkillAwareBackend:
     Everything else is delegated to the *default* backend (typically
     ``StateBackend``).  This allows ``SkillsMiddleware`` to load SKILL.md
     files from disk even when the agent's primary backend is in-memory.
+
+    When *sandbox_to_host* is provided, sandbox paths like
+    ``/.skill_providers/X/file`` are translated to their host equivalents
+    before reading from the real filesystem.
     """
 
-    def __init__(self, default, skill_paths: list[str]):
+    def __init__(self, default, skill_paths: list[str], sandbox_to_host: dict[str, str] | None = None):
         from deepagents.backends.filesystem import FilesystemBackend
 
         self._default = default
         self._skill_paths = [p.rstrip("/") for p in skill_paths]
+        self._sandbox_to_host = sandbox_to_host or {}
         # FilesystemBackend with root_dir=None: absolute paths used as-is
         self._fs = FilesystemBackend(root_dir=None, virtual_mode=False)
 
@@ -600,26 +644,39 @@ class SkillAwareBackend:
             for sp in self._skill_paths
         )
 
+    def _translate_to_host_path(self, path: str) -> str:
+        """Translate a sandbox skill path to its host filesystem equivalent.
+
+        E.g. ``/.skill_providers/claude_skills/web/SKILL.md``
+        → ``/home/user/.config/pipelit/claude_skills/web/SKILL.md``
+        """
+        for sandbox_prefix, host_prefix in self._sandbox_to_host.items():
+            sp = sandbox_prefix.rstrip("/")
+            p = path.rstrip("/") if path == sp else path
+            if p == sp or p.startswith(sp + "/"):
+                return host_prefix + p[len(sp):]
+        return path
+
     # -- Routed methods (skill paths → filesystem, others → default) --------
 
     def ls_info(self, path):
         if self._is_skill_path(path):
-            return self._fs.ls_info(path)
+            return self._fs.ls_info(self._translate_to_host_path(path))
         return self._default.ls_info(path)
 
     async def als_info(self, path):
         if self._is_skill_path(path):
-            return await self._fs.als_info(path)
+            return await self._fs.als_info(self._translate_to_host_path(path))
         return await self._default.als_info(path)
 
     def read(self, file_path, offset=0, limit=2000):
         if self._is_skill_path(file_path):
-            return self._fs.read(file_path, offset, limit)
+            return self._fs.read(self._translate_to_host_path(file_path), offset, limit)
         return self._default.read(file_path, offset, limit)
 
     async def aread(self, file_path, offset=0, limit=2000):
         if self._is_skill_path(file_path):
-            return await self._fs.aread(file_path, offset, limit)
+            return await self._fs.aread(self._translate_to_host_path(file_path), offset, limit)
         return await self._default.aread(file_path, offset, limit)
 
     def download_files(self, paths):
@@ -628,7 +685,7 @@ class SkillAwareBackend:
         for i, path in enumerate(paths):
             if self._is_skill_path(path):
                 skill_indices.append(i)
-                skill_paths_list.append(path)
+                skill_paths_list.append(self._translate_to_host_path(path))
             else:
                 default_indices.append(i)
                 default_paths_list.append(path)
@@ -648,7 +705,7 @@ class SkillAwareBackend:
         for i, path in enumerate(paths):
             if self._is_skill_path(path):
                 skill_indices.append(i)
-                skill_paths_list.append(path)
+                skill_paths_list.append(self._translate_to_host_path(path))
             else:
                 default_indices.append(i)
                 default_paths_list.append(path)
@@ -711,7 +768,11 @@ except ImportError:
     SandboxBackendProtocol = None  # type: ignore[assignment,misc]
 
 
-def _make_skill_aware_backend(default_backend_or_factory, skill_paths: list[str]):
+def _make_skill_aware_backend(
+    default_backend_or_factory,
+    skill_paths: list[str],
+    sandbox_to_host: dict[str, str] | None = None,
+):
     """Create a backend factory that wraps the default backend with skill-aware routing.
 
     The returned factory is compatible with ``create_deep_agent(backend=...)`` and
@@ -721,6 +782,9 @@ def _make_skill_aware_backend(default_backend_or_factory, skill_paths: list[str]
     When the resolved default backend is a ``SandboxBackendProtocol`` (i.e.
     supports ``execute()``), returns a ``SandboxedSkillAwareBackend`` so that
     the execute tool remains available.
+
+    When *sandbox_to_host* is provided, ``SkillAwareBackend`` translates
+    sandbox paths (``/.skill_providers/X/...``) to host paths before reading.
     """
 
     def factory(tool_runtime):
@@ -735,8 +799,8 @@ def _make_skill_aware_backend(default_backend_or_factory, skill_paths: list[str]
             default = default_backend_or_factory
 
         if SandboxBackendProtocol is not None and isinstance(default, SandboxBackendProtocol):
-            return SandboxedSkillAwareBackend(default, skill_paths)
-        return SkillAwareBackend(default, skill_paths)
+            return SandboxedSkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host)
+        return SkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host)
 
     return factory
 

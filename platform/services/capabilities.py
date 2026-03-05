@@ -123,6 +123,12 @@ def format_capability_context(caps: dict) -> str:
     if fs_status:
         lines.append(f"Filesystem: {', '.join(fs_status)}")
 
+    # Skill providers (injected by caller, not auto-detected)
+    skill_providers = fs.get("skill_providers", [])
+    if skill_providers:
+        provider_list = ", ".join(f"`{p}`" for p in skill_providers)
+        lines.append(f"Skill providers (read-only): {provider_list}")
+
     return "\n".join(lines)
 
 

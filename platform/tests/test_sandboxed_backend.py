@@ -205,6 +205,69 @@ class TestBwrapCommand:
         cmd = _build_bwrap_command("echo hi", workspace, rootfs, allow_network=False)
         assert "--share-net" not in cmd
 
+    def test_extra_ro_binds_tuple_format(self, tmp_path):
+        """extra_ro_binds accepts (host_path, sandbox_path) tuples."""
+        from components.sandboxed_backend import _build_bwrap_command
+
+        workspace = str(tmp_path / "ws")
+        rootfs = str(tmp_path / "rootfs")
+        os.makedirs(workspace, exist_ok=True)
+
+        skill_dir = str(tmp_path / "skills")
+        os.makedirs(skill_dir, exist_ok=True)
+
+        cmd = _build_bwrap_command(
+            "echo hi", workspace, rootfs,
+            extra_ro_binds=[(skill_dir, "/.skill_providers/skills")],
+        )
+
+        ro_bind_pairs = []
+        for i, v in enumerate(cmd):
+            if v == "--ro-bind" and i + 2 < len(cmd):
+                ro_bind_pairs.append((cmd[i + 1], cmd[i + 2]))
+
+        assert (skill_dir, "/.skill_providers/skills") in ro_bind_pairs
+
+    def test_extra_ro_binds_creates_rootfs_mount_point(self, tmp_path):
+        """extra_ro_binds creates the mount point directory in the rootfs."""
+        from components.sandboxed_backend import _build_bwrap_command
+
+        workspace = str(tmp_path / "ws")
+        rootfs = str(tmp_path / "rootfs")
+        os.makedirs(workspace, exist_ok=True)
+        os.makedirs(rootfs, exist_ok=True)
+
+        skill_dir = str(tmp_path / "skills")
+        os.makedirs(skill_dir, exist_ok=True)
+
+        _build_bwrap_command(
+            "echo hi", workspace, rootfs,
+            extra_ro_binds=[(skill_dir, "/.skill_providers/web")],
+        )
+
+        mount_point = os.path.join(rootfs, ".skill_providers", "web")
+        assert os.path.isdir(mount_point)
+
+    def test_extra_ro_binds_skips_nonexistent_host_path(self, tmp_path):
+        """extra_ro_binds skips entries where host path doesn't exist."""
+        from components.sandboxed_backend import _build_bwrap_command
+
+        workspace = str(tmp_path / "ws")
+        rootfs = str(tmp_path / "rootfs")
+        os.makedirs(workspace, exist_ok=True)
+
+        cmd = _build_bwrap_command(
+            "echo hi", workspace, rootfs,
+            extra_ro_binds=[("/nonexistent/path", "/.skill_providers/nope")],
+        )
+
+        ro_bind_pairs = []
+        for i, v in enumerate(cmd):
+            if v == "--ro-bind" and i + 2 < len(cmd):
+                ro_bind_pairs.append((cmd[i + 1], cmd[i + 2]))
+
+        assert ("/nonexistent/path", "/.skill_providers/nope") not in ro_bind_pairs
+
     def test_no_host_system_binds(self, tmp_path):
         """No /usr, /bin, /lib, /sbin, /etc ro-binds from host system."""
         from components.sandboxed_backend import _build_bwrap_command

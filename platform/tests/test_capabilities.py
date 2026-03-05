@@ -205,3 +205,45 @@ class TestCheckWritable:
         from services.capabilities import _check_writable
         with patch("tempfile.mkstemp", side_effect=OSError("permission denied")):
             assert _check_writable("/nonexistent") is False
+
+
+# ---------------------------------------------------------------------------
+# Skill provider detection
+# ---------------------------------------------------------------------------
+
+
+class TestSkillProviders:
+    def test_format_skill_providers(self):
+        """format_capability_context includes skill provider paths when passed."""
+        caps = {
+            "runtimes": {},
+            "shell_tools": {},
+            "network": {"dns": False, "http": False},
+            "filesystem": {
+                "workspace_writable": True,
+                "tmp_writable": True,
+                "skill_providers": ["/.skill_providers/skills/", "/.skill_providers/skills_1/"],
+            },
+        }
+
+        from services.capabilities import format_capability_context
+        output = format_capability_context(caps)
+
+        assert "/.skill_providers/skills/" in output
+        assert "/.skill_providers/skills_1/" in output
+        assert "read-only" in output.lower()
+
+    def test_format_no_skill_providers(self):
+        """format_capability_context omits skill line when no providers."""
+        caps = {
+            "runtimes": {},
+            "shell_tools": {},
+            "network": {"dns": False, "http": False},
+            "filesystem": {"skill_providers": []},
+        }
+
+        from services.capabilities import format_capability_context
+        output = format_capability_context(caps)
+
+        assert "skill_providers" not in output.lower()
+        assert "/.skill_providers" not in output
