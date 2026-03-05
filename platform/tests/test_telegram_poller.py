@@ -202,11 +202,11 @@ class TestPollTelegramCredential:
         ):
             poll_telegram_credential(telegram_credential.id)
 
-        # Check offset was set for each update (first call is SETNX lock)
+        # Check offset was set for each update (first call is lock, no NX now)
         set_calls = [c for c in mock_redis.set.call_args_list]
         assert len(set_calls) == 3
-        # First: lock acquisition
-        assert set_calls[0] == call(f"tg-poll-active:{telegram_credential.id}", "1", nx=True, ex=120)
+        # First: lock acquisition (no NX)
+        assert set_calls[0] == call(f"tg-poll-active:{telegram_credential.id}", "1", ex=120)
         # Second update: 50 + 1 = 51
         assert set_calls[1] == call(f"tg_poll_offset:{telegram_credential.id}", "51", ex=30 * 24 * 3600)
         # Third update: 51 + 1 = 52
@@ -322,24 +322,6 @@ class TestPollTelegramCredential:
 
         mock_redis.delete.assert_called_once_with(f"tg-poll-active:{telegram_credential.id}")
         assert call_order == ["delete", "enqueue"]
-
-    def test_skips_duplicate_task_when_lock_held(self, db, telegram_credential, telegram_trigger):
-        """If SETNX fails at execution start, the task should skip without calling Telegram API."""
-        mock_redis = MagicMock()
-        mock_redis.set.return_value = False  # SETNX fails — another task is running
-
-        with (
-            patch("services.telegram_poller.SessionLocal", return_value=db),
-            patch("services.telegram_poller.redis.from_url", return_value=mock_redis),
-            patch("services.telegram_poller.requests.post") as mock_post,
-            patch("services.telegram_poller._enqueue_poll") as mock_enqueue,
-        ):
-            poll_telegram_credential(telegram_credential.id)
-
-        # Should NOT call Telegram API
-        mock_post.assert_not_called()
-        # Should NOT reschedule (task is skipped entirely)
-        mock_enqueue.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

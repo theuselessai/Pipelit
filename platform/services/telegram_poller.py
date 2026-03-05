@@ -34,11 +34,7 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
 
     lock_key = f"tg-poll-active:{credential_id}"
     r = redis.from_url(settings.REDIS_URL)
-
-    if not r.set(lock_key, "1", nx=True, ex=120):
-        logger.warning("Duplicate poll task for credential %s, skipping", credential_id)
-        db.close()
-        return
+    r.set(lock_key, "1", ex=120)  # Set/refresh lock (no NX — we're the active task)
 
     try:
         # Load credential
