@@ -29,6 +29,7 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
     Called by RQ worker on the ``telegram`` queue.
     """
     db = SessionLocal()
+    _next_error_count = None  # None = don't reschedule (credential gone / no active nodes)
     try:
         # Load credential
         base_cred = db.get(BaseCredential, credential_id)
@@ -72,12 +73,12 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
             data = resp.json()
         except Exception:
             logger.exception("Telegram getUpdates failed for credential %s", credential_id)
-            _enqueue_poll(credential_id, error_count + 1)
+            _next_error_count = error_count + 1
             return
 
         if not data.get("ok"):
             logger.error("Telegram API error for credential %s: %s", credential_id, data.get("description"))
-            _enqueue_poll(credential_id, error_count + 1)
+            _next_error_count = error_count + 1
             return
 
         updates = data.get("result", [])
@@ -95,13 +96,18 @@ def poll_telegram_credential(credential_id: int, error_count: int = 0) -> None:
             r.set(offset_key, str(new_offset), ex=OFFSET_TTL)
 
         # Self-reschedule immediately on success
-        _enqueue_poll(credential_id, 0)
+        _next_error_count = 0
 
     except Exception:
         logger.exception("Fatal error in poll_telegram_credential(%s)", credential_id)
-        _enqueue_poll(credential_id, error_count + 1)
+        _next_error_count = error_count + 1
     finally:
         db.close()
+        # Release lock THEN re-enqueue (order matters!)
+        conn = redis.from_url(settings.REDIS_URL)
+        conn.delete(f"tg-poll-active:{credential_id}")
+        if _next_error_count is not None:
+            _enqueue_poll(credential_id, _next_error_count)
 
 
 def _route_update(bot_token: str, update: dict, db) -> None:
@@ -144,27 +150,37 @@ def _backoff(error_count: int) -> int:
 
 
 def _enqueue_poll(credential_id: int, error_count: int) -> None:
-    """Enqueue the next poll cycle with deterministic job ID.
+    """Enqueue the next poll cycle with Redis SETNX deduplication.
 
-    Cleans up any finished/failed job with the same ID first to prevent
-    stale jobs from blocking re-enqueue.
+    Uses an atomic SET NX lock to ensure only one poll job per credential
+    is active at a time.  TTL of 120s covers 30s long-poll + 60s job_timeout
+    + 30s margin — if the worker crashes, the lock auto-expires.
     """
     from rq.job import Job
     from tasks import poll_telegram_credential_task
 
     conn = redis.from_url(settings.REDIS_URL)
-    q = Queue("telegram", connection=conn)
+    lock_key = f"tg-poll-active:{credential_id}"
     rq_job_id = f"tg-poll-{credential_id}"
 
-    # Clean up stale job with same ID (finished/failed/canceled)
+    # Atomic dedup: only one poll per credential at a time
+    if not conn.set(lock_key, "1", nx=True, ex=120):
+        logger.debug("Poll already active for credential %s, skipping enqueue", credential_id)
+        return
+
+    # Clean up old job with same ID if it's in a terminal state.
+    # The job may still be "started" when called from the finally block
+    # of the current run (RQ hasn't marked it finished yet), so we must
+    # NOT delete it in that case — just let RQ overwrite it on enqueue.
     try:
         old = Job.fetch(rq_job_id, connection=conn)
         status = old.get_status()
         if status in ("finished", "failed", "canceled", "stopped"):
             old.delete()
-    except Exception as e:
-        logger.debug("No existing job %s to clean up: %s", rq_job_id, e)
+    except Exception:
+        pass
 
+    q = Queue("telegram", connection=conn)
     delay = _backoff(error_count)
     if delay > 0:
         q.enqueue_in(
