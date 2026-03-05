@@ -560,7 +560,7 @@ class TestEnqueuePoll:
         mock_queue.enqueue.assert_called_once()
 
     def test_enqueue_poll_skips_started_job(self):
-        """Started/queued job should NOT be deleted."""
+        """Started job should NOT be deleted."""
         from services.telegram_poller import _enqueue_poll
 
         mock_old_job = MagicMock()
