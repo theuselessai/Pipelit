@@ -128,40 +128,45 @@ class TestResolve:
 
 
 class TestTelegramMatching:
-    def test_matches_allowed_user(self, resolver):
+    @pytest.fixture
+    def cc(self):
+        from unittest.mock import MagicMock
+        return MagicMock(credential_id=None)
+
+    def test_matches_allowed_user(self, resolver, cc):
         config = {"allowed_user_ids": [123, 456]}
-        assert resolver._match_telegram(config, {"user_id": 123, "text": ""})
+        assert resolver._match_telegram(cc, config, {"user_id": 123, "text": ""})
 
-    def test_rejects_disallowed_user(self, resolver):
+    def test_rejects_disallowed_user(self, resolver, cc):
         config = {"allowed_user_ids": [123]}
-        assert not resolver._match_telegram(config, {"user_id": 999, "text": ""})
+        assert not resolver._match_telegram(cc, config, {"user_id": 999, "text": ""})
 
-    def test_no_user_restriction_matches_all(self, resolver):
+    def test_no_user_restriction_matches_all(self, resolver, cc):
         config = {}
-        assert resolver._match_telegram(config, {"user_id": 999, "text": ""})
+        assert resolver._match_telegram(cc, config, {"user_id": 999, "text": ""})
 
-    def test_pattern_match(self, resolver):
+    def test_pattern_match(self, resolver, cc):
         config = {"pattern": r"hello\s+world"}
-        assert resolver._match_telegram(config, {"text": "hello   world"})
+        assert resolver._match_telegram(cc, config, {"text": "hello   world"})
 
-    def test_pattern_no_match(self, resolver):
+    def test_pattern_no_match(self, resolver, cc):
         config = {"pattern": r"^/start"}
-        assert not resolver._match_telegram(config, {"text": "hello"})
+        assert not resolver._match_telegram(cc, config, {"text": "hello"})
 
-    def test_command_match(self, resolver):
+    def test_command_match(self, resolver, cc):
         config = {"command": "start"}
-        assert resolver._match_telegram(config, {"text": "/start"})
+        assert resolver._match_telegram(cc, config, {"text": "/start"})
 
-    def test_command_no_match(self, resolver):
+    def test_command_no_match(self, resolver, cc):
         config = {"command": "start"}
-        assert not resolver._match_telegram(config, {"text": "/help"})
+        assert not resolver._match_telegram(cc, config, {"text": "/help"})
 
-    def test_combined_filters(self, resolver):
+    def test_combined_filters(self, resolver, cc):
         config = {"allowed_user_ids": [123], "pattern": "hello"}
         # Must pass both filters
-        assert resolver._match_telegram(config, {"user_id": 123, "text": "hello"})
-        assert not resolver._match_telegram(config, {"user_id": 999, "text": "hello"})
-        assert not resolver._match_telegram(config, {"user_id": 123, "text": "goodbye"})
+        assert resolver._match_telegram(cc, config, {"user_id": 123, "text": "hello"})
+        assert not resolver._match_telegram(cc, config, {"user_id": 999, "text": "hello"})
+        assert not resolver._match_telegram(cc, config, {"user_id": 123, "text": "goodbye"})
 
 
 class TestScheduleMatching:
