@@ -389,7 +389,7 @@ class TestSandboxedExecution:
     """Integration tests using real bwrap with mocked rootfs provisioning.
 
     These tests create a minimal rootfs from the host system for testing
-    purposes, since we can't download the Debian rootfs in CI.
+    purposes, since we can't download Alpine in CI.
     """
 
     @pytest.fixture

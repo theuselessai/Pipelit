@@ -1,9 +1,8 @@
-"""Debian rootfs golden image provisioning and per-workspace copy.
+"""Alpine rootfs golden image provisioning and per-workspace copy.
 
-Downloads a pre-built Debian rootfs tarball from GitHub Releases, verifies
-its SHA-256 hash, extracts it, and copies the golden image to individual
-workspaces.  All packages are pre-installed in the tarball — no runtime
-package installation needed.
+Downloads an Alpine Linux minirootfs tarball, verifies its SHA-256 hash,
+extracts it, installs tier-1/tier-2 packages via ``apk`` inside a bwrap
+sandbox, and copies the resulting golden image to individual workspaces.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ import os
 import platform
 import shutil
 import subprocess
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -24,13 +24,24 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-ROOTFS_REPO = "theuselessai/debian-rootfs"
-ROOTFS_VERSION = "v2"
+ALPINE_CDN = "https://dl-cdn.alpinelinux.org/alpine"
+
+TIER1_PACKAGES: list[str] = [
+    "bash", "python3", "py3-pip", "coreutils", "grep", "sed",
+]
+
+TIER2_PACKAGES: list[str] = [
+    "findutils", "curl", "wget", "git", "tar", "unzip", "jq",
+    "gawk", "nodejs", "npm",
+]
 
 ARCH_MAP: dict[str, str] = {
-    "x86_64": "amd64",
-    "aarch64": "arm64",
-    "arm64": "arm64",
+    "x86_64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+    "armv7l": "armv7",
+    "i686": "x86",
+    "i386": "x86",
 }
 
 
@@ -40,7 +51,7 @@ ARCH_MAP: dict[str, str] = {
 
 
 def detect_arch() -> str:
-    """Map ``platform.machine()`` to a Debian architecture string.
+    """Map ``platform.machine()`` to an Alpine architecture string.
 
     Raises ``RuntimeError`` if the current architecture is not supported.
     """
@@ -52,6 +63,69 @@ def detect_arch() -> str:
             f"Supported: {', '.join(sorted(ARCH_MAP.keys()))}"
         )
     return arch
+
+
+# ---------------------------------------------------------------------------
+# Latest version discovery
+# ---------------------------------------------------------------------------
+
+
+def get_latest_version(arch: str) -> tuple[str, str, str]:
+    """Fetch the latest Alpine minirootfs version from the CDN.
+
+    Parses ``latest-releases.yaml`` with simple line-by-line parsing
+    (no pyyaml dependency).
+
+    Returns
+    -------
+    tuple[str, str, str]
+        ``(version, filename, sha256)`` for the latest minirootfs.
+
+    Raises
+    ------
+    RuntimeError
+        If no minirootfs entry is found in the YAML.
+    """
+    url = f"{ALPINE_CDN}/latest-stable/releases/{arch}/latest-releases.yaml"
+    logger.info("Fetching Alpine release info from %s", url)
+
+    req = urllib.request.Request(url, headers={"User-Agent": "pipelit-rootfs/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        text = resp.read().decode("utf-8")
+
+    # Parse YAML looking for flavor: alpine-minirootfs blocks
+    entries: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("-"):
+            if current:
+                entries.append(current)
+            current = {}
+            # Handle "- key: value" format
+            rest = stripped.lstrip("- ").strip()
+            if ":" in rest:
+                k, v = rest.split(":", 1)
+                current[k.strip()] = v.strip().strip('"').strip("'")
+        elif ":" in stripped and current is not None:
+            k, v = stripped.split(":", 1)
+            current[k.strip()] = v.strip().strip('"').strip("'")
+    if current:
+        entries.append(current)
+
+    # Find the minirootfs entry
+    for entry in entries:
+        flavor = entry.get("flavor", "")
+        if "minirootfs" in flavor:
+            version = entry.get("version", "")
+            filename = entry.get("file", "")
+            sha256 = entry.get("sha256", "")
+            if version and filename and sha256:
+                return version, filename, sha256
+
+    raise RuntimeError(
+        f"No minirootfs entry found in Alpine latest-releases.yaml for {arch}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -72,14 +146,14 @@ def get_golden_dir() -> Path:
 
 
 def is_rootfs_ready(rootfs_dir: Path) -> bool:
-    """Check whether a rootfs directory contains a usable Debian rootfs.
+    """Check whether a rootfs directory contains a usable Alpine rootfs.
 
-    Checks for ``/bin/sh``, ``/usr/bin/python3``, and ``/etc/debian_version``.
+    Checks for ``/bin/sh``, ``/usr/bin/python3``, and ``/etc/alpine-release``.
     """
     return (
         (rootfs_dir / "bin" / "sh").exists()
         and (rootfs_dir / "usr" / "bin" / "python3").exists()
-        and (rootfs_dir / "etc" / "debian_version").exists()
+        and (rootfs_dir / "etc" / "alpine-release").exists()
     )
 
 
@@ -89,35 +163,24 @@ def is_rootfs_ready(rootfs_dir: Path) -> bool:
 
 
 def download_rootfs(target_dir: Path, arch: str) -> Path:
-    """Download the Debian rootfs tarball and verify its SHA-256 hash.
+    """Download the Alpine minirootfs tarball and verify its SHA-256 hash.
 
     Returns the path to the downloaded tarball.
 
     Raises ``RuntimeError`` on checksum mismatch or network error.
     """
-    base_url = f"https://github.com/{ROOTFS_REPO}/releases/download/{ROOTFS_VERSION}"
-    filename = f"debian-rootfs-{arch}.tar.gz"
+    version, filename, expected_sha256 = get_latest_version(arch)
+    url = f"{ALPINE_CDN}/latest-stable/releases/{arch}/{filename}"
     tarball_path = target_dir / filename
 
-    # Download checksum
-    sha256_url = f"{base_url}/{filename}.sha256"
-    logger.info("Fetching checksum from %s", sha256_url)
-    req = urllib.request.Request(sha256_url, headers={"User-Agent": "pipelit-rootfs/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            expected_sha256 = resp.read().decode("utf-8").strip().split()[0]
-    except Exception as exc:
-        raise RuntimeError(f"Failed to download checksum from {sha256_url}: {exc}") from exc
+    logger.info("Downloading Alpine rootfs %s from %s", version, url)
 
-    # Download tarball
-    tarball_url = f"{base_url}/{filename}"
-    logger.info("Downloading Debian rootfs %s from %s", ROOTFS_VERSION, tarball_url)
-    req = urllib.request.Request(tarball_url, headers={"User-Agent": "pipelit-rootfs/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "pipelit-rootfs/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             data = resp.read()
     except Exception as exc:
-        raise RuntimeError(f"Failed to download rootfs from {tarball_url}: {exc}") from exc
+        raise RuntimeError(f"Failed to download rootfs from {url}: {exc}") from exc
 
     # Verify SHA-256
     actual_sha256 = hashlib.sha256(data).hexdigest()
@@ -133,15 +196,57 @@ def download_rootfs(target_dir: Path, arch: str) -> Path:
 
 
 def extract_rootfs(tarball: Path, target_dir: Path) -> None:
-    """Extract a rootfs tarball into the target directory."""
+    """Extract a minirootfs tarball into the target directory."""
     logger.info("Extracting %s to %s", tarball, target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["tar", "xzf", str(tarball), "-C", str(target_dir)],
         check=True,
         capture_output=True,
-        timeout=120,
+        timeout=60,
     )
+
+
+# ---------------------------------------------------------------------------
+# Package installation
+# ---------------------------------------------------------------------------
+
+
+def install_packages(rootfs_dir: Path, packages: list[str]) -> None:
+    """Install packages into the rootfs using apk via bwrap.
+
+    Uses bwrap to run ``apk add`` inside the rootfs without requiring
+    actual chroot privileges.
+
+    Raises ``RuntimeError`` if package installation fails.
+    """
+    if not packages:
+        return
+
+    logger.info("Installing packages in rootfs: %s", ", ".join(packages))
+
+    cmd = [
+        "bwrap",
+        "--bind", str(rootfs_dir), "/",
+        "--dev", "/dev",
+        "--proc", "/proc",
+        "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
+        "--share-net",
+        "--die-with-parent",
+        "--clearenv",
+        "--setenv", "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "--chdir", "/",
+        "--",
+        "apk", "add", "--no-cache",
+    ] + packages
+
+    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"apk add failed (exit {result.returncode}): {stderr}"
+        )
+    logger.info("Package installation complete")
 
 
 # ---------------------------------------------------------------------------
@@ -177,12 +282,14 @@ def _ensure_var_tmp_symlink(rootfs_dir: Path) -> None:
 
 
 def prepare_golden_image(tier: int = 1) -> Path:
-    """Prepare the golden Debian rootfs image. Idempotent.
+    """Prepare the golden Alpine rootfs image. Idempotent.
 
     Uses ``fcntl.flock()`` for concurrency safety across workers.
 
-    The ``tier`` parameter is accepted for API compatibility but ignored —
-    all packages are pre-installed in the tarball.
+    Parameters
+    ----------
+    tier : int
+        Package tier: 1 for TIER1_PACKAGES only, 2 for both tiers.
 
     Returns the path to the golden rootfs directory.
     """
@@ -206,12 +313,6 @@ def prepare_golden_image(tier: int = 1) -> Path:
                 logger.info("Golden rootfs ready (created by another worker)")
                 return golden_dir
 
-            # Clean up old rootfs (e.g. Alpine → Debian migration)
-            if golden_dir.exists():
-                logger.info("Removing old rootfs at %s", golden_dir)
-                shutil.rmtree(golden_dir)
-                golden_dir.mkdir(parents=True, exist_ok=True)
-
             arch = detect_arch()
 
             # Download
@@ -221,13 +322,19 @@ def prepare_golden_image(tier: int = 1) -> Path:
                 # Extract
                 extract_rootfs(tarball, golden_dir)
 
+                # Install packages
+                packages = list(TIER1_PACKAGES)
+                if tier >= 2:
+                    packages += TIER2_PACKAGES
+                install_packages(golden_dir, packages)
+
                 # /var/tmp symlink
                 _ensure_var_tmp_symlink(golden_dir)
 
                 if not is_rootfs_ready(golden_dir):
                     raise RuntimeError(
                         f"Golden rootfs at {golden_dir} failed readiness check after provisioning. "
-                        f"Expected bin/sh, usr/bin/python3, and etc/debian_version."
+                        f"Expected bin/sh, usr/bin/python3, and etc/alpine-release."
                     )
 
                 logger.info("Golden rootfs prepared at %s", golden_dir)
