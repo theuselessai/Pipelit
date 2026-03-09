@@ -154,7 +154,7 @@ class TelegramTriggerHandler:
         return not allowed or user_id in allowed
 
     def _get_or_create_profile(self, telegram_user_id: int, from_data: dict, db: Session) -> UserProfile:
-        profile = db.query(UserProfile).filter(UserProfile.telegram_user_id == telegram_user_id).first()
+        profile = db.query(UserProfile).filter(UserProfile.external_user_id == telegram_user_id).first()
         if profile:
             return profile
 
@@ -173,7 +173,7 @@ class TelegramTriggerHandler:
             username=username,
             first_name=first,
             last_name=last,
-            telegram_user_id=telegram_user_id,
+            external_user_id=telegram_user_id,
             password_hash=bcrypt.hashpw(uuid.uuid4().hex.encode(), bcrypt.gensalt()).decode(),  # random password
         )
         db.add(profile)

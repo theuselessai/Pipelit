@@ -84,7 +84,7 @@ class TestHandleMessage:
             mock_queue_cls.return_value.enqueue.return_value = None
             handler.handle_message("123456:ABC-DEF", update, db)
 
-        assert db.query(UserProfile).filter(UserProfile.telegram_user_id == 777888999).first() is not None
+        assert db.query(UserProfile).filter(UserProfile.external_user_id == 777888999).first() is not None
 
     def test_document_message_includes_files(self, db, user_profile, telegram_trigger):
         """A document message should populate the files array in event_data."""

@@ -36,3 +36,35 @@ Use:
   op.add_column(table, Column(new_name, type, ...))
   op.execute("UPDATE table SET new_col = old_col")
   op.drop_column(table, old_name)
+
+## Task 2 Completion (T2 - Wave 1)
+
+### What Was Done
+1. **TDD Cycle**: Wrote failing test first, then implemented
+2. **GatewayCredential Model**: Added to platform/models/credential.py with:
+   - `gateway_credential_id` (String 255)
+   - `adapter_type` (String 50)
+   - One-to-one relationship with BaseCredential
+3. **BaseCredential Update**: Added `gateway_credential` relationship (replaces `telegram_credential`)
+4. **Schema Update**: Changed CredentialTypeStr from "telegram" to "gateway"
+5. **API Handlers**: Added gateway credential support in:
+   - `_serialize_credential()` - serialization
+   - `create_credential()` - creation
+   - `update_credential()` - updates
+6. **Alembic Migration**: Created 97895779df3d
+   - Deletes all telegram credentials from credentials table
+   - Drops telegram_credentials table
+   - Creates gateway_credentials table with proper schema
+7. **Test Updates**: Updated test_create_telegram_credential and test_serialize_telegram to use gateway type
+
+### Results
+- ✅ All 69 credential tests pass
+- ✅ Migration runs successfully (alembic upgrade head)
+- ✅ GatewayCredential importable from models.credential
+- ✅ Commit: 00492a5 feat(models): add GatewayCredential model + migration
+
+### Key Learnings
+- Alembic migration pattern: op.execute() for data cleanup, op.drop_table(), op.create_table()
+- API credential serialization requires handlers in 3 places: serialize, create, update
+- Test updates needed when changing credential types (not just model changes)
+- TDD approach caught issues early (test failed before implementation)

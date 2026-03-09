@@ -59,7 +59,7 @@ def user_profile(db):
     profile = UserProfile(
         username="testuser",
         password_hash=bcrypt.hashpw(b"testpass", bcrypt.gensalt()).decode(),
-        telegram_user_id=111222333,
+        external_user_id=111222333,
     )
     db.add(profile)
     db.commit()

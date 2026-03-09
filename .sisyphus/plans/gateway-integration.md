@@ -279,7 +279,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/config.py`, `platform/tests/test_config.py`
   - Pre-commit: `pytest tests/ -k config`
 
-- [ ] 2. GatewayCredential Model + Alembic Migration
+- [x] 2. GatewayCredential Model + Alembic Migration
 
   **What to do**:
   - RED: Write test that imports `GatewayCredential`, creates instance with `gateway_credential_id` + `adapter_type`, verifies fields
