@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 EVENT_TYPE_TO_COMPONENT = {
-    "telegram_message": "trigger_telegram",
-    "telegram_chat": "trigger_telegram",
+    "gateway_inbound": "trigger_telegram",
     "schedule": "trigger_schedule",
     "manual": "trigger_manual",
     "workflow": "trigger_workflow",
@@ -48,23 +46,9 @@ class TriggerResolver:
 
         candidates.sort(key=lambda x: (-x[0], x[1].id))
 
-        # Pre-load telegram credentials to avoid N+1 queries in _match_telegram
-        cred_cache: dict[int, str] = {}  # credential_id → bot_token
-        if event_type in ("telegram_message", "telegram_chat"):
-            cred_ids = {
-                cc.credential_id for _, node in candidates
-                if (cc := node.component_config).credential_id
-            }
-            if cred_ids:
-                from models.credential import BaseCredential
-                creds = db.query(BaseCredential).filter(BaseCredential.id.in_(cred_ids)).all()
-                for cred in creds:
-                    if cred.telegram_credential:
-                        cred_cache[cred.id] = cred.telegram_credential.bot_token
-
         for _priority, node in candidates:
             cc = node.component_config
-            if self._matches(cc, event_type, event_data, cred_cache):
+            if self._matches(cc, event_type, event_data):
                 workflow = db.query(Workflow).filter(Workflow.id == node.workflow_id).first()
                 return (workflow, node)
 
@@ -85,11 +69,9 @@ class TriggerResolver:
 
         return None
 
-    def _matches(self, config, event_type: str, event_data: dict, cred_cache: dict[int, str] | None = None) -> bool:
+    def _matches(self, config, event_type: str, event_data: dict) -> bool:
         trigger_config = config.trigger_config or {}
 
-        if event_type in ("telegram_message", "telegram_chat"):
-            return self._match_telegram(config, trigger_config, event_data, cred_cache)
         if event_type == "manual":
             return True
         if event_type == "workflow":
@@ -99,31 +81,6 @@ class TriggerResolver:
             return self._match_schedule(trigger_config, event_data)
         if event_type == "error":
             return True
-        return True
-
-    def _match_telegram(self, component_config, trigger_config: dict, event_data: dict, cred_cache: dict[int, str] | None = None) -> bool:
-        # Match by bot token — each telegram trigger is bound to a specific bot
-        bot_token = event_data.get("bot_token")
-        if bot_token and component_config.credential_id and cred_cache:
-            cached_token = cred_cache.get(component_config.credential_id)
-            if cached_token and cached_token != bot_token:
-                return False
-
-        allowed_users = trigger_config.get("allowed_user_ids", [])
-        if allowed_users:
-            user_id = event_data.get("user_id")
-            if user_id and user_id not in allowed_users:
-                return False
-        pattern = trigger_config.get("pattern")
-        if pattern:
-            text = event_data.get("text", "")
-            if not re.search(pattern, text, re.IGNORECASE):
-                return False
-        command = trigger_config.get("command")
-        if command:
-            text = event_data.get("text", "")
-            if not text.startswith(f"/{command}"):
-                return False
         return True
 
     def _match_schedule(self, config: dict, event_data: dict) -> bool:

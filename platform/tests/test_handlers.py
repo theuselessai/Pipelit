@@ -81,37 +81,6 @@ class TestTriggerResolver:
         config = MagicMock(trigger_config={})
         assert resolver._matches(config, "error", {}) is True
 
-    def test_match_telegram_allowed_users(self):
-        from unittest.mock import MagicMock
-        from triggers.resolver import TriggerResolver
-
-        resolver = TriggerResolver()
-        cc = MagicMock(credential_id=None)
-        # No user restriction
-        assert resolver._match_telegram(cc, {}, {"user_id": 123}) is True
-        # Allowed users - match
-        assert resolver._match_telegram(cc, {"allowed_user_ids": [123]}, {"user_id": 123}) is True
-        # Allowed users - no match
-        assert resolver._match_telegram(cc, {"allowed_user_ids": [456]}, {"user_id": 123}) is False
-
-    def test_match_telegram_pattern(self):
-        from unittest.mock import MagicMock
-        from triggers.resolver import TriggerResolver
-
-        resolver = TriggerResolver()
-        cc = MagicMock(credential_id=None)
-        assert resolver._match_telegram(cc, {"pattern": r"hello"}, {"text": "hello world"}) is True
-        assert resolver._match_telegram(cc, {"pattern": r"^goodbye"}, {"text": "hello world"}) is False
-
-    def test_match_telegram_command(self):
-        from unittest.mock import MagicMock
-        from triggers.resolver import TriggerResolver
-
-        resolver = TriggerResolver()
-        cc = MagicMock(credential_id=None)
-        assert resolver._match_telegram(cc, {"command": "start"}, {"text": "/start"}) is True
-        assert resolver._match_telegram(cc, {"command": "help"}, {"text": "/start"}) is False
-
     def test_matches_workflow_source(self):
         from triggers.resolver import TriggerResolver
 
