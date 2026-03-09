@@ -175,6 +175,8 @@ def _resolve_credential_field(cred, field: str) -> str | None:
         return cred.llm_credential.organization_id or None
     if field == "bot_token" and cred.telegram_credential:
         return cred.telegram_credential.bot_token or None
+    if field == "gateway_credential_id" and cred.gateway_credential:
+        return cred.gateway_credential.gateway_credential_id or None
     if field == "access_token" and cred.git_credential:
         return cred.git_credential.access_token or None
     if field == "ssh_private_key" and cred.git_credential:

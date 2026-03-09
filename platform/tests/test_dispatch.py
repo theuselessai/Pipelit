@@ -10,7 +10,7 @@ from models.execution import WorkflowExecution
 
 class TestDispatchEvent:
     def test_returns_none_when_no_match(self, db, user_profile):
-        result = dispatch_event("telegram_chat", {"text": "hello"}, user_profile, db)
+        result = dispatch_event("unknown_event_type", {"text": "hello"}, user_profile, db)
         assert result is None
 
     def test_creates_execution_on_match(self, db, user_profile, telegram_trigger):
@@ -21,8 +21,8 @@ class TestDispatchEvent:
             mock_queue.enqueue.return_value = None
 
             result = dispatch_event(
-                "telegram_chat",
-                {"text": "hello", "chat_id": 123},
+                "gateway_inbound",
+                {"text": "hello", "chat_id": "123"},
                 user_profile,
                 db,
             )

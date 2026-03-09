@@ -695,7 +695,7 @@ class TestCheckpointIsolation:
             "messages": [MagicMock(type="human", content="hello")],
             "execution_id": "child-exec-123",
             "_is_child_execution": True,
-            "user_context": {"user_profile_id": 1, "telegram_chat_id": "chat-456"},
+            "user_context": {"user_profile_id": 1, "chat_id": "chat-456"},
         }
 
         agent_node(state)
@@ -735,7 +735,7 @@ class TestCheckpointIsolation:
             "messages": [MagicMock(type="human", content="hello")],
             "execution_id": "parent-exec-123",
             "_is_child_execution": False,
-            "user_context": {"user_profile_id": 1, "telegram_chat_id": "chat-456"},
+            "user_context": {"user_profile_id": 1, "chat_id": "chat-456"},
         }
 
         agent_node(state)

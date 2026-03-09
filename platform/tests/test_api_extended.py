@@ -9,9 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from models.credential import BaseCredential, GatewayCredential, LLMProviderCredential, TelegramCredential
+from models.credential import BaseCredential, GatewayCredential, LLMProviderCredential
 from models.execution import ExecutionLog, WorkflowExecution
-from models.node import BaseComponentConfig, WorkflowNode
 from models.user import APIKey, UserProfile
 from models.workflow import Workflow
 
@@ -1096,57 +1095,6 @@ class TestGatewayCredentialSync:
             resp = auth_client.post(f"/api/v1/credentials/{cred.id}/deactivate/")
 
         assert resp.status_code == 502
-
-
-# ── Chat endpoint ────────────────────────────────────────────────────────────
-
-class TestChatAPI:
-    @pytest.fixture
-    def chat_trigger(self, db, workflow):
-        cc = BaseComponentConfig(
-            component_type="trigger_chat",
-            trigger_config={},
-            is_active=True,
-        )
-        db.add(cc)
-        db.flush()
-        node = WorkflowNode(
-            workflow_id=workflow.id,
-            node_id="chat_trigger_1",
-            component_type="trigger_chat",
-            component_config_id=cc.id,
-        )
-        db.add(node)
-        db.commit()
-        db.refresh(node)
-        return node
-
-    def test_chat_no_trigger(self, auth_client, workflow):
-        resp = auth_client.post(f"/api/v1/workflows/{workflow.slug}/chat/", json={
-            "text": "hello",
-        })
-        assert resp.status_code == 404
-
-    def test_chat_workflow_not_found(self, auth_client):
-        resp = auth_client.post("/api/v1/workflows/nonexistent/chat/", json={
-            "text": "hello",
-        })
-        assert resp.status_code == 404
-
-    def test_chat_with_trigger_node_id(self, auth_client, workflow, chat_trigger):
-        """Chat with specific trigger_node_id — mock Redis enqueue."""
-        mock_q = MagicMock()
-        mock_conn = MagicMock()
-        with patch("redis.from_url", return_value=mock_conn):
-            with patch("rq.Queue", return_value=mock_q):
-                resp = auth_client.post(f"/api/v1/workflows/{workflow.slug}/chat/", json={
-                    "text": "hello",
-                    "trigger_node_id": "chat_trigger_1",
-                })
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "pending"
-        mock_q.enqueue.assert_called_once()
 
 
 # ── Workflow batch operations ────────────────────────────────────────────────
