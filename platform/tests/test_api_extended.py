@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from models.credential import BaseCredential, LLMProviderCredential, TelegramCredential
+from models.credential import BaseCredential, GatewayCredential, LLMProviderCredential, TelegramCredential
 from models.execution import ExecutionLog, WorkflowExecution
 from models.node import BaseComponentConfig, WorkflowNode
 from models.user import APIKey, UserProfile
@@ -85,10 +85,21 @@ class TestCredentialsAPI:
     def test_create_telegram_credential(self, auth_client):
         resp = auth_client.post("/api/v1/credentials/", json={
             "name": "My Bot",
-            "credential_type": "telegram",
+            "credential_type": "gateway",
             "detail": {
-                "bot_token": "123456:ABC-DEF",
-                "allowed_user_ids": "111,222",
+                "gateway_credential_id": "tg_mybot",
+                "adapter_type": "telegram",
+            },
+        })
+        assert resp.status_code == 201
+
+    def test_create_gateway_credential(self, auth_client):
+        resp = auth_client.post("/api/v1/credentials/", json={
+            "name": "Gateway Bot",
+            "credential_type": "gateway",
+            "detail": {
+                "gateway_credential_id": "tg_mybot",
+                "adapter_type": "telegram",
             },
         })
         assert resp.status_code == 201
@@ -692,22 +703,22 @@ class TestCredentialSerialization:
     def test_serialize_telegram(self, auth_client, db, user_profile):
         cred = BaseCredential(
             user_profile_id=user_profile.id, name="TG Bot",
-            credential_type="telegram",
+            credential_type="gateway",
         )
         db.add(cred)
         db.flush()
-        tg = TelegramCredential(
+        gw = GatewayCredential(
             base_credentials_id=cred.id,
-            bot_token="123456:ABC-DEF-GHI-JKL",
-            allowed_user_ids="111,222",
+            gateway_credential_id="tg_mybot",
+            adapter_type="telegram",
         )
-        db.add(tg)
+        db.add(gw)
         db.commit()
 
         resp = auth_client.get(f"/api/v1/credentials/{cred.id}/")
         assert resp.status_code == 200
         data = resp.json()
-        assert "****" in data["detail"]["bot_token"]
+        assert data["detail"]["gateway_credential_id"] == "tg_mybot"
 
     def test_update_credential_detail(self, auth_client, db, user_profile):
         cred = BaseCredential(

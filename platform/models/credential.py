@@ -42,6 +42,9 @@ class BaseCredential(Base):
     telegram_credential: Mapped[TelegramCredential | None] = relationship(
         "TelegramCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
     )
+    gateway_credential: Mapped[GatewayCredential | None] = relationship(
+        "GatewayCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
+    )
     tool_credential: Mapped[ToolCredential | None] = relationship(
         "ToolCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
     )
@@ -94,6 +97,19 @@ class TelegramCredential(Base):
     allowed_user_ids: Mapped[str] = mapped_column(String(500), default="")
 
     base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="telegram_credential")
+
+
+class GatewayCredential(Base):
+    __tablename__ = "gateway_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    base_credentials_id: Mapped[int] = mapped_column(
+        ForeignKey("credentials.id", ondelete="CASCADE"), unique=True
+    )
+    gateway_credential_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="gateway_credential")
 
 
 class ToolCredential(Base):

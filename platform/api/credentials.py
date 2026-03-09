@@ -14,6 +14,7 @@ from auth import get_current_user
 from database import get_db
 from models.credential import (
     BaseCredential,
+    GatewayCredential,
     GitCredential,
     LLMProviderCredential,
     TelegramCredential,
@@ -80,6 +81,12 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
             "bot_token": _mask(tg.bot_token),
             "allowed_user_ids": tg.allowed_user_ids,
         }
+    elif cred.credential_type == "gateway" and cred.gateway_credential:
+        gw = cred.gateway_credential
+        data["detail"] = {
+            "gateway_credential_id": gw.gateway_credential_id,
+            "adapter_type": gw.adapter_type,
+        }
     elif cred.credential_type == "git" and cred.git_credential:
         git = cred.git_credential
         data["detail"] = {
@@ -141,6 +148,13 @@ def create_credential(
             base_credentials_id=base.id,
             bot_token=detail.get("bot_token", ""),
             allowed_user_ids=detail.get("allowed_user_ids", ""),
+        )
+        db.add(sub)
+    elif payload.credential_type == "gateway":
+        sub = GatewayCredential(
+            base_credentials_id=base.id,
+            gateway_credential_id=detail.get("gateway_credential_id", ""),
+            adapter_type=detail.get("adapter_type", ""),
         )
         db.add(sub)
     elif payload.credential_type == "git":
@@ -207,6 +221,12 @@ def update_credential(
                 tg.bot_token = detail["bot_token"]
             if "allowed_user_ids" in detail:
                 tg.allowed_user_ids = detail["allowed_user_ids"]
+        elif cred.credential_type == "gateway" and cred.gateway_credential:
+            gw = cred.gateway_credential
+            if "gateway_credential_id" in detail:
+                gw.gateway_credential_id = detail["gateway_credential_id"]
+            if "adapter_type" in detail:
+                gw.adapter_type = detail["adapter_type"]
         elif cred.credential_type == "git" and cred.git_credential:
             git = cred.git_credential
             for field in ("provider", "credential_type", "ssh_private_key", "access_token", "username", "webhook_secret"):

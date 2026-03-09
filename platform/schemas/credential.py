@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-CredentialTypeStr = Literal["git", "llm", "telegram", "tool"]
+CredentialTypeStr = Literal["git", "llm", "gateway", "tool"]
 
 
 class CredentialIn(BaseModel):
