@@ -44,3 +44,19 @@ export function useBatchDeleteCredentials() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["credentials"] }),
   })
 }
+
+export function useActivateCredential() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<void>(`/credentials/${id}/activate/`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["credentials"] }),
+  })
+}
+
+export function useDeactivateCredential() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<void>(`/credentials/${id}/deactivate/`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["credentials"] }),
+  })
+}

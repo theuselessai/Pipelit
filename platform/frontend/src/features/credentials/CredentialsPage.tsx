@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useCredentials, useCreateCredential, useUpdateCredential, useDeleteCredential, useTestCredential, useBatchDeleteCredentials } from "@/api/credentials"
+import { useCredentials, useCreateCredential, useUpdateCredential, useDeleteCredential, useTestCredential, useBatchDeleteCredentials, useActivateCredential, useDeactivateCredential } from "@/api/credentials"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { PaginationControls } from "@/components/ui/pagination-controls"
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Star } from "lucide-react"
+import { Plus, Trash2, CheckCircle, XCircle, Loader2, Star, Power, PowerOff } from "lucide-react"
 import { format } from "date-fns"
 import type { CredentialType } from "@/types/models"
 
@@ -33,6 +33,8 @@ export default function CredentialsPage() {
   const deleteCredential = useDeleteCredential()
   const testCredential = useTestCredential()
   const batchDelete = useBatchDeleteCredentials()
+  const activateCredential = useActivateCredential()
+  const deactivateCredential = useDeactivateCredential()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
   const [credType, setCredType] = useState<CredentialType>("llm")
@@ -40,10 +42,12 @@ export default function CredentialsPage() {
   const [apiKey, setApiKey] = useState("")
   const [baseUrl, setBaseUrl] = useState("")
   const [organizationId, setOrganizationId] = useState("")
-  const [botToken, setBotToken] = useState("")
   const [toolType, setToolType] = useState("searxng")
   const [toolUrl, setToolUrl] = useState("")
   const [toolPreferred, setToolPreferred] = useState(false)
+  const [gatewayAdapterType, setGatewayAdapterType] = useState("telegram")
+  const [gatewayToken, setGatewayToken] = useState("")
+  const [gatewayConfig, setGatewayConfig] = useState("")
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [testResults, setTestResults] = useState<Record<number, { ok: boolean; error: string } | "loading">>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -56,7 +60,12 @@ export default function CredentialsPage() {
     }
     let detail: Record<string, unknown> = {}
     if (credType === "llm") detail = { provider_type: providerType, api_key: apiKey, base_url: baseUrl, organization_id: organizationId }
-    else if (credType === "gateway") detail = { bot_token: botToken }
+    else if (credType === "gateway") {
+      detail = { adapter_type: gatewayAdapterType, token: gatewayToken }
+      if (gatewayConfig.trim()) {
+        try { detail.config = JSON.parse(gatewayConfig) } catch { /* ignore invalid JSON */ }
+      }
+    }
     else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
     await createCredential.mutateAsync({ name, credential_type: credType, detail })
     setOpen(false)
@@ -66,7 +75,9 @@ export default function CredentialsPage() {
     setApiKey("")
     setBaseUrl("")
     setOrganizationId("")
-    setBotToken("")
+    setGatewayAdapterType("telegram")
+    setGatewayToken("")
+    setGatewayConfig("")
     setToolType("searxng")
     setToolUrl("")
     setToolPreferred(false)
@@ -150,6 +161,7 @@ export default function CredentialsPage() {
                     <TableCell><Badge variant="outline">{cred.credential_type}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {cred.credential_type === "llm" && (cred.detail.provider_type as string ?? "")}
+                      {cred.credential_type === "gateway" && (cred.detail.adapter_type as string ?? "")}
                       {cred.credential_type === "tool" && (
                         <span className="flex items-center gap-1">
                           {cred.detail.tool_type as string ?? ""}
@@ -178,6 +190,28 @@ export default function CredentialsPage() {
                         >
                           <Star className={`h-4 w-4 ${(cred.detail as Record<string, unknown>).is_preferred ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`} />
                         </Button>
+                      )}
+                      {cred.credential_type === "gateway" && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Activate"
+                            onClick={() => activateCredential.mutate(cred.id)}
+                            disabled={activateCredential.isPending}
+                          >
+                            <Power className="h-4 w-4 text-green-500" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Deactivate"
+                            onClick={() => deactivateCredential.mutate(cred.id)}
+                            disabled={deactivateCredential.isPending}
+                          >
+                            <PowerOff className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </>
                       )}
                       <Button variant="ghost" size="sm" onClick={() => setDeleteId(cred.id)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
@@ -238,10 +272,26 @@ export default function CredentialsPage() {
               </>
             )}
             {credType === "gateway" && (
-              <div className="space-y-2">
-                <Label>Bot Token</Label>
-                <Input type="password" value={botToken} onChange={(e) => setBotToken(e.target.value)} />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>Adapter Type</Label>
+                  <Select value={gatewayAdapterType} onValueChange={setGatewayAdapterType}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="telegram">Telegram</SelectItem>
+                      <SelectItem value="generic">Generic</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Token</Label>
+                  <Input type="password" value={gatewayToken} onChange={(e) => setGatewayToken(e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Config (optional JSON)</Label>
+                  <Input value={gatewayConfig} onChange={(e) => setGatewayConfig(e.target.value)} placeholder='{"key": "value"}' />
+                </div>
+              </>
             )}
             {credType === "tool" && (
               <>
