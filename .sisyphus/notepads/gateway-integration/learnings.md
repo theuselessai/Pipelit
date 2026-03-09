@@ -282,3 +282,54 @@ Use:
 - Removing telegram-specific matching logic simplifies resolver (gateway handles routing via direct dispatch)
 - Test cleanup: always search for all references to removed methods across all test files
 - Resolver now only handles schedule, manual, workflow, and error events (gateway_inbound is direct dispatch)
+
+## Task 21 Completion (T21 - Update conftest + Fixtures + Affected Test Files)
+
+### What Was Done
+1. **conftest.py**: Replaced `telegram_credential` fixture:
+   - `TelegramCredential` → `GatewayCredential`
+   - `credential_type="telegram"` → `credential_type="gateway"`
+   - `bot_token="123456:ABC-DEF"` → `gateway_credential_id="tg_testbot"`, `adapter_type="telegram"`
+
+2. **test_deep_agent.py**:
+   - Removed `TelegramCredential` import, added `GatewayCredential`
+   - Replaced `test_telegram_bot_token` with `test_gateway_credential_id`
+   - Updated `test_missing_child_returns_none` to use `gateway_credential_id` instead of `bot_token`
+
+3. **test_api_extended.py**:
+   - Removed `TelegramCredential` import (unused)
+   - Removed `BaseComponentConfig`, `WorkflowNode` imports (unused after TestChatAPI removal)
+   - Removed entire `TestChatAPI` class (chat endpoint removed from API)
+
+4. **test_coverage_gaps.py**:
+   - Removed entire `TestChatHistoryAPI` class (chat history endpoint removed from API)
+
+5. **test_handlers.py**:
+   - Removed entire `TestTelegramHandler` class (`handlers/telegram.py` no longer exists)
+   - Updated `pending.telegram_chat_id = 456` → `pending.chat_id = "456"` (String)
+
+6. **test_spawn_and_await.py**:
+   - Updated `"telegram_chat_id": "chat-456"` → `"chat_id": "chat-456"` in two test states
+
+7. **test_dispatch.py**:
+   - Updated `"telegram_chat"` event type → `"unknown_event_type"` (for no-match test)
+   - Updated `"telegram_chat"` → `"gateway_inbound"` (for match test)
+   - Updated `"chat_id": 123` → `"chat_id": "123"` (String)
+
+8. **api/executions.py**: Added missing `from pydantic import BaseModel` import (pre-existing bug)
+
+9. **components/_agent_shared.py**: Added `gateway_credential_id` field support in `_resolve_credential_field()`
+
+### Results
+- ✅ 2007 tests pass (only 1 pre-existing failure: `test_unknown_channel_no_id`)
+- ✅ `test_sandbox_mode_default` now passes (was flaky)
+- ✅ Commit: f740596 test: update fixtures and affected test files for gateway migration
+
+### Key Learnings
+- When removing modules (handlers/telegram.py), ALL tests for that module must be removed
+- When removing API endpoints (chat, chat history), ALL tests for those endpoints must be removed
+- `telegram_chat_id` on PendingTask → `chat_id` (String, not int)
+- `telegram_chat_id` in user_context → `chat_id`
+- `TelegramCredential` → `GatewayCredential` in fixtures and tests
+- `bot_token` field → `gateway_credential_id` field
+- Always check for missing imports in production code (BaseModel in executions.py)

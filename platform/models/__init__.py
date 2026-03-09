@@ -6,7 +6,6 @@ from models.credential import (  # noqa: F401
     BaseCredential,
     GitCredential,
     LLMProviderCredential,
-    TelegramCredential,
     ToolCredential,
 )
 from models.workflow import Workflow, WorkflowCollaborator  # noqa: F401

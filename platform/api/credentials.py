@@ -17,7 +17,6 @@ from models.credential import (
     GatewayCredential,
     GitCredential,
     LLMProviderCredential,
-    TelegramCredential,
     ToolCredential,
 )
 from models.user import UserProfile
@@ -75,12 +74,6 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
             "base_url": llm.base_url,
             "organization_id": llm.organization_id,
             "custom_headers": llm.custom_headers,
-        }
-    elif cred.credential_type == "telegram" and cred.telegram_credential:
-        tg = cred.telegram_credential
-        data["detail"] = {
-            "bot_token": _mask(tg.bot_token),
-            "allowed_user_ids": tg.allowed_user_ids,
         }
     elif cred.credential_type == "gateway" and cred.gateway_credential:
         gw = cred.gateway_credential
@@ -142,13 +135,6 @@ def create_credential(
             base_url=detail.get("base_url", ""),
             organization_id=detail.get("organization_id", ""),
             custom_headers=detail.get("custom_headers", {}),
-        )
-        db.add(sub)
-    elif payload.credential_type == "telegram":
-        sub = TelegramCredential(
-            base_credentials_id=base.id,
-            bot_token=detail.get("bot_token", ""),
-            allowed_user_ids=detail.get("allowed_user_ids", ""),
         )
         db.add(sub)
     elif payload.credential_type == "gateway":
@@ -231,12 +217,6 @@ def update_credential(
             for field in ("provider_type", "api_key", "base_url", "organization_id", "custom_headers"):
                 if field in detail:
                     setattr(llm, field, detail[field])
-        elif cred.credential_type == "telegram" and cred.telegram_credential:
-            tg = cred.telegram_credential
-            if "bot_token" in detail:
-                tg.bot_token = detail["bot_token"]
-            if "allowed_user_ids" in detail:
-                tg.allowed_user_ids = detail["allowed_user_ids"]
         elif cred.credential_type == "gateway" and cred.gateway_credential:
             gw = cred.gateway_credential
             gw_update_kwargs: dict = {}

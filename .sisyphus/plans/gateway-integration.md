@@ -1277,7 +1277,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: (deleted files), `platform/main.py`, `platform/tasks/__init__.py`, `platform/handlers/__init__.py`
   - Pre-commit: `pytest tests/ -v`
 
-- [ ] 15. Remove Chat Endpoints + Schemas
+- [x] 15. Remove Chat Endpoints + Schemas
 
   **What to do**:
   - In `platform/api/executions.py`:
@@ -1383,7 +1383,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/api/nodes.py`
   - Pre-commit: `pytest tests/ -k node`
 
-- [ ] 17. Frontend Types + Remove chat.ts
+- [x] 17. Frontend Types + Remove chat.ts
 
   **What to do**:
   - DELETE `platform/frontend/src/api/chat.ts`
@@ -1436,7 +1436,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: (delete chat.ts), `types/models.ts`, `api/nodes.ts`
   - Pre-commit: `npm run build`
 
-- [ ] 18. CredentialsPage: Gateway Credential CRUD UI
+- [x] 18. CredentialsPage: Gateway Credential CRUD UI
 
   **What to do**:
   - In `platform/frontend/src/features/credentials/CredentialsPage.tsx`:
@@ -1522,7 +1522,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/frontend/src/features/credentials/CredentialsPage.tsx`, `platform/frontend/src/api/credentials.ts`
   - Pre-commit: `npm run build`
 
-- [ ] 19. NodeDetailsPanel: Remove ChatPanel + Poll Buttons
+- [x] 19. NodeDetailsPanel: Remove ChatPanel + Poll Buttons
 
   **What to do**:
   - In `platform/frontend/src/features/workflows/components/NodeDetailsPanel.tsx`:
@@ -1597,7 +1597,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/frontend/src/features/workflows/components/NodeDetailsPanel.tsx`
   - Pre-commit: `npm run build`
 
-- [ ] 20. Frontend Cleanup: Palette Descriptions + Canvas
+- [x] 20. Frontend Cleanup: Palette Descriptions + Canvas
 
   **What to do**:
   - In `platform/frontend/src/features/workflows/components/NodePalette.tsx`:
@@ -1649,7 +1649,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/frontend/src/features/workflows/components/NodePalette.tsx`
   - Pre-commit: `npm run build`
 
-- [ ] 21. Update conftest + Fixtures + Affected Test Files
+- [x] 21. Update conftest + Fixtures + Affected Test Files
 
   **What to do**:
   - In `platform/tests/conftest.py`:
@@ -1722,7 +1722,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/conftest.py`, `platform/tests/*.py` (multiple)
   - Pre-commit: `pytest tests/ -v`
 
-- [ ] 22. Integration Test: Full Inbound → Execution → Outbound Flow
+- [x] 22. Integration Test: Full Inbound → Execution → Outbound Flow
 
   **What to do**:
   - Create `platform/tests/test_gateway_integration.py`:
@@ -1803,7 +1803,7 @@ Max Concurrent: 7 (Wave 1)
 
 > 4 review agents run in PARALLEL. ALL must APPROVE. Rejection → fix → re-run.
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists (read file, curl endpoint, run command). For each "Must NOT Have": search codebase for forbidden patterns — reject with file:line if found. Check evidence files exist in .sisyphus/evidence/. Compare deliverables against plan.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 

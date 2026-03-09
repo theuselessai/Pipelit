@@ -39,9 +39,6 @@ class BaseCredential(Base):
     llm_credential: Mapped[LLMProviderCredential | None] = relationship(
         "LLMProviderCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
     )
-    telegram_credential: Mapped[TelegramCredential | None] = relationship(
-        "TelegramCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
-    )
     gateway_credential: Mapped[GatewayCredential | None] = relationship(
         "GatewayCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
     )
@@ -84,19 +81,6 @@ class LLMProviderCredential(Base):
     custom_headers: Mapped[dict] = mapped_column(JSON, default=dict)
 
     base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="llm_credential")
-
-
-class TelegramCredential(Base):
-    __tablename__ = "telegram_credentials"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    base_credentials_id: Mapped[int] = mapped_column(
-        ForeignKey("credentials.id", ondelete="CASCADE"), unique=True
-    )
-    bot_token: Mapped[str] = mapped_column(EncryptedString(500))
-    allowed_user_ids: Mapped[str] = mapped_column(String(500), default="")
-
-    base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="telegram_credential")
 
 
 class GatewayCredential(Base):
