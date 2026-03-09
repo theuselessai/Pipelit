@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api import api_router
 from api.executions import chat_router
+from api.inbound import router as inbound_router
 from config import settings
 from database import Base, SessionLocal, engine
 from handlers.manual import router as manual_router
@@ -188,6 +189,9 @@ app.include_router(chat_router, prefix="/api/v1/workflows", tags=["chat"])
 
 # Manual execution endpoint
 app.include_router(manual_router, prefix="/api/v1", tags=["manual"])
+
+# Inbound gateway webhook
+app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
 
 # WebSocket endpoints
 app.include_router(ws_router)
