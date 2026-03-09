@@ -1352,6 +1352,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     from models.execution import PendingTask
     from models.node import WorkflowNode
     from models.system import SystemConfig
+    from services.gateway_client import get_gateway_client
 
     config = SystemConfig.load(db)
     timeout = config.confirmation_timeout_seconds
@@ -1378,6 +1379,15 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     db.add(pending)
     execution.status = "interrupted"
     db.commit()
+
+    credential_id = payload.get("credential_id")
+    chat_id_str = str(payload.get("chat_id", ""))
+    if credential_id and chat_id_str:
+        try:
+            prompt_text = f"Action requires confirmation.\n\nTo confirm: /confirm_{pending.task_id}\nTo cancel: /cancel_{pending.task_id}"
+            get_gateway_client().send_message(credential_id, chat_id_str, prompt_text)
+        except Exception:
+            logger.warning("Failed to send confirmation prompt via gateway", exc_info=True)
 
     slug = _get_workflow_slug(str(execution.execution_id), db)
     _publish_event(str(execution.execution_id), "execution_interrupted", {"node_id": node_id}, workflow_slug=slug)
