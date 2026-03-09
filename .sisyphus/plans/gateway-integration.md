@@ -1032,7 +1032,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/services/delivery.py`, `platform/tests/test_delivery.py`
   - Pre-commit: `pytest tests/ -k delivery`
 
-- [ ] 11. Orchestrator: Interrupt + Confirmation Prompt via Gateway + Tests
+- [x] 11. Orchestrator: Interrupt + Confirmation Prompt via Gateway + Tests
 
   **What to do**:
   - RED: Write tests for:
@@ -1108,7 +1108,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/services/orchestrator.py`, `platform/tests/test_orchestrator.py`
   - Pre-commit: `pytest tests/ -k orchestrator`
 
-- [ ] 12. Agent/Deep Agent: user_context Key Rename + Tests
+- [x] 12. Agent/Deep Agent: user_context Key Rename + Tests
 
   **What to do**:
   - RED: Write test asserting agent thread_id uses `chat_id` key from user_context (not `telegram_chat_id`)
@@ -1159,7 +1159,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/components/agent.py`, `platform/components/deep_agent.py`
   - Pre-commit: `pytest tests/ -k agent`
 
-- [ ] 13. Trigger Resolver: Remove Telegram Entries + Tests
+- [x] 13. Trigger Resolver: Remove Telegram Entries + Tests
 
   **What to do**:
   - RED: Write test asserting `EVENT_TYPE_TO_COMPONENT` does NOT contain `"telegram_message"` or `"telegram_chat"` keys

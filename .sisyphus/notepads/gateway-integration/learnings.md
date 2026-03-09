@@ -243,3 +243,42 @@ Use:
 - Workflow model uses `owner_id` not `user_profile_id`
 - Gateway send failures during interrupt should be logged but not raised (graceful degradation)
 - Confirmation prompt includes task_id for /confirm_ and /cancel_ commands
+
+## Task 12 + 13 Completion (T12 + T13 - User Context Key Rename + Resolver Cleanup)
+
+### What Was Done
+1. **T12 - User Context Key Rename**:
+   - Changed `user_context.get("telegram_chat_id", "")` → `user_context.get("chat_id", "")` in:
+     - `platform/components/agent.py` line 231
+     - `platform/components/deep_agent.py` line 257
+   - Thread ID construction logic unchanged (still uses `{user_id}:{chat_id}:{workflow_id}` format)
+
+2. **T13 - Resolver Cleanup**:
+   - Removed `"telegram_message"` and `"telegram_chat"` entries from `EVENT_TYPE_TO_COMPONENT` dict
+   - Added `"gateway_inbound": "trigger_telegram"` mapping (for completeness, though inbound dispatch bypasses resolver)
+   - Removed `_match_telegram()` method entirely (no longer needed with gateway)
+   - Removed credential caching block (lines 50-62) that pre-loaded telegram credentials
+   - Removed `re` import (no longer used after removing pattern/command matching)
+   - Updated `_matches()` signature to remove `cred_cache` parameter
+   - Removed telegram case from `_matches()` method
+
+3. **Test Updates**:
+   - Removed 3 tests from `test_handlers.py`:
+     - `test_match_telegram_allowed_users`
+     - `test_match_telegram_pattern`
+     - `test_match_telegram_command`
+   - Removed entire `TestTelegramMatching` class from `test_trigger_resolver.py` (8 tests)
+   - Removed entire `TestBotTokenMatching` class from `test_trigger_resolver.py` (5 tests)
+
+### Results
+- ✅ All 123 agent/resolver tests pass
+- ✅ No `telegram_chat_id` references remain in components (only in pycache, regenerated)
+- ✅ Resolver has `gateway_inbound` mapping
+- ✅ No `_match_telegram()` method exists
+- ✅ Two commits: 59c131f (T12) and 8f89207 (T13)
+
+### Key Learnings
+- Thread ID format is stable: `{user_id}:{chat_id}:{workflow_id}` — only the key name changed
+- Removing telegram-specific matching logic simplifies resolver (gateway handles routing via direct dispatch)
+- Test cleanup: always search for all references to removed methods across all test files
+- Resolver now only handles schedule, manual, workflow, and error events (gateway_inbound is direct dispatch)
