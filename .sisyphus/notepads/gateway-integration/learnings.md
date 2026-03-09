@@ -68,3 +68,34 @@ Use:
 - API credential serialization requires handlers in 3 places: serialize, create, update
 - Test updates needed when changing credential types (not just model changes)
 - TDD approach caught issues early (test failed before implementation)
+
+## Task 5 Completion (T5 - Inbound Schemas + Auth)
+
+### What Was Done
+1. **TDD Cycle**: Wrote failing test first (16 tests), then implemented schemas and auth
+2. **Inbound Schemas** (`platform/schemas/inbound.py`):
+   - `UserInfo`: id (required), username, display_name (optional)
+   - `InboundSource`: protocol, chat_id (required), message_id, reply_to_message_id, from_ (with alias="from")
+   - `InboundAttachment`: filename, mime_type (required), size_bytes, download_url (optional)
+   - `GatewayInboundMessage`: route (dict), credential_id, source, text, timestamp (required), attachments, extra_data (optional)
+3. **Auth Dependency** (`platform/auth.py`):
+   - Added `verify_gateway_token()` function
+   - Validates `settings.GATEWAY_INBOUND_TOKEN` (separate from `get_current_user()`)
+   - Returns None on success, raises 401 HTTPException on failure
+4. **Test Suite** (`platform/tests/test_inbound_schemas.py`):
+   - 16 comprehensive tests covering all schemas
+   - Field alias tests (from -> from_)
+   - Required field validation (5 tests for missing fields)
+   - Auth dependency tests (valid/invalid tokens)
+
+### Results
+- ✅ All 16 tests pass
+- ✅ Imports work correctly
+- ✅ Commit: 9ff6d81 feat(schemas): add inbound schemas + gateway auth dependency
+- ✅ No LSP errors (basedpyright not installed, but syntax verified via import)
+
+### Key Learnings
+- Pydantic v2 uses `ConfigDict(populate_by_name=True)` for field aliases
+- Auth dependencies can be simple (no DB) — just validate token against settings
+- TDD approach: write 16 tests first, then implement — all pass on first try
+- Field alias syntax: `Field(None, alias="from")` with `from_` as Python name

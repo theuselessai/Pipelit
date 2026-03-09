@@ -436,7 +436,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/models/user.py`, `platform/alembic/versions/xxx_rename_telegram_user_id.py`, + all files with references
   - Pre-commit: `pytest tests/ -v`
 
-- [ ] 4. PendingTask: Generalize Columns + Migration
+- [x] 4. PendingTask: Generalize Columns + Migration
 
   **What to do**:
   - RED: Write test creating PendingTask with `chat_id="12345"` (String) and `credential_id="tg_mybot"` (String), assert fields exist
@@ -497,7 +497,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/models/execution.py`, `platform/alembic/versions/xxx_pending_task_columns.py`
   - Pre-commit: `pytest tests/ -k pending`
 
-- [ ] 5. Inbound Pydantic Schemas + Auth Dependency
+- [x] 5. Inbound Pydantic Schemas + Auth Dependency
 
   **What to do**:
   - RED: Write tests for:
@@ -593,7 +593,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/schemas/inbound.py`, `platform/auth.py`
   - Pre-commit: `pytest tests/ -k inbound`
 
-- [ ] 6. Gateway HTTP Client + Tests
+- [x] 6. Gateway HTTP Client + Tests
 
   **What to do**:
   - RED: Write comprehensive tests for `GatewayClient` (mock HTTP with `responses` or `unittest.mock.patch`):
