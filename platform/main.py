@@ -25,7 +25,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api import api_router
-from api.executions import chat_router
 from api.inbound import router as inbound_router
 from config import settings
 from database import Base, SessionLocal, engine
@@ -174,9 +173,6 @@ def health_check():
 
 # API routes
 app.include_router(api_router)
-
-# Chat router (nested under /api/v1/workflows)
-app.include_router(chat_router, prefix="/api/v1/workflows", tags=["chat"])
 
 # Manual execution endpoint
 app.include_router(manual_router, prefix="/api/v1", tags=["manual"])
