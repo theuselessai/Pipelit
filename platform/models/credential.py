@@ -24,7 +24,7 @@ class BaseCredential(Base):
         ForeignKey("user_profiles.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(String(255))
-    credential_type: Mapped[str] = mapped_column(String(20))  # git, llm, telegram, tool
+    credential_type: Mapped[str] = mapped_column(String(20))  # git, llm, gateway, tool
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

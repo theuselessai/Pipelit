@@ -83,7 +83,9 @@ class GatewayClient:
             if files is not None:
                 kwargs["files"] = files
             resp = fn(url, **kwargs)
-        except requests.exceptions.ConnectionError as exc:
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            raise GatewayUnavailableError(str(exc)) from exc
+        except requests.exceptions.RequestException as exc:
             raise GatewayUnavailableError(str(exc)) from exc
         return self._handle_response(resp)
 

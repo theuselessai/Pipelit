@@ -23,7 +23,7 @@ class CredentialOut(BaseModel):
     id: int
     name: str
     credential_type: CredentialTypeStr
-    detail: dict = {}
+    detail: str | dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -33,7 +33,7 @@ class CredentialOut(BaseModel):
 class CredentialTestOut(BaseModel):
     ok: bool
     error: str = ""
-    detail: str | dict = ""
+    detail: str | dict | None = None
 
 
 class CredentialModelOut(BaseModel):

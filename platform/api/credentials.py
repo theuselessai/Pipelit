@@ -229,6 +229,7 @@ def update_credential(
                 try:
                     get_gateway_client().update_credential(gw.gateway_credential_id, **gw_update_kwargs)
                 except (GatewayUnavailableError, GatewayAPIError) as e:
+                    db.rollback()
                     raise HTTPException(status_code=502, detail=str(e))
         elif cred.credential_type == "git" and cred.git_credential:
             git = cred.git_credential
@@ -282,6 +283,11 @@ def batch_delete_credentials(
         return
     creds = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids)).all()
     for cred in creds:
+        if cred.gateway_credential:
+            try:
+                get_gateway_client().delete_credential(cred.gateway_credential.gateway_credential_id)
+            except (GatewayUnavailableError, GatewayAPIError) as e:
+                logger.warning("Failed to delete gateway credential %s: %s", cred.gateway_credential.gateway_credential_id, e)
         db.delete(cred)
     db.commit()
 

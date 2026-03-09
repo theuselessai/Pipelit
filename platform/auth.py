@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -38,7 +40,7 @@ def verify_gateway_token(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> None:
     """FastAPI dependency: validate gateway inbound token."""
-    if credentials.credentials != settings.GATEWAY_INBOUND_TOKEN:
+    if not secrets.compare_digest(credentials.credentials, settings.GATEWAY_INBOUND_TOKEN):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid gateway token",

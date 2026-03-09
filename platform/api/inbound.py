@@ -176,10 +176,10 @@ def _handle_confirmation(
     use_credential_id = pending.credential_id or credential_id
     use_chat_id = pending.chat_id or chat_id
 
-    db.delete(pending)
-    db.commit()
-
     if action == "cancel":
+        db.delete(pending)
+        db.commit()
+
         execution.status = "cancelled"
         execution.completed_at = datetime.now(timezone.utc)
         db.commit()
@@ -197,9 +197,16 @@ def _handle_confirmation(
         return {"status": "cancelled", "task_id": task_id}
 
     # confirm → resume execution
+    # Enqueue BEFORE committing the delete so we don't lose the task on crash
     conn = redis.from_url(settings.REDIS_URL)
-    queue = Queue("workflows", connection=conn)
-    queue.enqueue(resume_workflow_job, str(execution.execution_id), action)
+    try:
+        queue = Queue("workflows", connection=conn)
+        queue.enqueue(resume_workflow_job, str(execution.execution_id), action)
+    finally:
+        conn.close()
+
+    db.delete(pending)
+    db.commit()
 
     try:
         gw = get_gateway_client()

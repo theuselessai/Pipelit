@@ -1348,7 +1348,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
         task_id=uuid.uuid4().hex[:8],
         execution_id=execution.execution_id,
         user_profile_id=execution.user_profile_id,
-        chat_id=str(payload.get("chat_id", "")),
+        chat_id=str(payload.get("chat_id") or ""),
         node_id=node_id,
         prompt=prompt,
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=timeout),
@@ -1358,7 +1358,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     db.commit()
 
     credential_id = payload.get("credential_id")
-    chat_id_str = str(payload.get("chat_id", ""))
+    chat_id_str = str(payload.get("chat_id") or "")
     if credential_id and chat_id_str:
         try:
             prompt_text = f"Action requires confirmation.\n\nTo confirm: /confirm_{pending.task_id}\nTo cancel: /cancel_{pending.task_id}"
