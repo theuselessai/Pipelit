@@ -228,7 +228,7 @@ def agent_factory(node):
             elif conversation_memory:
                 user_ctx = state.get("user_context", {})
                 user_id = user_ctx.get("user_profile_id", "anon")
-                chat_id = user_ctx.get("telegram_chat_id", "")
+                chat_id = user_ctx.get("chat_id", "")
                 thread_id = (
                     f"{user_id}:{chat_id}:{workflow_id}"
                     if chat_id
