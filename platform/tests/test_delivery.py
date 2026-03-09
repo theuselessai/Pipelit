@@ -34,129 +34,115 @@ class TestFormatOutput:
         assert "42" in result
 
 
-class TestSendTelegramMessage:
-    def test_sends_with_markdown(self):
-        delivery = OutputDelivery()
-        with patch("services.delivery.requests") as mock_req:
-            mock_resp = MagicMock()
-            mock_resp.raise_for_status.return_value = None
-            mock_resp.json.return_value = {"ok": True}
-            mock_req.post.return_value = mock_resp
-
-            result = delivery.send_telegram_message("TOKEN", 123, "Hello")
-
-        assert result == {"ok": True}
-        call_args = mock_req.post.call_args
-        assert "TOKEN" in call_args[0][0]
-        assert call_args[1]["json"]["parse_mode"] == "Markdown"
-
-    def test_retries_without_markdown_on_failure(self):
-        delivery = OutputDelivery()
-        import requests as real_requests
-
-        with patch("services.delivery.requests") as mock_req:
-            fail_resp = MagicMock()
-            fail_resp.raise_for_status.side_effect = real_requests.RequestException("bad markdown")
-            ok_resp = MagicMock()
-            ok_resp.raise_for_status.return_value = None
-            ok_resp.json.return_value = {"ok": True}
-            mock_req.post.side_effect = [fail_resp, ok_resp]
-            mock_req.RequestException = real_requests.RequestException
-
-            result = delivery.send_telegram_message("TOKEN", 123, "**bold**")
-
-        assert result == {"ok": True}
-        assert mock_req.post.call_count == 2
-        second_call_data = mock_req.post.call_args_list[1][1]["json"]
-        assert "parse_mode" not in second_call_data
-
-    def test_reply_to(self):
-        delivery = OutputDelivery()
-        with patch("services.delivery.requests") as mock_req:
-            mock_resp = MagicMock()
-            mock_resp.raise_for_status.return_value = None
-            mock_resp.json.return_value = {"ok": True}
-            mock_req.post.return_value = mock_resp
-
-            delivery.send_telegram_message("TOKEN", 123, "Hi", reply_to=42)
-
-        data = mock_req.post.call_args[1]["json"]
-        assert data["reply_to_message_id"] == 42
-
-
-class TestSendLongMessage:
-    def test_splits_long_messages(self):
-        delivery = OutputDelivery()
-        long_text = "A" * 5000
-
-        with patch.object(delivery, "send_telegram_message") as mock_send:
-            delivery._send_long_message("TOKEN", 123, long_text)
-
-        assert mock_send.call_count == 2
-        assert mock_send.call_args_list[0][1].get("reply_to") is None
-
-    def test_short_message_not_split(self):
-        delivery = OutputDelivery()
-
-        with patch.object(delivery, "send_telegram_message") as mock_send:
-            delivery._send_long_message("TOKEN", 123, "short")
-
-        mock_send.assert_called_once()
-
-
 class TestDeliver:
-    def test_deliver_sends_to_chat(self, db, telegram_trigger):
-        from models.execution import WorkflowExecution
-        from models.node import WorkflowNode
+    def _make_execution(self, trigger_payload=None, final_output="__default__"):
+        execution = MagicMock()
+        execution.trigger_payload = trigger_payload or {}
+        execution.final_output = {"message": "Result here"} if final_output == "__default__" else final_output
+        return execution
 
-        node = db.query(WorkflowNode).filter(WorkflowNode.id == telegram_trigger.id).first()
-        workflow = node.workflow
-        profile = workflow.owner
-
-        execution = WorkflowExecution(
-            workflow_id=workflow.id,
-            trigger_node_id=node.id,
-            user_profile_id=profile.id,
-            thread_id="t1",
-            status="completed",
-            trigger_payload={"chat_id": 999, "message_id": 5},
-            final_output={"message": "Result here"},
+    def test_deliver_calls_send_message_with_correct_args(self):
+        """Valid execution with credential_id + chat_id → send_message() called."""
+        execution = self._make_execution(
+            trigger_payload={"credential_id": "cred-123", "chat_id": "456"},
+            final_output={"message": "Hello from workflow"},
         )
-        db.add(execution)
-        db.commit()
-        db.refresh(execution)
-
         delivery = OutputDelivery()
-        with patch.object(delivery, "send_telegram_message") as mock_send:
-            delivery.deliver(execution, db)
+        mock_client = MagicMock()
 
-        mock_send.assert_called()
-        args = mock_send.call_args[0]
-        assert args[1] == 999
-        assert "Result here" in args[2]
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            delivery.deliver(execution, db=None)
 
-    def test_deliver_skips_without_chat_id(self, db, telegram_trigger):
-        from models.execution import WorkflowExecution
-        from models.node import WorkflowNode
+        mock_client.send_message.assert_called_once_with(
+            "cred-123", "456", "Hello from workflow", file_ids=[]
+        )
 
-        node = db.query(WorkflowNode).filter(WorkflowNode.id == telegram_trigger.id).first()
-        workflow = node.workflow
-
-        execution = WorkflowExecution(
-            workflow_id=workflow.id,
-            trigger_node_id=node.id,
-            user_profile_id=workflow.owner_id,
-            thread_id="t2",
-            status="completed",
-            trigger_payload={},
+    def test_deliver_skips_without_credential_id(self):
+        """Missing credential_id → returns without sending."""
+        execution = self._make_execution(
+            trigger_payload={"chat_id": "456"},
             final_output={"message": "Result"},
         )
-        db.add(execution)
-        db.commit()
-        db.refresh(execution)
-
         delivery = OutputDelivery()
-        with patch.object(delivery, "send_telegram_message") as mock_send:
-            delivery.deliver(execution, db)
+        mock_client = MagicMock()
 
-        mock_send.assert_not_called()
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            delivery.deliver(execution, db=None)
+
+        mock_client.send_message.assert_not_called()
+
+    def test_deliver_skips_without_chat_id(self):
+        """Missing chat_id → returns without sending."""
+        execution = self._make_execution(
+            trigger_payload={"credential_id": "cred-123"},
+            final_output={"message": "Result"},
+        )
+        delivery = OutputDelivery()
+        mock_client = MagicMock()
+
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            delivery.deliver(execution, db=None)
+
+        mock_client.send_message.assert_not_called()
+
+    def test_deliver_skips_empty_payload(self):
+        """Empty trigger_payload → returns without sending."""
+        execution = self._make_execution(trigger_payload={})
+        delivery = OutputDelivery()
+        mock_client = MagicMock()
+
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            delivery.deliver(execution, db=None)
+
+        mock_client.send_message.assert_not_called()
+
+    def test_deliver_gateway_failure_logs_warning_no_raise(self):
+        """Gateway failure → warning logged, no exception raised."""
+        from services.gateway_client import GatewayAPIError
+
+        execution = self._make_execution(
+            trigger_payload={"credential_id": "cred-123", "chat_id": "456"},
+            final_output={"message": "Hello"},
+        )
+        delivery = OutputDelivery()
+        mock_client = MagicMock()
+        mock_client.send_message.side_effect = GatewayAPIError(500, "Internal error")
+
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            with patch("services.delivery.logger") as mock_logger:
+                # Should NOT raise
+                delivery.deliver(execution, db=None)
+
+        mock_logger.warning.assert_called()
+
+    def test_deliver_gateway_unavailable_logs_warning_no_raise(self):
+        """GatewayUnavailableError → warning logged, no exception raised."""
+        from services.gateway_client import GatewayUnavailableError
+
+        execution = self._make_execution(
+            trigger_payload={"credential_id": "cred-123", "chat_id": "456"},
+            final_output={"message": "Hello"},
+        )
+        delivery = OutputDelivery()
+        mock_client = MagicMock()
+        mock_client.send_message.side_effect = GatewayUnavailableError("Connection refused")
+
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            with patch("services.delivery.logger") as mock_logger:
+                delivery.deliver(execution, db=None)
+
+        mock_logger.warning.assert_called()
+
+    def test_deliver_skips_when_no_final_output_text(self):
+        """Empty formatted output → returns without sending."""
+        execution = self._make_execution(
+            trigger_payload={"credential_id": "cred-123", "chat_id": "456"},
+            final_output=None,
+        )
+        delivery = OutputDelivery()
+        mock_client = MagicMock()
+
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            delivery.deliver(execution, db=None)
+
+        mock_client.send_message.assert_not_called()

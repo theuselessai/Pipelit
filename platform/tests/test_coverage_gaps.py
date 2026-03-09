@@ -208,19 +208,10 @@ class TestMemoryReadComponent:
 # ── delivery service ─────────────────────────────────────────────────────────
 
 class TestDeliveryService:
-    def test_send_typing_action(self):
+    def test_send_typing_action_is_noop(self):
         from services.delivery import OutputDelivery
         svc = OutputDelivery()
-        with patch("services.delivery.requests.post") as mock_post:
-            svc.send_typing_action("token123", 456)
-            mock_post.assert_called_once()
-
-    def test_send_typing_action_error(self):
-        import requests
-        from services.delivery import OutputDelivery
-        svc = OutputDelivery()
-        with patch("services.delivery.requests.post", side_effect=requests.RequestException):
-            svc.send_typing_action("token", 123)
+        svc.send_typing_action("token123", 456)
 
     def test_format_output_with_message(self):
         from services.delivery import OutputDelivery
@@ -237,60 +228,6 @@ class TestDeliveryService:
         svc = OutputDelivery()
         result = svc._format_output({"node_outputs": {"n1": "val1"}})
         assert "n1" in result
-
-    def test_send_telegram_markdown_fallback(self):
-        import requests
-        from services.delivery import OutputDelivery
-
-        svc = OutputDelivery()
-        call_count = [0]
-
-        def side_effect(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                resp = MagicMock()
-                resp.raise_for_status.side_effect = requests.RequestException("parse error")
-                return resp
-            resp = MagicMock()
-            resp.raise_for_status.return_value = None
-            resp.json.return_value = {"ok": True}
-            return resp
-
-        with patch("services.delivery.requests.post", side_effect=side_effect):
-            result = svc.send_telegram_message("token", 123, "hello *world")
-        assert result is not None
-
-    def test_send_telegram_both_fail(self):
-        import requests
-        from services.delivery import OutputDelivery
-
-        svc = OutputDelivery()
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = requests.RequestException("fail")
-
-        with patch("services.delivery.requests.post", return_value=mock_resp):
-            result = svc.send_telegram_message("token", 123, "hello")
-        assert result is None
-
-    def test_resolve_bot_token_no_trigger(self):
-        from services.delivery import OutputDelivery
-        svc = OutputDelivery()
-        execution = MagicMock()
-        execution.trigger_node_id = None
-        result = svc._resolve_bot_token(execution, MagicMock())
-        assert result is None
-
-    def test_resolve_bot_token_no_credential(self):
-        from services.delivery import OutputDelivery
-        svc = OutputDelivery()
-        execution = MagicMock()
-        execution.trigger_node_id = 1
-        mock_db = MagicMock()
-        mock_node = MagicMock()
-        mock_node.component_config.credential_id = None
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_node
-        result = svc._resolve_bot_token(execution, mock_db)
-        assert result is None
 
     def test_deliver_no_chat_id(self):
         from services.delivery import OutputDelivery
