@@ -186,7 +186,7 @@ class TestHandleConfirmation:
             task_id="aabbccdd",
             execution_id=execution.execution_id,
             user_profile_id=user_profile.id,
-            telegram_chat_id=999,
+            chat_id="999",
             node_id="confirm_node",
             prompt="Proceed?",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -219,7 +219,7 @@ class TestHandleConfirmation:
             task_id="aabbccdd",
             execution_id=execution.execution_id,
             user_profile_id=user_profile.id,
-            telegram_chat_id=999,
+            chat_id="999",
             node_id="confirm_node",
             prompt="Proceed?",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -251,7 +251,7 @@ class TestHandleConfirmation:
             task_id="expired1",
             execution_id=execution.execution_id,
             user_profile_id=user_profile.id,
-            telegram_chat_id=999,
+            chat_id="999",
             node_id="n",
             prompt="Proceed?",
             expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
@@ -291,3 +291,44 @@ class TestHandleCommand:
 
         mock_delivery.send_telegram_message.assert_called_once()
         assert "No pending" in mock_delivery.send_telegram_message.call_args[0][2]
+
+
+class TestPendingTaskGeneralization:
+    """Test PendingTask with generalized chat_id and credential_id columns."""
+
+    def test_create_pending_task_with_chat_id_and_credential_id(self, db, user_profile, workflow):
+        """PendingTask should accept chat_id (String) and credential_id (String)."""
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            thread_id="abc123",
+            status="interrupted",
+            trigger_payload={"chat_id": "12345"},
+        )
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+
+        pending = PendingTask(
+            task_id="test1234",
+            execution_id=execution.execution_id,
+            user_profile_id=user_profile.id,
+            chat_id="12345",
+            credential_id="tg_mybot",
+            node_id="confirm_node",
+            prompt="Proceed?",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        db.add(pending)
+        db.commit()
+        db.refresh(pending)
+
+        # Verify the task was created with the new columns
+        assert pending.chat_id == "12345"
+        assert pending.credential_id == "tg_mybot"
+        assert pending.task_id == "test1234"
+
+        # Verify we can query by chat_id
+        found = db.query(PendingTask).filter(PendingTask.chat_id == "12345").first()
+        assert found is not None
+        assert found.credential_id == "tg_mybot"

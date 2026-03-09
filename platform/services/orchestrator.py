@@ -1370,7 +1370,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
         task_id=uuid.uuid4().hex[:8],
         execution_id=execution.execution_id,
         user_profile_id=execution.user_profile_id,
-        telegram_chat_id=payload.get("chat_id", 0),
+        chat_id=str(payload.get("chat_id", "")),
         node_id=node_id,
         prompt=prompt,
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=timeout),
@@ -1454,7 +1454,7 @@ def _build_initial_state(execution) -> dict:
         "trigger": payload,
         "user_context": {
             "user_profile_id": execution.user_profile_id,
-            "telegram_chat_id": payload.get("chat_id"),
+            "chat_id": payload.get("chat_id"),
         },
         "current_node": "",
         "execution_id": str(execution.execution_id),

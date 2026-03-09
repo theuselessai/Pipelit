@@ -85,13 +85,13 @@ class TelegramTriggerHandler:
             db.delete(pending)
             db.commit()
             output_delivery.send_telegram_message(
-                bot_token, pending.telegram_chat_id,
+                bot_token, int(pending.chat_id) if pending.chat_id else 0,
                 "This confirmation has expired.",
             )
             return
 
         execution = pending.execution
-        chat_id = pending.telegram_chat_id
+        chat_id = int(pending.chat_id) if pending.chat_id else 0
         db.delete(pending)
         db.commit()
 
@@ -129,7 +129,7 @@ class TelegramTriggerHandler:
 
         tasks = (
             db.query(PendingTask)
-            .filter(PendingTask.telegram_chat_id == chat_id, PendingTask.expires_at > datetime.now(timezone.utc))
+            .filter(PendingTask.chat_id == str(chat_id), PendingTask.expires_at > datetime.now(timezone.utc))
             .order_by(PendingTask.created_at.desc())
             .limit(10)
             .all()

@@ -362,7 +362,7 @@ Max Concurrent: 7 (Wave 1)
   - Files: `platform/models/credential.py`, `platform/schemas/credential.py`, `platform/alembic/versions/xxx_gateway_credential.py`
   - Pre-commit: `pytest tests/ -k credential`
 
-- [ ] 3. UserProfile: Rename telegram_user_id → external_user_id
+- [x] 3. UserProfile: Rename telegram_user_id → external_user_id
 
   **What to do**:
   - RED: Write test creating UserProfile with `external_user_id="12345"`, assert field exists and is queryable
