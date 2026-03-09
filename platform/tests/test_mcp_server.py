@@ -460,21 +460,4 @@ class TestMcpTools:
             result = json.loads(await validate_workflow("wf1"))
             assert result["valid"] is True
 
-    @pytest.mark.asyncio
-    async def test_send_chat_message(self):
-        from mcp_server import send_chat_message
-        with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value = {"execution_id": "e1"}
-            result = json.loads(await send_chat_message("wf1", "Hello!", "trigger_chat_1"))
-            body = mock_post.call_args[0][1]
-            assert body["text"] == "Hello!"
-            assert body["trigger_node_id"] == "trigger_chat_1"
-
-    @pytest.mark.asyncio
-    async def test_send_chat_message_no_trigger(self):
-        from mcp_server import send_chat_message
-        with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value = {}
-            await send_chat_message("wf1", "Hi")
-            body = mock_post.call_args[0][1]
-            assert "trigger_node_id" not in body
+    # send_chat_message tests removed — endpoint deleted in gateway migration
