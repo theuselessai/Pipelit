@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     SANDBOX_MODE: str = _conf.sandbox_mode or "auto"
     PLATFORM_BASE_URL: str = _conf.platform_base_url or "http://localhost:8000"
 
+    GATEWAY_URL: str = ""
+    GATEWAY_ADMIN_TOKEN: str = ""
+    GATEWAY_SEND_TOKEN: str = ""
+    GATEWAY_INBOUND_TOKEN: str = ""
+
     SKILLS_DIR: str = ""  # default: ~/.config/pipelit/community_skills/ (resolved at runtime)
     WORKSPACE_DIR: str = ""  # default: ~/.config/pipelit/workspaces/default (resolved at runtime)
     ROOTFS_DIR: str = ""  # default: {pipelit_dir}/rootfs/ (resolved at runtime)
