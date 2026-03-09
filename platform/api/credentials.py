@@ -28,6 +28,7 @@ from schemas.credential import (
     CredentialTestOut,
     CredentialUpdate,
 )
+from services.gateway_client import GatewayAPIError, GatewayUnavailableError, get_gateway_client
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +152,25 @@ def create_credential(
         )
         db.add(sub)
     elif payload.credential_type == "gateway":
+        adapter_type = detail.get("adapter_type", "")
+        token = detail.get("token", "")
+        config = detail.get("config")
+        # Use name as the gateway credential ID (stable, user-chosen identifier)
+        gw_credential_id = payload.name
+        try:
+            get_gateway_client().create_credential(
+                id=gw_credential_id,
+                adapter=adapter_type,
+                token=token,
+                config=config,
+            )
+        except (GatewayUnavailableError, GatewayAPIError) as e:
+            db.rollback()
+            raise HTTPException(status_code=502, detail=str(e))
         sub = GatewayCredential(
             base_credentials_id=base.id,
-            gateway_credential_id=detail.get("gateway_credential_id", ""),
-            adapter_type=detail.get("adapter_type", ""),
+            gateway_credential_id=gw_credential_id,
+            adapter_type=adapter_type,
         )
         db.add(sub)
     elif payload.credential_type == "git":
@@ -223,10 +239,17 @@ def update_credential(
                 tg.allowed_user_ids = detail["allowed_user_ids"]
         elif cred.credential_type == "gateway" and cred.gateway_credential:
             gw = cred.gateway_credential
-            if "gateway_credential_id" in detail:
-                gw.gateway_credential_id = detail["gateway_credential_id"]
+            gw_update_kwargs: dict = {}
+            if "token" in detail:
+                gw_update_kwargs["token"] = detail["token"]
             if "adapter_type" in detail:
                 gw.adapter_type = detail["adapter_type"]
+                gw_update_kwargs["adapter"] = detail["adapter_type"]
+            if gw_update_kwargs:
+                try:
+                    get_gateway_client().update_credential(gw.gateway_credential_id, **gw_update_kwargs)
+                except (GatewayUnavailableError, GatewayAPIError) as e:
+                    raise HTTPException(status_code=502, detail=str(e))
         elif cred.credential_type == "git" and cred.git_credential:
             git = cred.git_credential
             for field in ("provider", "credential_type", "ssh_private_key", "access_token", "username", "webhook_secret"):
@@ -255,6 +278,12 @@ def delete_credential(
     cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
+    if cred.gateway_credential:
+        gw_cred = cred.gateway_credential
+        try:
+            get_gateway_client().delete_credential(gw_cred.gateway_credential_id)
+        except (GatewayUnavailableError, GatewayAPIError) as e:
+            raise HTTPException(status_code=502, detail=str(e))
     db.delete(cred)
     db.commit()
 
@@ -277,6 +306,41 @@ def batch_delete_credentials(
     db.commit()
 
 
+# -- Activate / Deactivate endpoints ------------------------------------------
+
+
+@router.post("/{credential_id}/activate/")
+def activate_credential(
+    credential_id: int,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    if not cred or not cred.gateway_credential:
+        raise HTTPException(status_code=404, detail="Gateway credential not found.")
+    try:
+        result = get_gateway_client().activate_credential(cred.gateway_credential.gateway_credential_id)
+        return result
+    except (GatewayUnavailableError, GatewayAPIError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/{credential_id}/deactivate/")
+def deactivate_credential(
+    credential_id: int,
+    db: Session = Depends(get_db),
+    profile: UserProfile = Depends(get_current_user),
+):
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    if not cred or not cred.gateway_credential:
+        raise HTTPException(status_code=404, detail="Gateway credential not found.")
+    try:
+        result = get_gateway_client().deactivate_credential(cred.gateway_credential.gateway_credential_id)
+        return result
+    except (GatewayUnavailableError, GatewayAPIError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 # -- Test & Models endpoints ---------------------------------------------------
 
 
@@ -286,12 +350,22 @@ def test_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = (
-        db.query(BaseCredential)
-        .filter(BaseCredential.id == credential_id, BaseCredential.credential_type == "llm")
-        .first()
-    )
-    if not cred or not cred.llm_credential:
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    if not cred:
+        raise HTTPException(status_code=404, detail="Credential not found.")
+
+    # Gateway credential: check health via gateway admin API
+    if cred.credential_type == "gateway" and cred.gateway_credential:
+        gw_cred = cred.gateway_credential
+        try:
+            health_info = get_gateway_client().check_credential_health(gw_cred.gateway_credential_id)
+        except (GatewayUnavailableError, GatewayAPIError) as e:
+            return {"ok": False, "error": str(e)}
+        if health_info is None:
+            return {"ok": False, "detail": "not found in gateway"}
+        return {"ok": True, "detail": health_info}
+
+    if not cred.llm_credential:
         raise HTTPException(status_code=404, detail="LLM credential not found.")
     llm = cred.llm_credential
     is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url

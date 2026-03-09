@@ -33,6 +33,7 @@ class CredentialOut(BaseModel):
 class CredentialTestOut(BaseModel):
     ok: bool
     error: str = ""
+    detail: str | dict = ""
 
 
 class CredentialModelOut(BaseModel):
