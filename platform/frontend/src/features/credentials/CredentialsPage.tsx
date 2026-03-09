@@ -15,7 +15,7 @@ import { format } from "date-fns"
 import type { CredentialType } from "@/types/models"
 
 const PAGE_SIZE = 50
-const CREDENTIAL_TYPES: CredentialType[] = ["llm", "telegram", "git", "tool"]
+const CREDENTIAL_TYPES: CredentialType[] = ["llm", "gateway", "git", "tool"]
 const PROVIDER_TYPES = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
@@ -56,7 +56,7 @@ export default function CredentialsPage() {
     }
     let detail: Record<string, unknown> = {}
     if (credType === "llm") detail = { provider_type: providerType, api_key: apiKey, base_url: baseUrl, organization_id: organizationId }
-    else if (credType === "telegram") detail = { bot_token: botToken }
+    else if (credType === "gateway") detail = { bot_token: botToken }
     else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
     await createCredential.mutateAsync({ name, credential_type: credType, detail })
     setOpen(false)
@@ -237,7 +237,7 @@ export default function CredentialsPage() {
                 </div>
               </>
             )}
-            {credType === "telegram" && (
+            {credType === "gateway" && (
               <div className="space-y-2">
                 <Label>Bot Token</Label>
                 <Input type="password" value={botToken} onChange={(e) => setBotToken(e.target.value)} />
