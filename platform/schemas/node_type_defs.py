@@ -16,7 +16,7 @@ register_node_type(NodeTypeSpec(
             name="files",
             data_type=DataType.ARRAY,
             description="Document files",
-            schema={
+            port_schema={
                 "type": "array",
                 "items": {
                     "type": "object",
@@ -61,7 +61,7 @@ register_node_type(NodeTypeSpec(
             name="files",
             data_type=DataType.ARRAY,
             description="Document files",
-            schema={
+            port_schema={
                 "type": "array",
                 "items": {
                     "type": "object",

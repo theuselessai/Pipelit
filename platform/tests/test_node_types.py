@@ -33,11 +33,11 @@ class TestTriggerFilesSchema:
         spec = NODE_TYPE_REGISTRY["trigger_telegram"]
         files_port = next((p for p in spec.outputs if p.name == "files"), None)
         assert files_port is not None, "trigger_telegram should have a 'files' output port"
-        assert files_port.schema is not None, "files port should have a schema"
+        assert files_port.port_schema is not None, "files port should have a schema"
         
         # Check schema structure
-        assert "items" in files_port.schema, "files schema should have 'items'"
-        items = files_port.schema["items"]
+        assert "items" in files_port.port_schema, "files schema should have 'items'"
+        items = files_port.port_schema["items"]
         assert "properties" in items, "items should have 'properties'"
         props = items["properties"]
         
@@ -57,11 +57,11 @@ class TestTriggerFilesSchema:
         spec = NODE_TYPE_REGISTRY["trigger_chat"]
         files_port = next((p for p in spec.outputs if p.name == "files"), None)
         assert files_port is not None, "trigger_chat should have a 'files' output port"
-        assert files_port.schema is not None, "files port should have a schema"
+        assert files_port.port_schema is not None, "files port should have a schema"
         
         # Check schema structure
-        assert "items" in files_port.schema, "files schema should have 'items'"
-        items = files_port.schema["items"]
+        assert "items" in files_port.port_schema, "files schema should have 'items'"
+        items = files_port.port_schema["items"]
         assert "properties" in items, "items should have 'properties'"
         props = items["properties"]
         

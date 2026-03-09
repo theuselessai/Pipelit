@@ -27,7 +27,7 @@ class PortDefinition(BaseModel):
     description: str = ""
     required: bool = False
     default: Any = None
-    schema: dict[str, Any] | None = Field(None, alias="schema")
+    port_schema: dict[str, Any] | None = None
 
 
 class NodeTypeSpec(BaseModel):
