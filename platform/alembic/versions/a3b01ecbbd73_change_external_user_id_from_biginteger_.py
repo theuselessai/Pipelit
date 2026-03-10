@@ -34,7 +34,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Revert external_user_id back to BigInteger."""
+    """Revert external_user_id back to BigInteger.
+
+    WARNING: Non-numeric string IDs (e.g. 'cli-user') will be set to NULL
+    since they cannot be cast to BigInteger. This is a lossy downgrade.
+    """
+    # Null out non-numeric values before type conversion to avoid cast errors
+    op.execute(
+        "UPDATE user_profiles SET external_user_id = NULL "
+        "WHERE external_user_id IS NOT NULL "
+        "AND typeof(external_user_id) = 'text' "
+        "AND NOT (external_user_id GLOB '[0-9]*' AND external_user_id NOT GLOB '*[^0-9]*')"
+    )
     with op.batch_alter_table("user_profiles") as batch_op:
         batch_op.alter_column(
             "external_user_id",

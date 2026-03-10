@@ -23,17 +23,21 @@ def upgrade() -> None:
     # Add new columns to pending_tasks
     op.add_column('pending_tasks', sa.Column('chat_id', sa.String(length=255), nullable=True))
     op.add_column('pending_tasks', sa.Column('credential_id', sa.String(length=255), nullable=True))
-    
+
     # Copy data from telegram_chat_id to chat_id (convert BigInteger to String)
     op.execute("UPDATE pending_tasks SET chat_id = CAST(telegram_chat_id AS TEXT)")
-    
+
     # Drop the old column
     op.drop_column('pending_tasks', 'telegram_chat_id')
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.add_column('pending_tasks', sa.Column('telegram_chat_id', sa.BIGINT(), nullable=False))
-    op.execute("UPDATE pending_tasks SET telegram_chat_id = CAST(chat_id AS INTEGER)")
+    op.add_column('pending_tasks', sa.Column('telegram_chat_id', sa.BIGINT(), nullable=True))
+    # Only copy numeric chat_id values; non-numeric values become NULL
+    op.execute(
+        "UPDATE pending_tasks SET telegram_chat_id = CAST(chat_id AS BIGINT) "
+        "WHERE chat_id IS NOT NULL AND chat_id GLOB '[0-9]*' AND chat_id NOT GLOB '*[^0-9]*'"
+    )
     op.drop_column('pending_tasks', 'credential_id')
     op.drop_column('pending_tasks', 'chat_id')
