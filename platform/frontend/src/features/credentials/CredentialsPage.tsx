@@ -63,7 +63,12 @@ export default function CredentialsPage() {
     else if (credType === "gateway") {
       detail = { adapter_type: gatewayAdapterType, token: gatewayToken }
       if (gatewayConfig.trim()) {
-        try { detail.config = JSON.parse(gatewayConfig) } catch { /* ignore invalid JSON */ }
+        try {
+          detail.config = JSON.parse(gatewayConfig)
+        } catch {
+          alert("Invalid JSON in config field")
+          return
+        }
       }
     }
     else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
