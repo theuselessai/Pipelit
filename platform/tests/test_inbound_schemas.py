@@ -3,6 +3,7 @@
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import ValidationError
 
 from config import settings
 from schemas.inbound import (
@@ -142,7 +143,7 @@ class TestGatewayInboundMessage:
 
     def test_gateway_inbound_message_missing_route(self):
         """Missing route field raises ValidationError."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             GatewayInboundMessage(
                 credential_id="cred_1",
                 source=InboundSource(protocol="telegram", chat_id="123"),
@@ -152,7 +153,7 @@ class TestGatewayInboundMessage:
 
     def test_gateway_inbound_message_missing_credential_id(self):
         """Missing credential_id field raises ValidationError."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             GatewayInboundMessage(
                 route={"workflow_slug": "test"},
                 source=InboundSource(protocol="telegram", chat_id="123"),
@@ -162,7 +163,7 @@ class TestGatewayInboundMessage:
 
     def test_gateway_inbound_message_missing_source(self):
         """Missing source field raises ValidationError."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             GatewayInboundMessage(
                 route={"workflow_slug": "test"},
                 credential_id="cred_1",
@@ -172,7 +173,7 @@ class TestGatewayInboundMessage:
 
     def test_gateway_inbound_message_missing_text(self):
         """Missing text field raises ValidationError."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             GatewayInboundMessage(
                 route={"workflow_slug": "test"},
                 credential_id="cred_1",
@@ -182,7 +183,7 @@ class TestGatewayInboundMessage:
 
     def test_gateway_inbound_message_missing_timestamp(self):
         """Missing timestamp field raises ValidationError."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             GatewayInboundMessage(
                 route={"workflow_slug": "test"},
                 credential_id="cred_1",

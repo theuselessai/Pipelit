@@ -2,7 +2,7 @@
 
 import pytest
 
-from schemas.node_type_defs import *  # noqa: F401, F403 — trigger registration side effects
+import schemas.node_type_defs  # noqa: F401 — trigger registration side effects
 from schemas.node_types import NODE_TYPE_REGISTRY
 
 

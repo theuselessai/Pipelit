@@ -41,6 +41,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_manual",
     display_name="Manual Trigger",
+    description="Manually triggered workflow execution",
     category="trigger",
     outputs=[PortDefinition(name="payload", data_type=DataType.OBJECT, description="Manual trigger payload")],
 ))
@@ -48,6 +49,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_schedule",
     display_name="Schedule Trigger",
+    description="Executes workflow on a scheduled interval",
     category="trigger",
     outputs=[
         PortDefinition(name="timestamp", data_type=DataType.STRING, description="ISO 8601 timestamp of when the job fired"),

@@ -28,13 +28,13 @@ class OutputDelivery:
         except (GatewayAPIError, GatewayUnavailableError) as exc:
             logger.warning(
                 "Failed to deliver output via gateway for execution %s: %s",
-                getattr(execution, "execution_id", "unknown"),
+                execution.execution_id,
                 exc,
             )
         except Exception as exc:
             logger.warning(
                 "Unexpected error delivering output for execution %s: %s",
-                getattr(execution, "execution_id", "unknown"),
+                execution.execution_id,
                 exc,
             )
 
