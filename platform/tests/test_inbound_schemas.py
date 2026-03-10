@@ -195,23 +195,35 @@ class TestGatewayInboundMessage:
 class TestVerifyGatewayToken:
     """Test verify_gateway_token auth dependency."""
 
-    def test_verify_gateway_token_valid(self):
-        """Valid gateway token passes without exception."""
+    TEST_TOKEN = "test-gateway-token-for-ci"
+
+    def test_verify_gateway_token_valid(self, monkeypatch):
+        monkeypatch.setattr(settings, "GATEWAY_INBOUND_TOKEN", self.TEST_TOKEN)
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=settings.GATEWAY_INBOUND_TOKEN
+            credentials=self.TEST_TOKEN,
         )
-        # Should not raise
         result = verify_gateway_token(credentials)
         assert result is None
 
-    def test_verify_gateway_token_invalid(self):
-        """Invalid gateway token raises 401 HTTPException."""
+    def test_verify_gateway_token_invalid(self, monkeypatch):
+        monkeypatch.setattr(settings, "GATEWAY_INBOUND_TOKEN", self.TEST_TOKEN)
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="invalid-token-xyz"
+            credentials="invalid-token-xyz",
         )
         with pytest.raises(HTTPException) as exc_info:
             verify_gateway_token(credentials)
         assert exc_info.value.status_code == 401
         assert "Invalid gateway token" in exc_info.value.detail
+
+    def test_verify_gateway_token_not_configured(self, monkeypatch):
+        monkeypatch.setattr(settings, "GATEWAY_INBOUND_TOKEN", "")
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials="any-token",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            verify_gateway_token(credentials)
+        assert exc_info.value.status_code == 500
+        assert "not configured" in exc_info.value.detail
