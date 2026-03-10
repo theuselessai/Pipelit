@@ -2,6 +2,22 @@
 
 from schemas.node_types import DataType, NodeTypeSpec, PortDefinition, register_node_type
 
+# ── Shared schemas ────────────────────────────────────────────────────────────
+
+_FILES_PORT_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "filename": {"type": "string"},
+            "mime_type": {"type": "string"},
+            "size_bytes": {"type": "integer"},
+            "url": {"type": "string"},
+        },
+        "required": ["filename", "mime_type", "size_bytes", "url"],
+    },
+}
+
 # ── Triggers ──────────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
@@ -16,18 +32,7 @@ register_node_type(NodeTypeSpec(
             name="files",
             data_type=DataType.ARRAY,
             description="Document files",
-            port_schema={
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "filename": {"type": "string"},
-                        "mime_type": {"type": "string"},
-                        "size_bytes": {"type": "integer"},
-                        "url": {"type": "string"}
-                    }
-                }
-            }
+            port_schema=_FILES_PORT_SCHEMA,
         ),
         PortDefinition(name="payload", data_type=DataType.OBJECT, description="Full trigger payload"),
     ],
@@ -61,18 +66,7 @@ register_node_type(NodeTypeSpec(
             name="files",
             data_type=DataType.ARRAY,
             description="Document files",
-            port_schema={
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "filename": {"type": "string"},
-                        "mime_type": {"type": "string"},
-                        "size_bytes": {"type": "integer"},
-                        "url": {"type": "string"}
-                    }
-                }
-            }
+            port_schema=_FILES_PORT_SCHEMA,
         ),
         PortDefinition(name="payload", data_type=DataType.OBJECT, description="Full chat trigger payload"),
     ],
