@@ -107,8 +107,9 @@ def list_credentials(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    total = db.query(BaseCredential).count()
-    creds = db.query(BaseCredential).offset(offset).limit(limit).all()
+    query = db.query(BaseCredential).filter(BaseCredential.user_profile_id == profile.id)
+    total = query.count()
+    creds = query.offset(offset).limit(limit).all()
     return {"items": [_serialize_credential(c, db) for c in creds], "total": total}
 
 
@@ -200,7 +201,7 @@ def get_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
     return _serialize_credential(cred, db)
@@ -213,7 +214,7 @@ def update_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
 
@@ -269,7 +270,7 @@ def delete_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
     if cred.gateway_credential:
@@ -294,7 +295,7 @@ def batch_delete_credentials(
 ):
     if not payload.ids:
         return
-    creds = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids)).all()
+    creds = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids), BaseCredential.user_profile_id == profile.id).all()
     failed_gw: list[str] = []
     for cred in creds:
         if cred.gateway_credential:
@@ -303,10 +304,14 @@ def batch_delete_credentials(
             except (GatewayUnavailableError, GatewayAPIError) as e:
                 failed_gw.append(cred.gateway_credential.gateway_credential_id)
                 logger.warning("Failed to delete gateway credential %s: %s", cred.gateway_credential.gateway_credential_id, e)
+    if failed_gw:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to delete gateway credentials: {failed_gw}. Database unchanged.",
+        )
+    for cred in creds:
         db.delete(cred)
     db.commit()
-    if failed_gw:
-        logger.warning("Orphaned gateway credentials (delete manually): %s", failed_gw)
 
 
 # -- Activate / Deactivate endpoints ------------------------------------------
@@ -318,7 +323,7 @@ def activate_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
     if not cred or not cred.gateway_credential:
         raise HTTPException(status_code=404, detail="Gateway credential not found.")
     try:
@@ -334,7 +339,7 @@ def deactivate_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
     if not cred or not cred.gateway_credential:
         raise HTTPException(status_code=404, detail="Gateway credential not found.")
     try:
@@ -353,7 +358,7 @@ def test_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id).first()
+    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
 
@@ -426,7 +431,7 @@ def list_credential_models(
 ):
     cred = (
         db.query(BaseCredential)
-        .filter(BaseCredential.id == credential_id, BaseCredential.credential_type == "llm")
+        .filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id, BaseCredential.credential_type == "llm")
         .first()
     )
     if not cred or not cred.llm_credential:

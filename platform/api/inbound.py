@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 import redis
+from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from rq import Queue
 from sqlalchemy.orm import Session
@@ -247,21 +248,33 @@ def _get_or_create_profile(from_user, db: Session) -> UserProfile:
     # Create new profile
     username = from_user.username or f"gw_{ext_id}"
 
-    # Ensure username uniqueness
-    base_username = username
-    counter = 1
-    while db.query(UserProfile).filter(UserProfile.username == username).first():
-        username = f"{base_username}_{counter}"
-        counter += 1
-
     import bcrypt
 
-    profile = UserProfile(
-        username=username,
-        external_user_id=ext_id,
-        password_hash=bcrypt.hashpw(uuid.uuid4().hex.encode(), bcrypt.gensalt()).decode(),
-    )
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
-    return profile
+    # Ensure username uniqueness with retry on race condition
+    base_username = username
+    counter = 1
+    max_retries = 5
+    for attempt in range(max_retries):
+        while db.query(UserProfile).filter(UserProfile.username == username).first():
+            username = f"{base_username}_{counter}"
+            counter += 1
+
+        profile = UserProfile(
+            username=username,
+            external_user_id=ext_id,
+            password_hash=bcrypt.hashpw(uuid.uuid4().hex.encode(), bcrypt.gensalt()).decode(),
+        )
+        db.add(profile)
+        try:
+            db.commit()
+            db.refresh(profile)
+            return profile
+        except IntegrityError:
+            db.rollback()
+            if attempt == max_retries - 1:
+                raise
+            # Another request created this username concurrently; retry with next suffix
+            username = f"{base_username}_{counter}"
+            counter += 1
+
+    raise RuntimeError("Unreachable: username retry loop exhausted")
