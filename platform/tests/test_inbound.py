@@ -288,7 +288,9 @@ class TestInboundEndpoint:
         mock_gw_client.return_value = mock_client_instance
 
         payload = _make_payload(text=f"/cancel_{task_id}")
-        resp = client.post("/api/v1/inbound", json=payload, headers=gateway_headers)
+        # Cancel path doesn't enqueue to redis, but mock for consistency with confirm test
+        with patch("api.inbound.redis"), patch("api.inbound.Queue"):
+            resp = client.post("/api/v1/inbound", json=payload, headers=gateway_headers)
 
         assert resp.status_code == 200
         data = resp.json()

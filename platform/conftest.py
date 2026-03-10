@@ -95,7 +95,7 @@ def workflow(db, user_profile):
 
 
 @pytest.fixture
-def telegram_credential(db, user_profile):
+def gateway_credential(db, user_profile):
     from models.credential import BaseCredential, GatewayCredential
 
     base = BaseCredential(
@@ -116,13 +116,17 @@ def telegram_credential(db, user_profile):
     return base
 
 
+# Keep old name as alias for backward compatibility with existing tests
+telegram_credential = gateway_credential
+
+
 @pytest.fixture
-def telegram_trigger(db, workflow, telegram_credential):
+def telegram_trigger(db, workflow, gateway_credential):
     from models.node import BaseComponentConfig, WorkflowNode
 
     cc = BaseComponentConfig(
         component_type="trigger_telegram",
-        credential_id=telegram_credential.id,
+        credential_id=gateway_credential.id,
         trigger_config={},
         is_active=True,
         priority=10,

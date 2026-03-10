@@ -81,20 +81,6 @@ class TestCredentialsAPI:
         assert data["name"] == "My OpenAI"
         assert data["credential_type"] == "llm"
 
-    def test_create_telegram_credential(self, auth_client):
-        mock_client = MagicMock()
-        mock_client.create_credential.return_value = {"id": "My Bot", "status": "created"}
-        with patch("api.credentials.get_gateway_client", return_value=mock_client):
-            resp = auth_client.post("/api/v1/credentials/", json={
-                "name": "My Bot",
-                "credential_type": "gateway",
-                "detail": {
-                    "adapter_type": "telegram",
-                    "token": "bot123:TOKEN",
-                },
-            })
-        assert resp.status_code == 201
-
     def test_create_gateway_credential(self, auth_client):
         mock_client = MagicMock()
         mock_client.create_credential.return_value = {"id": "Gateway Bot", "status": "created"}
