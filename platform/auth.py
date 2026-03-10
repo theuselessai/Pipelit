@@ -40,6 +40,11 @@ def verify_gateway_token(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> None:
     """FastAPI dependency: validate gateway inbound token."""
+    if not settings.GATEWAY_INBOUND_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gateway token not configured",
+        )
     if not secrets.compare_digest(credentials.credentials, settings.GATEWAY_INBOUND_TOKEN):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -81,6 +81,8 @@ class TriggerResolver:
             return self._match_schedule(trigger_config, event_data)
         if event_type == "error":
             return True
+        # gateway_inbound: routing is handled by the gateway and inbound API
+        # (workflow_slug + trigger_node_id in payload.route), so always match here.
         return True
 
     def _match_schedule(self, config: dict, event_data: dict) -> bool:

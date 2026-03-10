@@ -179,7 +179,17 @@ def create_credential(
         )
         db.add(sub)
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        # Clean up orphaned gateway credential if DB commit fails
+        if payload.credential_type == "gateway":
+            try:
+                get_gateway_client().delete_credential(payload.name)
+            except Exception:
+                logger.warning("Failed to clean up gateway credential %s after DB error", payload.name)
+        raise
     db.refresh(base)
     return _serialize_credential(base, db)
 
@@ -220,10 +230,11 @@ def update_credential(
         elif cred.credential_type == "gateway" and cred.gateway_credential:
             gw = cred.gateway_credential
             gw_update_kwargs: dict = {}
+            new_adapter_type = None
             if "token" in detail:
                 gw_update_kwargs["token"] = detail["token"]
             if "adapter_type" in detail:
-                gw.adapter_type = detail["adapter_type"]
+                new_adapter_type = detail["adapter_type"]
                 gw_update_kwargs["adapter"] = detail["adapter_type"]
             if gw_update_kwargs:
                 try:
@@ -231,6 +242,8 @@ def update_credential(
                 except (GatewayUnavailableError, GatewayAPIError) as e:
                     db.rollback()
                     raise HTTPException(status_code=502, detail=str(e))
+                if new_adapter_type is not None:
+                    gw.adapter_type = new_adapter_type
         elif cred.credential_type == "git" and cred.git_credential:
             git = cred.git_credential
             for field in ("provider", "credential_type", "ssh_private_key", "access_token", "username", "webhook_secret"):
@@ -282,14 +295,18 @@ def batch_delete_credentials(
     if not payload.ids:
         return
     creds = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids)).all()
+    failed_gw: list[str] = []
     for cred in creds:
         if cred.gateway_credential:
             try:
                 get_gateway_client().delete_credential(cred.gateway_credential.gateway_credential_id)
             except (GatewayUnavailableError, GatewayAPIError) as e:
+                failed_gw.append(cred.gateway_credential.gateway_credential_id)
                 logger.warning("Failed to delete gateway credential %s: %s", cred.gateway_credential.gateway_credential_id, e)
         db.delete(cred)
     db.commit()
+    if failed_gw:
+        logger.warning("Orphaned gateway credentials (delete manually): %s", failed_gw)
 
 
 # -- Activate / Deactivate endpoints ------------------------------------------
