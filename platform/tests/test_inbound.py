@@ -377,9 +377,26 @@ class TestInboundEndpoint:
         assert resp.status_code == 202
 
         # Verify UserProfile was created
-        profile = db.query(UserProfile).filter(UserProfile.external_user_id == 77788899).first()
+        profile = db.query(UserProfile).filter(UserProfile.external_user_id == "77788899").first()
         assert profile is not None
         assert profile.username == "newuser"
+
+    @patch("api.inbound.dispatch_event")
+    def test_non_numeric_from_id_returns_202(self, mock_dispatch, client, db, workflow, trigger_node, gateway_headers):
+        """Non-numeric from.id (e.g. 'cli-user') -> 202, not 500."""
+        mock_execution = MagicMock()
+        mock_execution.execution_id = str(uuid.uuid4())
+        mock_dispatch.return_value = mock_execution
+
+        payload = _make_payload(user_id="cli-user", username="cli_adapter")
+        resp = client.post("/api/v1/inbound", json=payload, headers=gateway_headers)
+
+        assert resp.status_code == 202
+
+        # Verify UserProfile was created with string external_user_id
+        profile = db.query(UserProfile).filter(UserProfile.external_user_id == "cli-user").first()
+        assert profile is not None
+        assert profile.username == "cli_adapter"
 
     @patch("api.inbound.dispatch_event")
     def test_existing_user_profile_reused(self, mock_dispatch, client, db, workflow, trigger_node, user_profile, gateway_headers):
@@ -395,7 +412,7 @@ class TestInboundEndpoint:
         assert resp.status_code == 202
 
         # Should not have created a second profile
-        count = db.query(UserProfile).filter(UserProfile.external_user_id == 111222333).count()
+        count = db.query(UserProfile).filter(UserProfile.external_user_id == "111222333").count()
         assert count == 1
 
     @patch("api.inbound.get_gateway_client")

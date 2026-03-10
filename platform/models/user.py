@@ -20,7 +20,7 @@ class UserProfile(Base):
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     first_name: Mapped[str] = mapped_column(String(150), default="")
     last_name: Mapped[str] = mapped_column(String(150), default="")
-    external_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    external_user_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     github_username: Mapped[str] = mapped_column(String(255), default="")
     gitlab_username: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

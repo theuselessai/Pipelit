@@ -239,7 +239,7 @@ def _get_or_create_profile(from_user, db: Session) -> UserProfile:
         db.refresh(profile)
         return profile
 
-    ext_id = int(from_user.id)
+    ext_id = from_user.id
     profile = db.query(UserProfile).filter(UserProfile.external_user_id == ext_id).first()
     if profile:
         return profile
