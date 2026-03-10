@@ -51,7 +51,7 @@ class TestDeliver:
         mock_client = MagicMock()
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
-            delivery.deliver(execution, db=None)
+            delivery.deliver(execution)
 
         mock_client.send_message.assert_called_once_with(
             "cred-123", "456", "Hello from workflow", file_ids=[]
@@ -67,7 +67,7 @@ class TestDeliver:
         mock_client = MagicMock()
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
-            delivery.deliver(execution, db=None)
+            delivery.deliver(execution)
 
         mock_client.send_message.assert_not_called()
 
@@ -81,7 +81,7 @@ class TestDeliver:
         mock_client = MagicMock()
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
-            delivery.deliver(execution, db=None)
+            delivery.deliver(execution)
 
         mock_client.send_message.assert_not_called()
 
@@ -92,7 +92,7 @@ class TestDeliver:
         mock_client = MagicMock()
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
-            delivery.deliver(execution, db=None)
+            delivery.deliver(execution)
 
         mock_client.send_message.assert_not_called()
 
@@ -110,8 +110,7 @@ class TestDeliver:
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
             with patch("services.delivery.logger") as mock_logger:
-                # Should NOT raise
-                delivery.deliver(execution, db=None)
+                delivery.deliver(execution)
 
         mock_logger.warning.assert_called()
 
@@ -129,7 +128,7 @@ class TestDeliver:
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
             with patch("services.delivery.logger") as mock_logger:
-                delivery.deliver(execution, db=None)
+                delivery.deliver(execution)
 
         mock_logger.warning.assert_called()
 
@@ -143,6 +142,6 @@ class TestDeliver:
         mock_client = MagicMock()
 
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
-            delivery.deliver(execution, db=None)
+            delivery.deliver(execution)
 
         mock_client.send_message.assert_not_called()

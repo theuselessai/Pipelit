@@ -1283,7 +1283,7 @@ def _finalize(execution_id: str, db: Session) -> None:
         )
 
         from services.delivery import output_delivery
-        output_delivery.deliver(execution, db)
+        output_delivery.deliver(execution)
 
         # If this execution has a parent, resume the parent's subworkflow node
         parent_eid = getattr(execution, "parent_execution_id", None)

@@ -162,7 +162,7 @@ class TestFullFlow:
             mock_gw.return_value = mock_gw_instance
 
             delivery = OutputDelivery()
-            delivery.deliver(fake_execution, db)
+            delivery.deliver(fake_execution)
 
             mock_gw_instance.send_message.assert_called_once_with(
                 "cred-abc", "12345", "Task completed successfully", file_ids=[]
@@ -189,7 +189,7 @@ class TestFullFlow:
 
         with patch("services.delivery.get_gateway_client") as mock_gw:
             delivery = OutputDelivery()
-            delivery.deliver(fake_execution, db)
+            delivery.deliver(fake_execution)
 
             # send_message should NOT be called
             mock_gw.return_value.send_message.assert_not_called()

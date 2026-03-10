@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy.orm import Session
-
 from services.gateway_client import GatewayAPIError, GatewayUnavailableError, get_gateway_client
 
 logger = logging.getLogger(__name__)
@@ -13,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class OutputDelivery:
 
-    def deliver(self, execution, db: Session) -> None:
+    def deliver(self, execution) -> None:
         payload = execution.trigger_payload or {}
         credential_id = payload.get("credential_id")
         chat_id = payload.get("chat_id")

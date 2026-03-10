@@ -784,7 +784,7 @@ class TestDeliveryService:
         delivery = OutputDelivery()
         mock_client = MagicMock()
         with patch("services.delivery.get_gateway_client", return_value=mock_client):
-            delivery.deliver(execution, db=None)
+            delivery.deliver(execution)
 
         mock_client.send_message.assert_called_once_with("cred-1", "42", "Hello!", file_ids=[])
 

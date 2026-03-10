@@ -234,7 +234,7 @@ class TestDeliveryService:
         svc = OutputDelivery()
         execution = MagicMock()
         execution.trigger_payload = {}
-        svc.deliver(execution, MagicMock())
+        svc.deliver(execution)
 
 
 # ── edge validation ──────────────────────────────────────────────────────────
