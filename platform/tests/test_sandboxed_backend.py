@@ -385,12 +385,7 @@ class TestSandboxedExecution:
 
     def test_echo(self, tmp_path, _setup_rootfs):
         workspace, rootfs = _setup_rootfs
-        backend = _make_backend(workspace, mode="bwrap")
 
-        # Mock rootfs provisioning to use our test rootfs
-        backend._workspace_rootfs = str(rootfs)
-
-        # We need to bind host /usr into the rootfs for this to work
         cmd = [
             "bwrap", "--unshare-all",
             "--bind", str(rootfs), "/",
