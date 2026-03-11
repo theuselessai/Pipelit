@@ -236,9 +236,16 @@ def _get_or_create_profile(from_user, db: Session) -> UserProfile:
             password_hash=bcrypt.hashpw(uuid.uuid4().hex.encode(), bcrypt.gensalt()).decode(),
         )
         db.add(profile)
-        db.commit()
-        db.refresh(profile)
-        return profile
+        try:
+            db.commit()
+            db.refresh(profile)
+            return profile
+        except IntegrityError:
+            db.rollback()
+            profile = db.query(UserProfile).filter(UserProfile.username == "gateway_anonymous").first()
+            if profile:
+                return profile
+            raise
 
     ext_id = from_user.id
     profile = db.query(UserProfile).filter(UserProfile.external_user_id == ext_id).first()

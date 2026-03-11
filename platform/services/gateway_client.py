@@ -63,6 +63,8 @@ class GatewayClient:
             except Exception:
                 msg = f"HTTP {resp.status_code}"
             raise GatewayAPIError(resp.status_code, msg)
+        if not resp.content:
+            return {}
         return resp.json()
 
     def _request(
