@@ -9,7 +9,7 @@ Three execution modes:
   ``--clearenv`` with explicit env vars.  Full filesystem isolation.
 - **container**: Already inside Docker/Codespaces/etc — scrubs env vars and
   runs with a clean ``PATH``/``HOME``.
-- **none**: Unsandboxed ``LocalShellBackend.execute()`` fallback with warning.
+- **none**: No sandbox available — execution is refused with ``RuntimeError``.
 """
 
 from __future__ import annotations
@@ -183,10 +183,9 @@ class SandboxedShellBackend(LocalShellBackend):
                 self._resolution.container_type, root_dir,
             )
         else:
-            logger.warning(
-                "SandboxedShellBackend: no sandbox available. "
-                "Falling back to unsandboxed execution for workspace %s",
-                root_dir,
+            raise RuntimeError(
+                f"No sandbox available for workspace {root_dir}. "
+                "Install bubblewrap (apt install bubblewrap) or run in a container."
             )
 
     def _ensure_workspace_rootfs(self, workspace: str) -> str:
@@ -313,8 +312,8 @@ class SandboxedShellBackend(LocalShellBackend):
     ) -> ExecuteResponse:
         """Execute a shell command inside the sandbox.
 
-        Routes to bwrap, container, or unsandboxed execution based on
-        the resolved sandbox mode.
+        Routes to bwrap or container execution based on the resolved
+        sandbox mode.  Raises ``RuntimeError`` if no sandbox is available.
         """
         effective_timeout = timeout if timeout is not None else self._default_timeout
         workspace = str(self.cwd)
@@ -322,14 +321,4 @@ class SandboxedShellBackend(LocalShellBackend):
         if self._resolution.mode == "bwrap":
             return self._execute_bwrap(command, workspace, effective_timeout)
 
-        if self._resolution.mode == "container":
-            return self._execute_container(command, workspace, effective_timeout)
-
-        # mode == "none" — unsandboxed fallback (still inject custom env vars)
-        env = {**os.environ, **self._custom_env} if self._custom_env else None
-        return self._run_subprocess(
-            ["bash", "-c", command],
-            effective_timeout,
-            env=env,
-            cwd=workspace,
-        )
+        return self._execute_container(command, workspace, effective_timeout)

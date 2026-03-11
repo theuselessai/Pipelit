@@ -178,7 +178,7 @@ class TestSandboxResolution:
              patch("services.environment.detect_container", return_value=None):
             result = resolve_sandbox_mode("auto")
         assert result.mode == "none"
-        assert result.can_execute is True
+        assert result.can_execute is False
         assert result.reason is not None
 
     def test_bwrap_present(self):

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 # Ensure platform/ is on sys.path
 _platform_dir = str(Path(__file__).resolve().parent)
@@ -39,6 +41,28 @@ def _setup_db():
     Base.metadata.create_all(bind=TEST_ENGINE)
     yield
     Base.metadata.drop_all(bind=TEST_ENGINE)
+
+
+@pytest.fixture(autouse=True)
+def _mock_sandbox_mode_for_ci():
+    """On CI (no bwrap), mock sandbox mode to 'container' so SandboxedShellBackend
+    doesn't reject mode='none'.  The container execution path runs plain subprocess
+    with a scrubbed env — functionally identical to the old unsandboxed fallback.
+
+    When bwrap IS available (local dev), this fixture is a no-op so tests use the
+    real sandbox.
+    """
+    if shutil.which("bwrap"):
+        yield
+    else:
+        mock_resolution = MagicMock(
+            mode="container", can_execute=True, container_type="ci", reason=None,
+        )
+        with patch(
+            "components.sandboxed_backend.resolve_sandbox_mode",
+            return_value=mock_resolution,
+        ):
+            yield
 
 
 @pytest.fixture

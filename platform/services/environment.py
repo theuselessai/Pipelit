@@ -156,8 +156,8 @@ def resolve_sandbox_mode(config_mode: str = "auto") -> SandboxResolution:
 
     return SandboxResolution(
         mode="none",
-        can_execute=True,
-        reason="no sandbox tool available; commands run unsandboxed",
+        can_execute=False,
+        reason="no sandbox tool available; install bubblewrap (apt install bubblewrap) or run in a container",
         container_type=None,
     )
 
