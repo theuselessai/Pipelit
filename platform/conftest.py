@@ -78,13 +78,13 @@ def db():
 @pytest.fixture
 def user_profile(db):
     import bcrypt
-    from models.user import UserProfile
+    from models.user import UserProfile, UserRole
 
     profile = UserProfile(
         username="testuser",
         password_hash=bcrypt.hashpw(b"testpass", bcrypt.gensalt()).decode(),
         external_user_id="111222333",
-        role="admin",
+        role=UserRole.ADMIN,
     )
     db.add(profile)
     db.commit()

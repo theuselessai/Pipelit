@@ -374,7 +374,8 @@ class TestExecutionsAPI:
         """
         import bcrypt
 
-        user_profile.role = "normal"
+        from models.user import UserRole
+        user_profile.role = UserRole.NORMAL
         db.commit()
 
         # Execution from the authenticated user's workflow

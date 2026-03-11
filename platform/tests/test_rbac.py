@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from models.credential import BaseCredential
 from models.execution import WorkflowExecution
 from models.scheduled_job import ScheduledJob
-from models.user import APIKey, UserProfile
+from models.user import APIKey, UserProfile, UserRole
 from models.workflow import Workflow
 
 
@@ -48,7 +48,7 @@ def admin_user(db):
     user = UserProfile(
         username="admin-user",
         password_hash=bcrypt.hashpw(b"adminpass", bcrypt.gensalt()).decode(),
-        role="admin",
+        role=UserRole.ADMIN,
     )
     db.add(user)
     db.commit()
@@ -76,7 +76,7 @@ def normal_user(db):
     user = UserProfile(
         username="normal-user",
         password_hash=bcrypt.hashpw(b"normalpass", bcrypt.gensalt()).decode(),
-        role="normal",
+        role=UserRole.NORMAL,
     )
     db.add(user)
     db.commit()
@@ -502,7 +502,7 @@ class TestSetupWizard:
             .first()
         )
         assert user is not None
-        assert user.role == "admin"
+        assert user.role == UserRole.ADMIN
 
 
 # ── require_admin Dependency Tests ───────────────────────────────────────────

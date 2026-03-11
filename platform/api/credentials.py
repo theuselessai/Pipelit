@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
+from models.user import UserRole
 from models.credential import (
     BaseCredential,
     GatewayCredential,
@@ -108,7 +109,7 @@ def list_credentials(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     total = query.count()
     creds = query.offset(offset).limit(limit).all()
@@ -204,7 +205,7 @@ def get_credential(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred:
@@ -220,7 +221,7 @@ def update_credential(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred:
@@ -279,7 +280,7 @@ def delete_credential(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred:
@@ -307,7 +308,7 @@ def batch_delete_credentials(
     if not payload.ids:
         return
     query = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids))
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     creds = query.all()
     failed_gw: list[str] = []
@@ -338,7 +339,7 @@ def activate_credential(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred or not cred.gateway_credential:
@@ -357,7 +358,7 @@ def deactivate_credential(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred or not cred.gateway_credential:
@@ -379,7 +380,7 @@ def test_credential(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred:
@@ -453,7 +454,7 @@ def list_credential_models(
     profile: UserProfile = Depends(get_current_user),
 ):
     query = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.credential_type == "llm")
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         query = query.filter(BaseCredential.user_profile_id == profile.id)
     cred = query.first()
     if not cred or not cred.llm_credential:

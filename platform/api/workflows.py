@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models.user import UserProfile
+from models.user import UserProfile, UserRole
 from models.workflow import Workflow
 from schemas.workflow import WorkflowDetailOut, WorkflowIn, WorkflowOut, WorkflowUpdate
 from api._helpers import get_workflow, serialize_workflow, serialize_workflow_detail
@@ -45,7 +45,7 @@ def list_workflows(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    if profile.role == "admin":
+    if profile.role == UserRole.ADMIN:
         base = db.query(Workflow)
     else:
         base = db.query(Workflow).filter(Workflow.owner_id == profile.id)
@@ -139,7 +139,7 @@ def batch_delete_workflows(
 ):
     if not payload.slugs:
         return
-    if profile.role == "admin":
+    if profile.role == UserRole.ADMIN:
         workflows = db.query(Workflow).filter(Workflow.slug.in_(payload.slugs)).all()
     else:
         workflows = (

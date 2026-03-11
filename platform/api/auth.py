@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from config import PipelitConfig, get_pipelit_dir, save_conf
 from database import get_db
-from models.user import APIKey, UserProfile
+from models.user import APIKey, UserProfile, UserRole
 from schemas.auth import (
     EnvironmentInfo,
     MeResponse,
@@ -100,7 +100,7 @@ def setup(payload: SetupRequest, db: Session = Depends(get_db)):
     user = UserProfile(
         username=payload.username,
         password_hash=bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode(),
-        role="admin",
+        role=UserRole.ADMIN,
     )
     db.add(user)
     db.flush()

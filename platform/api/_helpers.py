@@ -7,12 +7,12 @@ from sqlalchemy.orm import Session
 
 from models.node import BaseComponentConfig, ModelComponentConfig, TriggerComponentConfig, WorkflowEdge, WorkflowNode
 from models.scheduled_job import ScheduledJob
-from models.user import UserProfile
+from models.user import UserProfile, UserRole
 from models.workflow import Workflow
 
 
 def get_workflow(slug: str, profile: UserProfile, db: Session) -> Workflow:
-    if profile.role == "admin":
+    if profile.role == UserRole.ADMIN:
         wf = db.query(Workflow).filter(Workflow.slug == slug).first()
     else:
         wf = (

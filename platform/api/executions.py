@@ -13,7 +13,7 @@ import logging
 from auth import get_current_user
 from database import get_db
 from models.execution import ExecutionLog, WorkflowExecution
-from models.user import UserProfile
+from models.user import UserProfile, UserRole
 from models.workflow import Workflow
 from schemas.execution import ExecutionDetailOut, ExecutionOut
 
@@ -32,7 +32,7 @@ def list_executions(
     profile: UserProfile = Depends(get_current_user),
 ):
     q = db.query(WorkflowExecution).join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.filter(Workflow.owner_id == profile.id)
     if workflow_slug:
         q = q.filter(Workflow.slug == workflow_slug)
@@ -54,7 +54,7 @@ def get_execution(
         .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
         .filter(WorkflowExecution.execution_id == execution_id)
     )
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.filter(Workflow.owner_id == profile.id)
     execution = q.first()
     if not execution:
@@ -92,7 +92,7 @@ def cancel_execution(
         .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
         .filter(WorkflowExecution.execution_id == execution_id)
     )
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.filter(Workflow.owner_id == profile.id)
     execution = q.first()
     if not execution:
@@ -146,7 +146,7 @@ def batch_delete_executions(
         .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
         .filter(WorkflowExecution.execution_id.in_(payload.execution_ids))
     )
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.filter(Workflow.owner_id == profile.id)
     owned_exec_ids = [e.execution_id for e in q.all()]
     if not owned_exec_ids:

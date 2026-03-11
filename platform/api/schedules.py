@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
 from models.scheduled_job import ScheduledJob
-from models.user import UserProfile
+from models.user import UserProfile, UserRole
 from models.workflow import Workflow
 from schemas.schedule import (
     BatchDeleteSchedulesIn,
@@ -31,7 +31,7 @@ def _serialize(job: ScheduledJob) -> dict:
 
 def _owned_job_query(db: Session, profile: UserProfile, job_id: str):
     q = db.query(ScheduledJob).filter(ScheduledJob.id == job_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.join(Workflow, Workflow.id == ScheduledJob.workflow_id).filter(Workflow.owner_id == profile.id)
     return q
 
@@ -46,7 +46,7 @@ def list_schedules(
     profile: UserProfile = Depends(get_current_user),
 ):
     q = db.query(ScheduledJob)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.join(Workflow, Workflow.id == ScheduledJob.workflow_id).filter(Workflow.owner_id == profile.id)
     if status:
         q = q.filter(ScheduledJob.status == status)
@@ -64,7 +64,7 @@ def create_schedule(
     profile: UserProfile = Depends(get_current_user),
 ):
     wf_q = db.query(Workflow).filter(Workflow.id == payload.workflow_id)
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         wf_q = wf_q.filter(Workflow.owner_id == profile.id)
     wf = wf_q.first()
     if not wf:
@@ -185,7 +185,7 @@ def batch_delete_schedules(
     if not payload.schedule_ids:
         return
     q = db.query(ScheduledJob).filter(ScheduledJob.id.in_(payload.schedule_ids))
-    if profile.role != "admin":
+    if profile.role != UserRole.ADMIN:
         q = q.join(Workflow, Workflow.id == ScheduledJob.workflow_id).filter(Workflow.owner_id == profile.id)
     q.delete(synchronize_session=False)
     db.commit()
