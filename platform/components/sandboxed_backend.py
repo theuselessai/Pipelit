@@ -9,7 +9,7 @@ Three execution modes:
   ``--clearenv`` with explicit env vars.  Full filesystem isolation.
 - **container**: Already inside Docker/Codespaces/etc — scrubs env vars and
   runs with a clean ``PATH``/``HOME``.
-- **none**: Unsandboxed ``LocalShellBackend.execute()`` fallback with warning.
+- **none**: No sandbox available — execution is refused with ``RuntimeError``.
 """
 
 from __future__ import annotations
@@ -312,8 +312,8 @@ class SandboxedShellBackend(LocalShellBackend):
     ) -> ExecuteResponse:
         """Execute a shell command inside the sandbox.
 
-        Routes to bwrap, container, or unsandboxed execution based on
-        the resolved sandbox mode.
+        Routes to bwrap or container execution based on the resolved
+        sandbox mode.  Raises ``RuntimeError`` if no sandbox is available.
         """
         effective_timeout = timeout if timeout is not None else self._default_timeout
         workspace = str(self.cwd)
