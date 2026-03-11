@@ -54,15 +54,15 @@ def _mock_sandbox_mode_for_ci():
     """
     if shutil.which("bwrap"):
         yield
-        return
-    mock_resolution = MagicMock(
-        mode="container", can_execute=True, container_type="ci", reason=None,
-    )
-    with patch(
-        "components.sandboxed_backend.resolve_sandbox_mode",
-        return_value=mock_resolution,
-    ):
-        yield
+    else:
+        mock_resolution = MagicMock(
+            mode="container", can_execute=True, container_type="ci", reason=None,
+        )
+        with patch(
+            "components.sandboxed_backend.resolve_sandbox_mode",
+            return_value=mock_resolution,
+        ):
+            yield
 
 
 @pytest.fixture
