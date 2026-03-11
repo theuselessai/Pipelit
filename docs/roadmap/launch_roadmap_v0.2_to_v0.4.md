@@ -1,21 +1,22 @@
 ## STATUS SUMMARY
 
-**Last Updated:** March 6, 2026
-**Overall Completion:** 98% (v0.2.0 Alpha)
+**Last Updated:** March 11, 2026
 
-### v0.2.0 Alpha Release — March 7, 2026
+### v0.2.0 Alpha — Released March 7, 2026
 
-v0.2.0 is **98% complete** and releasing this weekend (March 7, 2026) as an alpha for trusted users.
+**Remaining work:**
+1. Remove unsandboxed fallbacks from `run_command`/`code` (#124) — in progress
 
-**Remaining work (1-2 days):**
-1. Remove unsandboxed fallbacks from `run_command`/`code` — 1-2 days
+### v0.3.0 Progress
 
-**Deferred to v0.3.0:**
-- `human_confirmation` wiring — deferred to v0.3.0 (safety enhancement, not blocker)
-- Message gateway implementation (architecture designed in PR #114)
-- Docker artifacts (Dockerfile, docker-compose.yml)
+- ✅ Phase 2.2: Message Gateway — msg-gateway integration (PR #135, merged Mar 11 2026)
+- 🟡 Phase 2.1: Docker Artifacts — planned
+- 🟡 Phase 2.3: Skill to Workflow — planned
+- 🟡 Phase 2.4: Human Confirmation — planned
+- 🟡 Phase 2.5: Meta Agent — optional
 
 ### Recent Progress (Since v0.1.0)
+- ✅ Phase 2.2: msg-gateway unified messaging layer (PR #135 — replaces Telegram polling, adds GatewayClient, inbound webhook, credential CRUD)
 - ✅ Phase 1.1: Sandbox egress control — redundant tools removed
 - ✅ Phase 1.1: Telegram handler implemented (PR #106 — document upload support)
 - ✅ Phase 1.1: Web search system implemented (PR #107 — GLM provider integration)
@@ -27,7 +28,7 @@ v0.2.0 is **98% complete** and releasing this weekend (March 7, 2026) as an alph
 - ✅ Phase P0+P1+P2: Docs-site implementation (PR #103)
 - ✅ Skill directories mounted into bwrap sandbox (PR #116)
 - ✅ Telegram trigger matching by bot token + concurrent polling fix (PR #117)
-- 🟡 Phase 1.6: Unsandboxed fallback removal — in progress (1-2 days)
+- 🟡 Phase 1.6: Unsandboxed fallback removal — in progress (#124)
 
 ---
 
@@ -100,24 +101,25 @@ Create full Docker deployment stack:
 **Blockers:** None
 **Priority:** P0 (enables self-hosted deployment)
 
-### 2.2 Message Gateway 🟡 PLANNED (2-3 weeks) — HIGHEST PRIORITY
+### 2.2 Message Gateway ✅ DONE (PR #135, merged Mar 11 2026)
 
-Enable seamless mid-conversation model switching (Claude ↔ GLM ↔ MiniMax). Foundation for stable agent behavior across providers.
+Replaced the original plan to build in-Pipelit InputAdapters/ModelRouter/PipelitGateway with [msg-gateway](https://github.com/theuselessai/msg-gateway) as the external unified messaging layer.
 
-**Phase 2.2a: Blockers** (1 day)
-- Add GLM/MiniMax to MODEL_CONTEXT_WINDOWS (5 min)
-- Prototype + test configurable_alternatives pattern (4-6 hrs)
+**What shipped (PR #135):**
+- `POST /api/v1/inbound` — webhook endpoint receiving normalized messages from msg-gateway
+- `GatewayClient` HTTP client for gateway admin + send APIs
+- `GatewayCredential` model replacing `TelegramCredential`
+- `verify_gateway_token()` auth dependency
+- Gateway credential CRUD UI on frontend
+- 3 Alembic migrations + 152 gateway-specific tests
+- Removed: Telegram polling, Telegram handler, chat endpoints, ChatPanel UI
 
-**Phase 2.2b: Implementation** (2 weeks)
-- Build InputAdapters (Telegram, Email, Slack) — ~200 lines
-- Build ModelRouter with configurable_alternatives — ~150 lines
-- Build PipelitGateway dispatcher — ~250 lines
-- Integration tests + docs
+**Original plan (superseded):**
+- ~~Build InputAdapters (Telegram, Email, Slack)~~ → handled by msg-gateway adapters
+- ~~Build ModelRouter with configurable_alternatives~~ → gateway-level routing
+- ~~Build PipelitGateway dispatcher~~ → replaced by `GatewayClient`
 
-**Dependencies:** v0.2.0 release
-**Effort:** 2-3 weeks total
-**Reference:** PR #114 analysis (80% reusable code exists)
-**Priority:** P0 (foundational infrastructure)
+**Reference:** PR #114 (architecture), PR #135 (implementation)
 
 ### 2.3 Skill to Workflow Distillation 🟡 PLANNED (1-2 weeks)
 
@@ -242,21 +244,21 @@ Time-based OTP verification for critical workflow steps.
 
 | Phase | Version | Target | Status | Completion | Focus |
 |-------|---------|--------|--------|------------|-------|
-| **1** | v0.2.0 | **Mar 7** | 🟡 98% — releasing this weekend | Alpha (trusted users) | Security & Stability |
-| **2** | v0.3.0 | Apr–May | ⏳ Planned | Beta (self-hosted) | Deployment, Multi-Model, Fidelity |
+| **1** | v0.2.0 | **Mar 7** | 🟡 #124 remaining | Alpha (trusted users) | Security & Stability |
+| **2** | v0.3.0 | Apr–May | 🟡 2/5 done (Gateway ✅, rest planned) | Beta (self-hosted) | Deployment, Multi-Model, Fidelity |
 | **3** | v0.4.0 | June–July | ⏳ Planned | SaaS Ready | Multi-Tenant & Memory |
 
 **Critical Path:**
-- **v0.2.0 Alpha Release (Mar 7)** — Unsandboxed fallback removal
-- **Phase 2.1: Docker** (early April, 2-3 days)
-- **Phase 2.2: Message Gateway** (April, 2-3 weeks) ← HIGHEST PRIORITY
-- **Phase 2.3: Skill to Workflow** (late April, 1-2 weeks)
-- **Phase 2.4: Human Confirmation** (early May, 1-2 days)
-- **Phase 2.5: Meta Agent** (May, optional, 2-3 weeks)
+- **v0.2.0 Finish** — Unsandboxed fallback removal (#124)
+- **Phase 2.2: Message Gateway** ✅ Done (PR #135)
+- **Phase 2.1: Docker** (2-3 days)
+- **Phase 2.3: Skill to Workflow** (1-2 weeks)
+- **Phase 2.4: Human Confirmation** (1-2 days)
+- **Phase 2.5: Meta Agent** (optional, 2-3 weeks)
 - **Phase 3.1-3.3: Multi-User + Memory** (June–July)
 
 **Key Decisions:**
-1. Message Gateway is the highest priority infrastructure improvement
+1. ~~Message Gateway is the highest priority~~ ✅ Done — msg-gateway is the unified messaging layer (PR #135)
 2. skill_to_workflow enables gradual fidelity improvement
 3. human_confirmation deferred to v0.3.0 (safety enhancement, not blocker)
 4. Memory tables moved up to v0.4.0 (foundation for self-evolution)
@@ -277,7 +279,7 @@ Time-based OTP verification for critical workflow steps.
 ### v0.3.0 (Beta)
 
 1. Docker deployment works with `docker-compose up`
-2. Message Gateway enables mid-conversation model switching without data loss
+2. ~~Message Gateway enables mid-conversation model switching without data loss~~ ✅ msg-gateway integration shipped (PR #135)
 3. `skill_to_workflow` tool generates valid YAML DSL from skill descriptions
 4. `human_confirmation` node can pause execution for manual approval
 5. Meta Agent can query execution logs and suggest workflow improvements (optional)
@@ -295,4 +297,5 @@ Time-based OTP verification for critical workflow steps.
 
 - **2026-03-04:** Message Gateway architecture design (PR #114)
 - **2026-03-06:** Skill to Workflow & Meta Agent discussion (docs/meeting-minutes/2026-03-06-skill-to-workflow/)
+- **2026-03-11:** msg-gateway integration shipped (PR #135) — replaces in-Pipelit messaging, closes #134 and #126
 - **Self-Evolving Agent Roadmap:** docs/architecture/self_aware_self_evolving_agent_platform_roadmap.md
