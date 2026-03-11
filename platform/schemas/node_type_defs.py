@@ -2,17 +2,38 @@
 
 from schemas.node_types import DataType, NodeTypeSpec, PortDefinition, register_node_type
 
+# ── Shared schemas ────────────────────────────────────────────────────────────
+
+_FILES_PORT_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "filename": {"type": "string"},
+            "mime_type": {"type": "string"},
+            "size_bytes": {"type": "integer"},
+            "url": {"type": "string"},
+        },
+        "required": ["filename", "mime_type", "size_bytes", "url"],
+    },
+}
+
 # ── Triggers ──────────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
     component_type="trigger_telegram",
     display_name="Telegram Trigger",
-    description="Receives messages from Telegram",
+    description="Receives messages from Telegram via msg-gateway",
     category="trigger",
     outputs=[
         PortDefinition(name="text", data_type=DataType.STRING, description="Message text"),
         PortDefinition(name="chat_id", data_type=DataType.NUMBER, description="Telegram chat ID"),
-        PortDefinition(name="files", data_type=DataType.ARRAY, description="Document files (file_id, file_name, mime_type, file_size)"),
+        PortDefinition(
+            name="files",
+            data_type=DataType.ARRAY,
+            description="Document files",
+            port_schema=_FILES_PORT_SCHEMA,
+        ),
         PortDefinition(name="payload", data_type=DataType.OBJECT, description="Full trigger payload"),
     ],
 ))
@@ -20,6 +41,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_manual",
     display_name="Manual Trigger",
+    description="Manually triggered workflow execution",
     category="trigger",
     outputs=[PortDefinition(name="payload", data_type=DataType.OBJECT, description="Manual trigger payload")],
 ))
@@ -27,6 +49,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_schedule",
     display_name="Schedule Trigger",
+    description="Executes workflow on a scheduled interval",
     category="trigger",
     outputs=[
         PortDefinition(name="timestamp", data_type=DataType.STRING, description="ISO 8601 timestamp of when the job fired"),
@@ -37,9 +60,16 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_chat",
     display_name="Chat Trigger",
+    description="Receives messages from external chat clients via msg-gateway generic adapter",
     category="trigger",
     outputs=[
         PortDefinition(name="text", data_type=DataType.STRING, description="Chat message text"),
+        PortDefinition(
+            name="files",
+            data_type=DataType.ARRAY,
+            description="Document files",
+            port_schema=_FILES_PORT_SCHEMA,
+        ),
         PortDefinition(name="payload", data_type=DataType.OBJECT, description="Full chat trigger payload"),
     ],
 ))
@@ -47,6 +77,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_workflow",
     display_name="Workflow Trigger",
+    description="Triggered by another workflow execution",
     category="trigger",
     outputs=[
         PortDefinition(name="text", data_type=DataType.STRING, description="Text content from workflow trigger"),
@@ -57,6 +88,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_error",
     display_name="Error Trigger",
+    description="Triggered when a workflow execution encounters an error",
     category="trigger",
     outputs=[PortDefinition(name="error", data_type=DataType.OBJECT)],
 ))

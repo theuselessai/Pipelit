@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DataType(str, enum.Enum):
@@ -27,6 +27,7 @@ class PortDefinition(BaseModel):
     description: str = ""
     required: bool = False
     default: Any = None
+    port_schema: dict[str, Any] | None = None
 
 
 class NodeTypeSpec(BaseModel):

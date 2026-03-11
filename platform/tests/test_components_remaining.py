@@ -767,58 +767,26 @@ class TestAiModelComponent:
 # ── Delivery service ──────────────────────────────────────────────────────────
 
 class TestDeliveryService:
-    @patch("services.delivery.requests.post")
-    def test_send_telegram_message(self, mock_post):
+    def test_send_typing_action_is_noop(self):
         from services.delivery import OutputDelivery
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"ok": True, "result": {}}
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        delivery = OutputDelivery()
-        result = delivery.send_telegram_message("bot123:token", 12345, "Hello!")
-        assert result["ok"] is True
-        mock_post.assert_called_once()
-
-    @patch("services.delivery.requests.post")
-    def test_send_long_message_splits(self, mock_post):
-        from services.delivery import OutputDelivery
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"ok": True, "result": {}}
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-
-        delivery = OutputDelivery()
-        long_text = "line\n" * 2000  # > 4096 chars
-        delivery._send_long_message("bot123:token", 12345, long_text)
-        # Should split into multiple messages
-        assert mock_post.call_count > 1
-
-    @patch("services.delivery.requests.post")
-    def test_send_typing_action(self, mock_post):
-        from services.delivery import OutputDelivery
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"ok": True}
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
 
         delivery = OutputDelivery()
         delivery.send_typing_action("bot:token", 123)
-        mock_post.assert_called_once()
 
-    @patch("services.delivery.requests.post")
-    def test_send_telegram_error(self, mock_post):
-        import requests as req
+    def test_deliver_calls_gateway(self):
+        from unittest.mock import MagicMock, patch
         from services.delivery import OutputDelivery
 
-        mock_post.side_effect = req.RequestException("network error")
+        execution = MagicMock()
+        execution.trigger_payload = {"credential_id": "cred-1", "chat_id": "42"}
+        execution.final_output = {"message": "Hello!"}
 
         delivery = OutputDelivery()
-        result = delivery.send_telegram_message("bot:token", 123, "hi")
-        assert result is None
+        mock_client = MagicMock()
+        with patch("services.delivery.get_gateway_client", return_value=mock_client):
+            delivery.deliver(execution)
+
+        mock_client.send_message.assert_called_once_with("cred-1", "42", "Hello!", file_ids=[])
 
     def test_format_output(self):
         from services.delivery import OutputDelivery

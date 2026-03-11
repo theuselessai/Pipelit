@@ -9,9 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from models.credential import BaseCredential, LLMProviderCredential, TelegramCredential
+from models.credential import BaseCredential, GatewayCredential, LLMProviderCredential
 from models.execution import ExecutionLog, WorkflowExecution
-from models.node import BaseComponentConfig, WorkflowNode
 from models.user import APIKey, UserProfile
 from models.workflow import Workflow
 
@@ -82,15 +81,18 @@ class TestCredentialsAPI:
         assert data["name"] == "My OpenAI"
         assert data["credential_type"] == "llm"
 
-    def test_create_telegram_credential(self, auth_client):
-        resp = auth_client.post("/api/v1/credentials/", json={
-            "name": "My Bot",
-            "credential_type": "telegram",
-            "detail": {
-                "bot_token": "123456:ABC-DEF",
-                "allowed_user_ids": "111,222",
-            },
-        })
+    def test_create_gateway_credential(self, auth_client):
+        mock_client = MagicMock()
+        mock_client.create_credential.return_value = {"id": "Gateway Bot", "status": "created"}
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post("/api/v1/credentials/", json={
+                "name": "Gateway Bot",
+                "credential_type": "gateway",
+                "detail": {
+                    "adapter_type": "telegram",
+                    "token": "bot456:TOKEN",
+                },
+            })
         assert resp.status_code == 201
 
     def test_create_tool_credential(self, auth_client):
@@ -692,22 +694,22 @@ class TestCredentialSerialization:
     def test_serialize_telegram(self, auth_client, db, user_profile):
         cred = BaseCredential(
             user_profile_id=user_profile.id, name="TG Bot",
-            credential_type="telegram",
+            credential_type="gateway",
         )
         db.add(cred)
         db.flush()
-        tg = TelegramCredential(
+        gw = GatewayCredential(
             base_credentials_id=cred.id,
-            bot_token="123456:ABC-DEF-GHI-JKL",
-            allowed_user_ids="111,222",
+            gateway_credential_id="tg_mybot",
+            adapter_type="telegram",
         )
-        db.add(tg)
+        db.add(gw)
         db.commit()
 
         resp = auth_client.get(f"/api/v1/credentials/{cred.id}/")
         assert resp.status_code == 200
         data = resp.json()
-        assert "****" in data["detail"]["bot_token"]
+        assert data["detail"]["gateway_credential_id"] == "tg_mybot"
 
     def test_update_credential_detail(self, auth_client, db, user_profile):
         cred = BaseCredential(
@@ -742,55 +744,343 @@ class TestCredentialSerialization:
         assert resp.status_code == 201
 
 
-# ── Chat endpoint ────────────────────────────────────────────────────────────
+# ── Gateway credential sync ──────────────────────────────────────────────────
 
-class TestChatAPI:
-    @pytest.fixture
-    def chat_trigger(self, db, workflow):
-        cc = BaseComponentConfig(
-            component_type="trigger_chat",
-            trigger_config={},
-            is_active=True,
+class TestGatewayCredentialSync:
+    """Tests for gateway credential CRUD synced with msg-gateway admin API."""
+
+    def _make_gateway_cred(self, db, user_profile, name="My Bot", gw_id="tg_mybot", adapter="telegram"):
+        cred = BaseCredential(
+            user_profile_id=user_profile.id,
+            name=name,
+            credential_type="gateway",
         )
-        db.add(cc)
+        db.add(cred)
         db.flush()
-        node = WorkflowNode(
-            workflow_id=workflow.id,
-            node_id="chat_trigger_1",
-            component_type="trigger_chat",
-            component_config_id=cc.id,
+        gw = GatewayCredential(
+            base_credentials_id=cred.id,
+            gateway_credential_id=gw_id,
+            adapter_type=adapter,
         )
-        db.add(node)
+        db.add(gw)
         db.commit()
-        db.refresh(node)
-        return node
+        db.refresh(cred)
+        return cred
 
-    def test_chat_no_trigger(self, auth_client, workflow):
-        resp = auth_client.post(f"/api/v1/workflows/{workflow.slug}/chat/", json={
-            "text": "hello",
-        })
-        assert resp.status_code == 404
+    # -- create ---------------------------------------------------------------
 
-    def test_chat_workflow_not_found(self, auth_client):
-        resp = auth_client.post("/api/v1/workflows/nonexistent/chat/", json={
-            "text": "hello",
-        })
-        assert resp.status_code == 404
+    def test_create_gateway_credential_calls_gateway(self, auth_client):
+        """Creating a gateway credential should call gateway.create_credential()."""
+        mock_client = MagicMock()
+        mock_client.create_credential.return_value = {"id": "tg_newbot", "status": "created"}
 
-    def test_chat_with_trigger_node_id(self, auth_client, workflow, chat_trigger):
-        """Chat with specific trigger_node_id — mock Redis enqueue."""
-        mock_q = MagicMock()
-        mock_conn = MagicMock()
-        with patch("redis.from_url", return_value=mock_conn):
-            with patch("rq.Queue", return_value=mock_q):
-                resp = auth_client.post(f"/api/v1/workflows/{workflow.slug}/chat/", json={
-                    "text": "hello",
-                    "trigger_node_id": "chat_trigger_1",
-                })
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post("/api/v1/credentials/", json={
+                "name": "New Bot",
+                "credential_type": "gateway",
+                "detail": {
+                    "adapter_type": "telegram",
+                    "token": "bot123:TOKEN",
+                    "config": {"webhook_url": "https://example.com/hook"},
+                },
+            })
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["credential_type"] == "gateway"
+        assert data["detail"]["adapter_type"] == "telegram"
+        mock_client.create_credential.assert_called_once()
+        call_kwargs = mock_client.create_credential.call_args
+        assert call_kwargs.kwargs.get("adapter") == "telegram" or call_kwargs.args[1] == "telegram"
+
+    def test_create_gateway_credential_gateway_unavailable_returns_502(self, auth_client):
+        """If gateway is unavailable during create, return 502."""
+        from services.gateway_client import GatewayUnavailableError
+
+        mock_client = MagicMock()
+        mock_client.create_credential.side_effect = GatewayUnavailableError("connection refused")
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post("/api/v1/credentials/", json={
+                "name": "Bot",
+                "credential_type": "gateway",
+                "detail": {
+                    "adapter_type": "telegram",
+                    "token": "bot123:TOKEN",
+                },
+            })
+
+        assert resp.status_code == 502
+
+    def test_create_gateway_credential_gateway_api_error_returns_502(self, auth_client):
+        """If gateway returns 4xx/5xx during create, return 502."""
+        from services.gateway_client import GatewayAPIError
+
+        mock_client = MagicMock()
+        mock_client.create_credential.side_effect = GatewayAPIError(409, "already exists")
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post("/api/v1/credentials/", json={
+                "name": "Bot",
+                "credential_type": "gateway",
+                "detail": {
+                    "adapter_type": "telegram",
+                    "token": "bot123:TOKEN",
+                },
+            })
+
+        assert resp.status_code == 502
+
+    def test_create_gateway_credential_token_not_stored_locally(self, auth_client, db):
+        """Token must NOT be stored in local DB — only sent to gateway."""
+        mock_client = MagicMock()
+        mock_client.create_credential.return_value = {"id": "tg_bot", "status": "created"}
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post("/api/v1/credentials/", json={
+                "name": "Secret Bot",
+                "credential_type": "gateway",
+                "detail": {
+                    "adapter_type": "telegram",
+                    "token": "super_secret_token",
+                },
+            })
+
+        assert resp.status_code == 201
+        cred_id = resp.json()["id"]
+
+        # Verify token is NOT in the serialized response
+        get_resp = auth_client.get(f"/api/v1/credentials/{cred_id}/")
+        assert "super_secret_token" not in str(get_resp.json())
+
+        # Verify GatewayCredential in DB has no token field
+        gw = db.query(GatewayCredential).filter_by(base_credentials_id=cred_id).first()
+        assert gw is not None
+        assert not hasattr(gw, "token") or not getattr(gw, "token", None)
+
+    # -- delete ---------------------------------------------------------------
+
+    def test_delete_gateway_credential_calls_gateway(self, auth_client, db, user_profile):
+        """Deleting a gateway credential should call gateway.delete_credential()."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.delete_credential.return_value = {"id": "tg_mybot", "status": "deleted"}
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.delete(f"/api/v1/credentials/{cred.id}/")
+
+        assert resp.status_code == 204
+        mock_client.delete_credential.assert_called_once_with("tg_mybot")
+
+    def test_delete_gateway_credential_gateway_fails_returns_502(self, auth_client, db, user_profile):
+        """If gateway delete fails, return 502 and do NOT delete local record."""
+        from services.gateway_client import GatewayAPIError
+
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.delete_credential.side_effect = GatewayAPIError(500, "internal error")
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.delete(f"/api/v1/credentials/{cred.id}/")
+
+        assert resp.status_code == 502
+        # Local record should still exist
+        still_exists = db.query(BaseCredential).filter_by(id=cred.id).first()
+        assert still_exists is not None
+
+    def test_delete_non_gateway_credential_no_gateway_call(self, auth_client, db, user_profile):
+        """Deleting a non-gateway credential should NOT call gateway."""
+        cred = BaseCredential(user_profile_id=user_profile.id, name="LLM", credential_type="llm")
+        db.add(cred)
+        db.commit()
+
+        mock_client = MagicMock()
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.delete(f"/api/v1/credentials/{cred.id}/")
+
+        assert resp.status_code == 204
+        mock_client.delete_credential.assert_not_called()
+
+    # -- update ---------------------------------------------------------------
+
+    def test_update_gateway_credential_token_calls_gateway(self, auth_client, db, user_profile):
+        """Updating token on a gateway credential should call gateway.update_credential()."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.update_credential.return_value = {"id": "tg_mybot", "status": "updated"}
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.patch(f"/api/v1/credentials/{cred.id}/", json={
+                "detail": {"token": "new_bot_token"},
+            })
+
+        assert resp.status_code == 200
+        mock_client.update_credential.assert_called_once()
+        call_args = mock_client.update_credential.call_args
+        assert call_args.args[0] == "tg_mybot"
+        assert call_args.kwargs.get("token") == "new_bot_token"
+
+    def test_update_gateway_credential_adapter_type_updates_local_and_gateway(self, auth_client, db, user_profile):
+        """Updating adapter_type should update local DB and call gateway."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.update_credential.return_value = {"id": "tg_mybot", "status": "updated"}
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.patch(f"/api/v1/credentials/{cred.id}/", json={
+                "detail": {"adapter_type": "whatsapp"},
+            })
+
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "pending"
-        mock_q.enqueue.assert_called_once()
+        assert data["detail"]["adapter_type"] == "whatsapp"
+        mock_client.update_credential.assert_called_once()
+
+    def test_update_gateway_credential_gateway_fails_returns_502(self, auth_client, db, user_profile):
+        """If gateway update fails, return 502."""
+        from services.gateway_client import GatewayUnavailableError
+
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.update_credential.side_effect = GatewayUnavailableError("timeout")
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.patch(f"/api/v1/credentials/{cred.id}/", json={
+                "detail": {"token": "new_token"},
+            })
+
+        assert resp.status_code == 502
+
+    # -- test -----------------------------------------------------------------
+
+    def test_test_gateway_credential_health_found(self, auth_client, db, user_profile):
+        """Testing a gateway credential returns health info when found."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.check_credential_health.return_value = {
+            "credential_id": "tg_mybot",
+            "adapter": "telegram",
+            "health": "ok",
+            "failures": 0,
+        }
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/test/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert "health" in str(data.get("detail", ""))
+        mock_client.check_credential_health.assert_called_once_with("tg_mybot")
+
+    def test_test_gateway_credential_health_not_found(self, auth_client, db, user_profile):
+        """Testing a gateway credential returns ok=False when not found in gateway."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.check_credential_health.return_value = None
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/test/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "not found" in data.get("detail", "").lower()
+
+    # -- activate/deactivate --------------------------------------------------
+
+    def test_activate_gateway_credential(self, auth_client, db, user_profile):
+        """POST /credentials/{id}/activate/ calls gateway.activate_credential()."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.activate_credential.return_value = {"id": "tg_mybot", "status": "activated"}
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/activate/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "activated"
+        mock_client.activate_credential.assert_called_once_with("tg_mybot")
+
+    def test_deactivate_gateway_credential(self, auth_client, db, user_profile):
+        """POST /credentials/{id}/deactivate/ calls gateway.deactivate_credential()."""
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.deactivate_credential.return_value = {"id": "tg_mybot", "status": "deactivated"}
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/deactivate/")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "deactivated"
+        mock_client.deactivate_credential.assert_called_once_with("tg_mybot")
+
+    def test_activate_non_gateway_credential_returns_404(self, auth_client, db, user_profile):
+        """Activating a non-gateway credential returns 404."""
+        cred = BaseCredential(user_profile_id=user_profile.id, name="LLM", credential_type="llm")
+        db.add(cred)
+        db.commit()
+
+        resp = auth_client.post(f"/api/v1/credentials/{cred.id}/activate/")
+        assert resp.status_code == 404
+
+    def test_deactivate_non_gateway_credential_returns_404(self, auth_client, db, user_profile):
+        """Deactivating a non-gateway credential returns 404."""
+        cred = BaseCredential(user_profile_id=user_profile.id, name="LLM", credential_type="llm")
+        db.add(cred)
+        db.commit()
+
+        resp = auth_client.post(f"/api/v1/credentials/{cred.id}/deactivate/")
+        assert resp.status_code == 404
+
+    def test_activate_credential_not_found_returns_404(self, auth_client):
+        """Activating a non-existent credential returns 404."""
+        resp = auth_client.post("/api/v1/credentials/99999/activate/")
+        assert resp.status_code == 404
+
+    def test_deactivate_credential_not_found_returns_404(self, auth_client):
+        """Deactivating a non-existent credential returns 404."""
+        resp = auth_client.post("/api/v1/credentials/99999/deactivate/")
+        assert resp.status_code == 404
+
+    def test_activate_gateway_unavailable_returns_502(self, auth_client, db, user_profile):
+        """If gateway is unavailable during activate, return 502."""
+        from services.gateway_client import GatewayUnavailableError
+
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.activate_credential.side_effect = GatewayUnavailableError("down")
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/activate/")
+
+        assert resp.status_code == 502
+
+    def test_deactivate_gateway_api_error_returns_502(self, auth_client, db, user_profile):
+        """If gateway returns error during deactivate, return 502."""
+        from services.gateway_client import GatewayAPIError
+
+        cred = self._make_gateway_cred(db, user_profile)
+
+        mock_client = MagicMock()
+        mock_client.deactivate_credential.side_effect = GatewayAPIError(500, "server error")
+
+        with patch("api.credentials.get_gateway_client", return_value=mock_client):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/deactivate/")
+
+        assert resp.status_code == 502
 
 
 # ── Workflow batch operations ────────────────────────────────────────────────

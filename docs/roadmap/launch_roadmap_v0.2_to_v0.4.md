@@ -1,17 +1,17 @@
 ## STATUS SUMMARY
 
-**Last Updated:** March 5, 2026
-**Overall Completion:** 95% (v0.2.0 Alpha)
+**Last Updated:** March 6, 2026
+**Overall Completion:** 98% (v0.2.0 Alpha)
 
 ### v0.2.0 Alpha Release — March 7, 2026
 
-v0.2.0 is **95% complete** and releasing this weekend (March 7, 2026) as an alpha for trusted users.
+v0.2.0 is **98% complete** and releasing this weekend (March 7, 2026) as an alpha for trusted users.
 
-**Remaining work (2-4 days):**
-1. Wire up `human_confirmation` in builder — 1-2 days
-2. Remove unsandboxed fallbacks from `run_command`/`code` — 1-2 days
+**Remaining work (1-2 days):**
+1. Remove unsandboxed fallbacks from `run_command`/`code` — 1-2 days
 
 **Deferred to v0.3.0:**
+- `human_confirmation` wiring — deferred to v0.3.0 (safety enhancement, not blocker)
 - Message gateway implementation (architecture designed in PR #114)
 - Docker artifacts (Dockerfile, docker-compose.yml)
 
@@ -27,8 +27,7 @@ v0.2.0 is **95% complete** and releasing this weekend (March 7, 2026) as an alph
 - ✅ Phase P0+P1+P2: Docs-site implementation (PR #103)
 - ✅ Skill directories mounted into bwrap sandbox (PR #116)
 - ✅ Telegram trigger matching by bot token + concurrent polling fix (PR #117)
-- 🟡 Phase 1.2: `human_confirmation` wiring — planned (1-2 days)
-- 🟡 Phase 1.6: Unsandboxed fallback removal — planned (1-2 days)
+- 🟡 Phase 1.6: Unsandboxed fallback removal — in progress (1-2 days)
 
 ---
 
@@ -42,7 +41,7 @@ v0.2.0 is **95% complete** and releasing this weekend (March 7, 2026) as an alph
 
 **Scope:** Sandbox hardening, timeouts, health checks, documentation. NO Docker or multi-user yet.
 
-**Status:** 95% complete — releasing March 7
+**Status:** 98% complete — releasing March 7
 
 ### 1.1 Sandbox Egress Control ✅ DONE
 
@@ -50,14 +49,11 @@ Remove 4 redundant tools (http_request, web_search, calculator, datetime) — ag
 
 **Status:** ✅ Complete
 
-### 1.2 Node Cleanup 🟡 IN PROGRESS
+### 1.2 Node Cleanup ✅ DONE
 
 **Remove `aggregator`** ✅ DONE
-**Wire up `human_confirmation`** 🟡 PLANNED (1-2 days)
-- Auto-set `interrupt_before` on downstream nodes
-- Update builder edge handlers
 
-**Status:** 95% (just need human_confirmation wiring)
+**Status:** ✅ Complete
 
 ### 1.3 Execution Timeouts ✅ DONE
 
@@ -77,19 +73,19 @@ Docs-site P0 (sandbox, skills, providers), P1+P2 (health, tutorial, FAQ, cleanup
 
 **Status:** ✅ Complete (PRs #101, #103)
 
-### 1.6 Remove Unsandboxed Fallbacks 🟡 PLANNED (1-2 days)
+### 1.6 Remove Unsandboxed Fallbacks 🟡 IN PROGRESS
 
 Remove subprocess fallbacks from `run_command` and `code` when no workspace exists. Harden platform_api base_url.
 
-**Status:** Ready to implement after human_confirmation wiring
+**Status:** In progress (1-2 days)
 
 ---
 
-## Phase 2: v0.3.0 — Deployment & Multi-Model (Target: April–May 2026)
+## Phase 2: v0.3.0 — Deployment, Multi-Model & Fidelity (Target: April–May 2026)
 
-**Goal:** Self-hosted deployment infrastructure + seamless model switching.
+**Goal:** Self-hosted deployment infrastructure + seamless model switching + improved agent fidelity.
 
-**Scope:** Docker, message gateway, multi-user primitives.
+**Scope:** Docker, message gateway, skill distillation, safety enhancements.
 
 ### 2.1 Docker Artifacts 🟡 PLANNED (2-3 days)
 
@@ -102,10 +98,11 @@ Create full Docker deployment stack:
 **Dependencies:** v0.2.0 release
 **Effort:** 2-3 days
 **Blockers:** None
+**Priority:** P0 (enables self-hosted deployment)
 
-### 2.2 Message Gateway 🟡 PLANNED (2-3 weeks)
+### 2.2 Message Gateway 🟡 PLANNED (2-3 weeks) — HIGHEST PRIORITY
 
-Enable seamless mid-conversation model switching (Claude ↔ GLM ↔ MiniMax).
+Enable seamless mid-conversation model switching (Claude ↔ GLM ↔ MiniMax). Foundation for stable agent behavior across providers.
 
 **Phase 2.2a: Blockers** (1 day)
 - Add GLM/MiniMax to MODEL_CONTEXT_WINDOWS (5 min)
@@ -120,22 +117,122 @@ Enable seamless mid-conversation model switching (Claude ↔ GLM ↔ MiniMax).
 **Dependencies:** v0.2.0 release
 **Effort:** 2-3 weeks total
 **Reference:** PR #114 analysis (80% reusable code exists)
+**Priority:** P0 (foundational infrastructure)
 
-### 2.3 Multi-User Primitives 🟡 PLANNED (2-3 weeks)
+### 2.3 Skill to Workflow Distillation 🟡 PLANNED (1-2 weeks)
+
+Improve agent fidelity by distilling skills into deterministic workflows.
+
+**Phase 2.3a: skill_to_workflow Tool** (1 week)
+- LLM reads skill description → generates YAML DSL
+- Call `compile_dsl()` to create workflow
+- User can review/edit on canvas
+
+**Phase 2.3b: Basic Workflow Template** (3-5 days)
+- Read skill.md
+- LLM analyze + generate DSL
+- Validate + create workflow
+- Optional: human_confirmation before creation
+
+**Dependencies:** None (standalone feature)
+**Effort:** 1-2 weeks
+**Priority:** P1 (improves fidelity, user control)
+**Reference:** Meeting 2026-03-06
+
+### 2.4 Human Confirmation Wiring 🟡 PLANNED (1-2 days)
+
+Wire up `human_confirmation` node for manual approval in workflows.
+
+- Auto-set `interrupt_before` on downstream nodes
+- Update builder edge handlers
+- Add to node palette
+
+**Dependencies:** None
+**Effort:** 1-2 days
+**Priority:** P1 (safety enhancement)
+**Note:** Deferred from v0.2.0
+
+### 2.5 Meta Agent Reactive Mode 🟡 OPTIONAL (2-3 weeks)
+
+Implement Meta Agent for observing and managing Main Agent behavior.
+
+**Phase 2.5a: Meta Agent Setup** (1 week)
+- Deep Agent + platform_api tools
+- System prompt: administrator role
+- Can query execution logs
+
+**Phase 2.5b: Interactive Commands** (1-2 weeks)
+- "Show recent agent behavior"
+- "Distill this skill"
+- "Add safety check to workflow"
+
+**Dependencies:** skill_to_workflow (2.3)
+**Effort:** 2-3 weeks
+**Priority:** P2 (nice to have, not blocker)
+**Note:** Can run in parallel with other Phase 2 items
+
+### 2.6 Multi-User Primitives 🟡 DEFERRED
 
 Tenant isolation, permission model, audit logging.
 
 **Dependencies:** Docker (2.1) + Gateway (2.2)
 **Effort:** 2-3 weeks
-**Status:** Designed but not scheduled
+**Status:** Deferred to v0.4.0
+**Note:** SaaS-ready features, not needed for self-hosted deployment
 
 ---
 
-## Phase 3: v0.4.0 — SaaS Ready (Target: June 2026)
+## Phase 3: v0.4.0 — Multi-Tenant & Memory (Target: June–July 2026)
 
-**Goal:** Multi-tenant SaaS deployment with compliance.
+**Goal:** Multi-tenant SaaS deployment + agent memory foundation for self-evolution.
 
-**Scope:** Identity federation, rate limiting, billing, compliance audit trail.
+**Scope:** Multi-user infrastructure, memory tables, basic self-awareness.
+
+### 3.1 Multi-User Primitives 🟡 PLANNED (2-3 weeks)
+
+Tenant isolation, permission model, audit logging.
+
+**Components:**
+- Tenant isolation (data access control)
+- Permission model (role-based access)
+- Audit logging (immutable action records)
+
+**Dependencies:** v0.3.0 complete
+**Effort:** 2-3 weeks
+**Priority:** P0 (SaaS requirement)
+
+### 3.2 Memory Tables 🟡 PLANNED (1 week)
+
+Foundation for Self-Evolving Agent (Phase 1 from self-evolving roadmap).
+
+**Tables:**
+- `MemoryEpisode` — Raw execution logs
+- `MemoryFact` — Extracted knowledge
+- `MemoryProcedure` — Reusable patterns
+
+**Dependencies:** None
+**Effort:** 1 week
+**Priority:** P1 (enables agent learning)
+
+### 3.3 Memory Read/Write Nodes 🟡 PLANNED (1-2 weeks)
+
+Allow agents to store and retrieve knowledge.
+
+**Nodes:**
+- `memory_read` — Key lookup, query search
+- `memory_write` — Store facts, update existing
+
+**Dependencies:** Memory Tables (3.2)
+**Effort:** 1-2 weeks
+**Priority:** P1 (self-evolution foundation)
+
+### 3.4 TOTP Verification Node 🟡 PLANNED (3-5 days)
+
+Time-based OTP verification for critical workflow steps.
+
+**Dependencies:** None
+**Effort:** 3-5 days
+**Priority:** P2 (safety enhancement)
 
 **Status:** Pending Phase 2 completion
 
@@ -143,27 +240,59 @@ Tenant isolation, permission model, audit logging.
 
 ## Summary
 
-| Phase | Version | Target | Status | Completion |
-|-------|---------|--------|--------|------------|
-| **1** | v0.2.0 | **Mar 7** | 🟡 95% — releasing this weekend | Alpha (trusted users) |
-| **2** | v0.3.0 | Apr–May | ⏳ Planned | Beta (self-hosted) |
-| **3** | v0.4.0 | June | ⏳ Planned | SaaS Ready |
+| Phase | Version | Target | Status | Completion | Focus |
+|-------|---------|--------|--------|------------|-------|
+| **1** | v0.2.0 | **Mar 7** | 🟡 98% — releasing this weekend | Alpha (trusted users) | Security & Stability |
+| **2** | v0.3.0 | Apr–May | ⏳ Planned | Beta (self-hosted) | Deployment, Multi-Model, Fidelity |
+| **3** | v0.4.0 | June–July | ⏳ Planned | SaaS Ready | Multi-Tenant & Memory |
 
 **Critical Path:**
-- ~~Complete Phase 1 (Mar 15) → human_confirmation + tool cleanup~~
-- **v0.2.0 Alpha Release (Mar 7)** — human_confirmation + unsandboxed fallback removal
-- Phase 2.1: Docker (mid-April)
-- Phase 2.2: Message gateway (April–May)
-- Phase 2.3: Multi-user (May)
-- Phase 3: SaaS hardening (June)
+- **v0.2.0 Alpha Release (Mar 7)** — Unsandboxed fallback removal
+- **Phase 2.1: Docker** (early April, 2-3 days)
+- **Phase 2.2: Message Gateway** (April, 2-3 weeks) ← HIGHEST PRIORITY
+- **Phase 2.3: Skill to Workflow** (late April, 1-2 weeks)
+- **Phase 2.4: Human Confirmation** (early May, 1-2 days)
+- **Phase 2.5: Meta Agent** (May, optional, 2-3 weeks)
+- **Phase 3.1-3.3: Multi-User + Memory** (June–July)
 
-## Acceptance Criteria (v0.2.0)
+**Key Decisions:**
+1. Message Gateway is the highest priority infrastructure improvement
+2. skill_to_workflow enables gradual fidelity improvement
+3. human_confirmation deferred to v0.3.0 (safety enhancement, not blocker)
+4. Memory tables moved up to v0.4.0 (foundation for self-evolution)
+5. Meta Agent is optional, can run in parallel
+
+## Acceptance Criteria
+
+### v0.2.0 (Alpha)
 
 1. `http_request`, `web_search`, `calculator`, `datetime` tools no longer exist — removed from registry, palette, and type defs
 2. `aggregator` removed from frontend and node type registry
-3. `human_confirmation` → downstream edge triggers `interrupt_before`; removing the edge clears it
-4. `run_command` / `code` without workspace return error, not unsandboxed execution
-5. `platform_api` tool `base_url` cannot be overridden by LLM
-6. Execution with timeout configured fails gracefully after limit
-7. `GET /health` returns service status without auth
-8. Existing test suite passes (`python -m pytest tests/ -v`)
+3. `run_command` / `code` without workspace return error, not unsandboxed execution
+4. `platform_api` tool `base_url` cannot be overridden by LLM
+5. Execution with timeout configured fails gracefully after limit
+6. `GET /health` returns service status without auth
+7. Existing test suite passes (`python -m pytest tests/ -v`)
+
+### v0.3.0 (Beta)
+
+1. Docker deployment works with `docker-compose up`
+2. Message Gateway enables mid-conversation model switching without data loss
+3. `skill_to_workflow` tool generates valid YAML DSL from skill descriptions
+4. `human_confirmation` node can pause execution for manual approval
+5. Meta Agent can query execution logs and suggest workflow improvements (optional)
+
+### v0.4.0 (SaaS Ready)
+
+1. Multi-user tenant isolation enforced at database level
+2. Memory tables store episodes, facts, and procedures
+3. `memory_read` / `memory_write` nodes functional
+4. `totp_verification` node available for critical operations
+
+---
+
+## References
+
+- **2026-03-04:** Message Gateway architecture design (PR #114)
+- **2026-03-06:** Skill to Workflow & Meta Agent discussion (docs/meeting-minutes/2026-03-06-skill-to-workflow/)
+- **Self-Evolving Agent Roadmap:** docs/architecture/self_aware_self_evolving_agent_platform_roadmap.md

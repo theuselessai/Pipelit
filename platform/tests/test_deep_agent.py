@@ -18,8 +18,8 @@ from components._agent_shared import _resolve_credential_field
 from models.credential import (
     BaseCredential,
     GitCredential,
+    GatewayCredential,
     LLMProviderCredential,
-    TelegramCredential,
 )
 from models.workspace import Workspace
 
@@ -103,20 +103,22 @@ class TestResolveCredentialField:
 
         assert _resolve_credential_field(cred, "organization_id") == "org-abc"
 
-    def test_telegram_bot_token(self, db, user_profile):
+    def test_gateway_credential_id(self, db, user_profile):
         cred = BaseCredential(
-            user_profile_id=user_profile.id, name="tg", credential_type="telegram"
+            user_profile_id=user_profile.id, name="gw", credential_type="gateway"
         )
         db.add(cred)
         db.flush()
-        tg = TelegramCredential(
-            base_credentials_id=cred.id, bot_token="123456:ABC-DEF"
+        gw = GatewayCredential(
+            base_credentials_id=cred.id,
+            gateway_credential_id="tg_mybot",
+            adapter_type="telegram",
         )
-        db.add(tg)
+        db.add(gw)
         db.commit()
         db.refresh(cred)
 
-        assert _resolve_credential_field(cred, "bot_token") == "123456:ABC-DEF"
+        assert _resolve_credential_field(cred, "gateway_credential_id") == "tg_mybot"
 
     def test_git_access_token(self, db, user_profile):
         cred = BaseCredential(
@@ -197,7 +199,7 @@ class TestResolveCredentialField:
         db.refresh(cred)
 
         assert _resolve_credential_field(cred, "api_key") is None
-        assert _resolve_credential_field(cred, "bot_token") is None
+        assert _resolve_credential_field(cred, "gateway_credential_id") is None
         assert _resolve_credential_field(cred, "access_token") is None
 
 

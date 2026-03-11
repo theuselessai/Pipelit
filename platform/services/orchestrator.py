@@ -473,29 +473,6 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 db_node.component_config.extra_config, expr_node_outputs, expr_trigger
             )
 
-        # FIXME: implement MCP server to provide Telegram tools instead of
-        # injecting bot token into system prompt via curl examples.
-        # Auto-inject Telegram context when triggered by telegram
-        if (
-            expr_trigger.get("bot_token")
-            and expr_trigger.get("chat_id")
-            and db_node.component_type in ("agent", "deep_agent")
-        ):
-            tg_ctx = (
-                "\n\n---\n"
-                "[Telegram Integration]\n"
-                f"Bot Token: {expr_trigger['bot_token']}\n"
-                f"Chat ID: {expr_trigger['chat_id']}\n"
-                "You can interact with this Telegram chat using curl. Examples:\n"
-                "- Send file: curl -F chat_id=CHAT_ID -F document=@/path/to/file "
-                '"https://api.telegram.org/botTOKEN/sendDocument"\n'
-                "- Send photo: curl -F chat_id=CHAT_ID -F photo=@/path/to/image "
-                '"https://api.telegram.org/botTOKEN/sendPhoto"\n'
-                "Replace TOKEN and CHAT_ID with the values above."
-            )
-            prompt = db_node.component_config.system_prompt or ""
-            db_node.component_config.system_prompt = prompt + tg_ctx
-
         from components import get_component_factory
         factory = get_component_factory(node_info["component_type"])
         node_fn = factory(db_node)
@@ -1306,7 +1283,7 @@ def _finalize(execution_id: str, db: Session) -> None:
         )
 
         from services.delivery import output_delivery
-        output_delivery.deliver(execution, db)
+        output_delivery.deliver(execution)
 
         # If this execution has a parent, resume the parent's subworkflow node
         parent_eid = getattr(execution, "parent_execution_id", None)
@@ -1352,6 +1329,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     from models.execution import PendingTask
     from models.node import WorkflowNode
     from models.system import SystemConfig
+    from services.gateway_client import get_gateway_client
 
     config = SystemConfig.load(db)
     timeout = config.confirmation_timeout_seconds
@@ -1370,7 +1348,7 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
         task_id=uuid.uuid4().hex[:8],
         execution_id=execution.execution_id,
         user_profile_id=execution.user_profile_id,
-        telegram_chat_id=payload.get("chat_id", 0),
+        chat_id=str(payload.get("chat_id") or ""),
         node_id=node_id,
         prompt=prompt,
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=timeout),
@@ -1378,6 +1356,15 @@ def _handle_interrupt(execution, node_id: str, phase: str, db: Session) -> None:
     db.add(pending)
     execution.status = "interrupted"
     db.commit()
+
+    credential_id = payload.get("credential_id")
+    chat_id_str = str(payload.get("chat_id") or "")
+    if credential_id and chat_id_str:
+        try:
+            prompt_text = f"Action requires confirmation.\n\nTo confirm: /confirm_{pending.task_id}\nTo cancel: /cancel_{pending.task_id}"
+            get_gateway_client().send_message(credential_id, chat_id_str, prompt_text)
+        except Exception:
+            logger.warning("Failed to send confirmation prompt via gateway", exc_info=True)
 
     slug = _get_workflow_slug(str(execution.execution_id), db)
     _publish_event(str(execution.execution_id), "execution_interrupted", {"node_id": node_id}, workflow_slug=slug)
@@ -1454,7 +1441,7 @@ def _build_initial_state(execution) -> dict:
         "trigger": payload,
         "user_context": {
             "user_profile_id": execution.user_profile_id,
-            "telegram_chat_id": payload.get("chat_id"),
+            "chat_id": payload.get("chat_id"),
         },
         "current_node": "",
         "execution_id": str(execution.execution_id),

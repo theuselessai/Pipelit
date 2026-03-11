@@ -382,24 +382,5 @@ async def validate_workflow(slug: str) -> str:
     return json.dumps(result, default=str)
 
 
-# ── Execute tools ────────────────────────────────────────────────────────────
-
-
-@mcp.tool()
-async def send_chat_message(slug: str, text: str, trigger_node_id: str | None = None) -> str:
-    """Send a chat message to a workflow's chat trigger and start execution.
-
-    Args:
-        slug: Workflow slug
-        text: Message text
-        trigger_node_id: Specific chat trigger node_id (optional, uses first chat trigger if omitted)
-    """
-    body: dict[str, Any] = {"text": text}
-    if trigger_node_id:
-        body["trigger_node_id"] = trigger_node_id
-    result = await _post(f"/workflows/{slug}/chat/", body)
-    return json.dumps(result, default=str)
-
-
 if __name__ == "__main__":
     mcp.run()

@@ -208,19 +208,10 @@ class TestMemoryReadComponent:
 # ── delivery service ─────────────────────────────────────────────────────────
 
 class TestDeliveryService:
-    def test_send_typing_action(self):
+    def test_send_typing_action_is_noop(self):
         from services.delivery import OutputDelivery
         svc = OutputDelivery()
-        with patch("services.delivery.requests.post") as mock_post:
-            svc.send_typing_action("token123", 456)
-            mock_post.assert_called_once()
-
-    def test_send_typing_action_error(self):
-        import requests
-        from services.delivery import OutputDelivery
-        svc = OutputDelivery()
-        with patch("services.delivery.requests.post", side_effect=requests.RequestException):
-            svc.send_typing_action("token", 123)
+        svc.send_typing_action("token123", 456)
 
     def test_format_output_with_message(self):
         from services.delivery import OutputDelivery
@@ -238,66 +229,12 @@ class TestDeliveryService:
         result = svc._format_output({"node_outputs": {"n1": "val1"}})
         assert "n1" in result
 
-    def test_send_telegram_markdown_fallback(self):
-        import requests
-        from services.delivery import OutputDelivery
-
-        svc = OutputDelivery()
-        call_count = [0]
-
-        def side_effect(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                resp = MagicMock()
-                resp.raise_for_status.side_effect = requests.RequestException("parse error")
-                return resp
-            resp = MagicMock()
-            resp.raise_for_status.return_value = None
-            resp.json.return_value = {"ok": True}
-            return resp
-
-        with patch("services.delivery.requests.post", side_effect=side_effect):
-            result = svc.send_telegram_message("token", 123, "hello *world")
-        assert result is not None
-
-    def test_send_telegram_both_fail(self):
-        import requests
-        from services.delivery import OutputDelivery
-
-        svc = OutputDelivery()
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = requests.RequestException("fail")
-
-        with patch("services.delivery.requests.post", return_value=mock_resp):
-            result = svc.send_telegram_message("token", 123, "hello")
-        assert result is None
-
-    def test_resolve_bot_token_no_trigger(self):
-        from services.delivery import OutputDelivery
-        svc = OutputDelivery()
-        execution = MagicMock()
-        execution.trigger_node_id = None
-        result = svc._resolve_bot_token(execution, MagicMock())
-        assert result is None
-
-    def test_resolve_bot_token_no_credential(self):
-        from services.delivery import OutputDelivery
-        svc = OutputDelivery()
-        execution = MagicMock()
-        execution.trigger_node_id = 1
-        mock_db = MagicMock()
-        mock_node = MagicMock()
-        mock_node.component_config.credential_id = None
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_node
-        result = svc._resolve_bot_token(execution, mock_db)
-        assert result is None
-
     def test_deliver_no_chat_id(self):
         from services.delivery import OutputDelivery
         svc = OutputDelivery()
         execution = MagicMock()
         execution.trigger_payload = {}
-        svc.deliver(execution, MagicMock())
+        svc.deliver(execution)
 
 
 # ── edge validation ──────────────────────────────────────────────────────────
@@ -447,172 +384,6 @@ class TestEdgeValidation:
 
         errors = EdgeValidator.validate_workflow_edges(workflow.id, db)
         assert not any("loop_1 → body_1" in e for e in errors)
-
-
-# ── Chat history endpoint ────────────────────────────────────────────────────
-
-class TestChatHistoryAPI:
-    @pytest.fixture
-    def app(self, db):
-        from main import app as _app
-        from database import get_db
-
-        def _override_get_db():
-            try:
-                yield db
-            finally:
-                pass
-
-        _app.dependency_overrides[get_db] = _override_get_db
-        yield _app
-        _app.dependency_overrides.clear()
-
-    @pytest.fixture
-    def client(self, app):
-        from fastapi.testclient import TestClient
-        return TestClient(app)
-
-    @pytest.fixture
-    def auth_client(self, client, api_key):
-        client.headers["Authorization"] = f"Bearer {api_key.key}"
-        return client
-
-    def test_chat_history_workflow_not_found(self, auth_client):
-        resp = auth_client.get("/api/v1/workflows/nonexistent/chat/history")
-        assert resp.status_code == 404
-
-    def test_chat_history_empty(self, auth_client, workflow):
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = None
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["messages"] == []
-
-    def test_chat_history_with_messages(self, auth_client, workflow):
-        msg1 = SimpleNamespace(type="human", content="Hello", id="1", additional_kwargs={}, response_metadata={})
-        msg2 = SimpleNamespace(type="ai", content="Hi there!", id="2", additional_kwargs={"timestamp": "2025-01-01T00:00:00"}, response_metadata={})
-
-        mock_tuple = MagicMock()
-        mock_tuple.checkpoint = {"channel_values": {"messages": [msg1, msg2]}}
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = mock_tuple
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["messages"]) == 2
-        assert data["messages"][0]["role"] == "user"
-        assert data["messages"][1]["role"] == "assistant"
-
-    def test_chat_history_skips_system_prompt_fallback(self, auth_client, workflow):
-        msg_sys = SimpleNamespace(type="human", content="System prompt", id="system_prompt_fallback", additional_kwargs={}, response_metadata={})
-        msg_user = SimpleNamespace(type="human", content="User message", id="2", additional_kwargs={}, response_metadata={})
-
-        mock_tuple = MagicMock()
-        mock_tuple.checkpoint = {"channel_values": {"messages": [msg_sys, msg_user]}}
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = mock_tuple
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        data = resp.json()
-        assert len(data["messages"]) == 1
-        assert data["messages"][0]["text"] == "User message"
-
-    def test_chat_history_skips_empty_ai_messages(self, auth_client, workflow):
-        msg = SimpleNamespace(type="ai", content="", id="1", additional_kwargs={}, response_metadata={})
-
-        mock_tuple = MagicMock()
-        mock_tuple.checkpoint = {"channel_values": {"messages": [msg]}}
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = mock_tuple
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        data = resp.json()
-        assert data["messages"] == []
-
-    def test_chat_history_with_before_filter(self, auth_client, workflow):
-        msg1 = SimpleNamespace(type="human", content="Old", id="1", additional_kwargs={"timestamp": "2024-01-01T00:00:00"}, response_metadata={})
-        msg2 = SimpleNamespace(type="human", content="New", id="2", additional_kwargs={"timestamp": "2025-06-01T00:00:00"}, response_metadata={})
-
-        mock_tuple = MagicMock()
-        mock_tuple.checkpoint = {"channel_values": {"messages": [msg1, msg2]}}
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = mock_tuple
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history?before=2025-01-01T00:00:00")
-        data = resp.json()
-        assert len(data["messages"]) == 1
-        assert data["messages"][0]["text"] == "Old"
-
-    def test_chat_history_checkpointer_error(self, auth_client, workflow):
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.side_effect = Exception("DB error")
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        data = resp.json()
-        assert data["messages"] == []
-
-    def test_chat_history_response_metadata_timestamp(self, auth_client, workflow):
-        msg = SimpleNamespace(
-            type="ai", content="Hello!", id="1",
-            additional_kwargs={},
-            response_metadata={"created": 1704067200},
-        )
-
-        mock_tuple = MagicMock()
-        mock_tuple.checkpoint = {"channel_values": {"messages": [msg]}}
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = mock_tuple
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        data = resp.json()
-        assert len(data["messages"]) == 1
-        assert data["messages"][0]["timestamp"] is not None
-
-    def test_chat_history_with_content_blocks(self, auth_client, workflow):
-        msg = SimpleNamespace(
-            type="human",
-            content=[{"type": "text", "text": "Hello "}, {"type": "text", "text": "world"}],
-            id="1",
-            additional_kwargs={},
-            response_metadata={},
-        )
-
-        mock_tuple = MagicMock()
-        mock_tuple.checkpoint = {"channel_values": {"messages": [msg]}}
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.get_tuple.return_value = mock_tuple
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.get(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["messages"]) == 1
-        assert data["messages"][0]["text"] == "Hello world"
-
-    def test_delete_chat_history_not_found(self, auth_client):
-        resp = auth_client.delete("/api/v1/workflows/nonexistent/chat/history")
-        assert resp.status_code == 404
-
-    def test_delete_chat_history(self, auth_client, workflow):
-        mock_conn = MagicMock()
-        mock_checkpointer = MagicMock()
-        mock_checkpointer.conn = mock_conn
-
-        with patch("components.agent._get_checkpointer", return_value=mock_checkpointer):
-            resp = auth_client.delete(f"/api/v1/workflows/{workflow.slug}/chat/history")
-        assert resp.status_code == 204
-        assert mock_conn.execute.call_count == 2
-        mock_conn.commit.assert_called_once()
 
 
 # ── Topology service ─────────────────────────────────────────────────────────

@@ -312,3 +312,35 @@ def test_zombie_threshold_zero_from_conf(tmp_path, monkeypatch):
     # Replicate how Settings constructs the default from conf.json
     threshold = conf.zombie_execution_threshold_seconds if conf.zombie_execution_threshold_seconds is not None else 900
     assert threshold == 0
+
+
+# ---------------------------------------------------------------------------
+# Gateway settings
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_settings_defaults():
+    """Settings has 4 gateway fields with empty string defaults."""
+    s = Settings()
+    assert hasattr(s, "GATEWAY_URL")
+    assert hasattr(s, "GATEWAY_ADMIN_TOKEN")
+    assert hasattr(s, "GATEWAY_SEND_TOKEN")
+    assert hasattr(s, "GATEWAY_INBOUND_TOKEN")
+    assert s.GATEWAY_URL == ""
+    assert s.GATEWAY_ADMIN_TOKEN == ""
+    assert s.GATEWAY_SEND_TOKEN == ""
+    assert s.GATEWAY_INBOUND_TOKEN == ""
+
+
+def test_gateway_settings_env_override(monkeypatch):
+    """Gateway settings can be overridden via env vars."""
+    monkeypatch.setenv("GATEWAY_URL", "http://gateway.local:8080")
+    monkeypatch.setenv("GATEWAY_ADMIN_TOKEN", "admin-token-123")
+    monkeypatch.setenv("GATEWAY_SEND_TOKEN", "send-token-456")
+    monkeypatch.setenv("GATEWAY_INBOUND_TOKEN", "inbound-token-789")
+    
+    s = Settings()
+    assert s.GATEWAY_URL == "http://gateway.local:8080"
+    assert s.GATEWAY_ADMIN_TOKEN == "admin-token-123"
+    assert s.GATEWAY_SEND_TOKEN == "send-token-456"
+    assert s.GATEWAY_INBOUND_TOKEN == "inbound-token-789"

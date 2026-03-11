@@ -583,6 +583,124 @@ class TestHumanConfirmation:
         assert result["confirmed"] is False
 
 
+# ── Handle interrupt tests ─────────────────────────────────────────────────────
+
+
+class TestHandleInterrupt:
+    """Test _handle_interrupt() gateway send functionality."""
+
+    def test_handle_interrupt_creates_pending_task_with_chat_id_and_credential_id(self, db, user_profile):
+        """Test that _handle_interrupt() creates PendingTask with chat_id and credential_id."""
+        from models.execution import WorkflowExecution, PendingTask
+        from models.workflow import Workflow
+        from services.orchestrator import _handle_interrupt
+
+        # Create workflow and execution
+        workflow = Workflow(owner_id=user_profile.id, name="test", slug="test")
+        db.add(workflow)
+        db.flush()
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            thread_id="test_thread",
+            trigger_payload={
+                "chat_id": "12345",
+                "credential_id": "gateway_cred_1",
+                "text": "test message",
+            },
+        )
+        db.add(execution)
+        db.flush()
+
+        # Call _handle_interrupt
+        _handle_interrupt(execution, "node_1", "before", db)
+
+        # Verify PendingTask was created with chat_id and credential_id
+        pending = db.query(PendingTask).filter_by(execution_id=execution.execution_id).first()
+        assert pending is not None
+        assert pending.chat_id == "12345"
+        assert pending.credential_id is None  # Not set by _handle_interrupt yet
+
+    def test_handle_interrupt_sends_confirmation_via_gateway(self, db, user_profile):
+        """Test that _handle_interrupt() sends confirmation prompt via gateway."""
+        from models.execution import WorkflowExecution, PendingTask
+        from models.workflow import Workflow
+        from services.orchestrator import _handle_interrupt
+
+        # Create workflow and execution
+        workflow = Workflow(owner_id=user_profile.id, name="test", slug="test")
+        db.add(workflow)
+        db.flush()
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            thread_id="test_thread",
+            trigger_payload={
+                "chat_id": "12345",
+                "credential_id": "gateway_cred_1",
+                "text": "test message",
+            },
+        )
+        db.add(execution)
+        db.flush()
+
+        # Mock gateway client
+        with patch("services.gateway_client.get_gateway_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+
+            # Call _handle_interrupt
+            _handle_interrupt(execution, "node_1", "before", db)
+
+            # Verify gateway send_message was called
+            mock_client.send_message.assert_called_once()
+            call_args = mock_client.send_message.call_args
+            assert call_args[0][0] == "gateway_cred_1"  # credential_id
+            assert call_args[0][1] == "12345"  # chat_id
+            # Verify confirmation prompt contains /confirm_ and /cancel_ commands
+            prompt_text = call_args[0][2]
+            assert "/confirm_" in prompt_text
+            assert "/cancel_" in prompt_text
+
+    def test_handle_interrupt_gateway_send_failure_logged_not_raised(self, db, user_profile):
+        """Test that gateway send failure during interrupt is logged, not raised."""
+        from models.execution import WorkflowExecution
+        from models.workflow import Workflow
+        from services.orchestrator import _handle_interrupt
+
+        # Create workflow and execution
+        workflow = Workflow(owner_id=user_profile.id, name="test", slug="test")
+        db.add(workflow)
+        db.flush()
+
+        execution = WorkflowExecution(
+            workflow_id=workflow.id,
+            user_profile_id=user_profile.id,
+            thread_id="test_thread",
+            trigger_payload={
+                "chat_id": "12345",
+                "credential_id": "gateway_cred_1",
+                "text": "test message",
+            },
+        )
+        db.add(execution)
+        db.flush()
+
+        # Mock gateway client to raise exception
+        with patch("services.gateway_client.get_gateway_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.send_message.side_effect = Exception("Gateway unavailable")
+            mock_get_client.return_value = mock_client
+
+            # Call _handle_interrupt — should NOT raise
+            _handle_interrupt(execution, "node_1", "before", db)
+
+            # Verify execution was still interrupted
+            assert execution.status == "interrupted"
+
+
 # ── Orchestrator output wrapping tests ─────────────────────────────────────────
 
 

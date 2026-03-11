@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api import api_router
-from api.executions import chat_router
+from api.inbound import router as inbound_router
 from config import settings
 from database import Base, SessionLocal, engine
 from handlers.manual import router as manual_router
@@ -81,15 +81,6 @@ async def lifespan(app: FastAPI):
             logger.info("Recovered %d stale scheduled jobs", recovered)
     except Exception:
         logger.exception("Failed to recover scheduled jobs on startup")
-
-    # Recover Telegram polling jobs
-    try:
-        from services.telegram_poller import recover_telegram_polling
-        recovered_tg = recover_telegram_polling()
-        if recovered_tg:
-            logger.info("Recovered %d Telegram polling jobs", recovered_tg)
-    except Exception:
-        logger.exception("Failed to recover Telegram polling on startup")
 
     # Ensure skills directory exists
     try:
@@ -183,11 +174,11 @@ def health_check():
 # API routes
 app.include_router(api_router)
 
-# Chat router (nested under /api/v1/workflows)
-app.include_router(chat_router, prefix="/api/v1/workflows", tags=["chat"])
-
 # Manual execution endpoint
 app.include_router(manual_router, prefix="/api/v1", tags=["manual"])
+
+# Inbound gateway webhook
+app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
 
 # WebSocket endpoints
 app.include_router(ws_router)

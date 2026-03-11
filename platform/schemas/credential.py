@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-CredentialTypeStr = Literal["git", "llm", "telegram", "tool"]
+CredentialTypeStr = Literal["git", "llm", "gateway", "tool"]
 
 
 class CredentialIn(BaseModel):
@@ -23,7 +23,7 @@ class CredentialOut(BaseModel):
     id: int
     name: str
     credential_type: CredentialTypeStr
-    detail: dict = {}
+    detail: str | dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -33,6 +33,7 @@ class CredentialOut(BaseModel):
 class CredentialTestOut(BaseModel):
     ok: bool
     error: str = ""
+    detail: str | dict | None = None
 
 
 class CredentialModelOut(BaseModel):

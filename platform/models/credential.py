@@ -24,7 +24,7 @@ class BaseCredential(Base):
         ForeignKey("user_profiles.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(String(255))
-    credential_type: Mapped[str] = mapped_column(String(20))  # git, llm, telegram, tool
+    credential_type: Mapped[str] = mapped_column(String(20))  # git, llm, gateway, tool
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -39,8 +39,8 @@ class BaseCredential(Base):
     llm_credential: Mapped[LLMProviderCredential | None] = relationship(
         "LLMProviderCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
     )
-    telegram_credential: Mapped[TelegramCredential | None] = relationship(
-        "TelegramCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
+    gateway_credential: Mapped[GatewayCredential | None] = relationship(
+        "GatewayCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
     )
     tool_credential: Mapped[ToolCredential | None] = relationship(
         "ToolCredential", back_populates="base_credentials", uselist=False, cascade="all, delete-orphan"
@@ -83,17 +83,17 @@ class LLMProviderCredential(Base):
     base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="llm_credential")
 
 
-class TelegramCredential(Base):
-    __tablename__ = "telegram_credentials"
+class GatewayCredential(Base):
+    __tablename__ = "gateway_credentials"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     base_credentials_id: Mapped[int] = mapped_column(
         ForeignKey("credentials.id", ondelete="CASCADE"), unique=True
     )
-    bot_token: Mapped[str] = mapped_column(EncryptedString(500))
-    allowed_user_ids: Mapped[str] = mapped_column(String(500), default="")
+    gateway_credential_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_type: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="telegram_credential")
+    base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="gateway_credential")
 
 
 class ToolCredential(Base):

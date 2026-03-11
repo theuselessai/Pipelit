@@ -59,7 +59,7 @@ def user_profile(db):
     profile = UserProfile(
         username="testuser",
         password_hash=bcrypt.hashpw(b"testpass", bcrypt.gensalt()).decode(),
-        telegram_user_id=111222333,
+        external_user_id="111222333",
     )
     db.add(profile)
     db.commit()
@@ -95,34 +95,38 @@ def workflow(db, user_profile):
 
 
 @pytest.fixture
-def telegram_credential(db, user_profile):
-    from models.credential import BaseCredential, TelegramCredential
+def gateway_credential(db, user_profile):
+    from models.credential import BaseCredential, GatewayCredential
 
     base = BaseCredential(
         user_profile_id=user_profile.id,
         name="Test Bot",
-        credential_type="telegram",
+        credential_type="gateway",
     )
     db.add(base)
     db.flush()
-    tg = TelegramCredential(
+    gw = GatewayCredential(
         base_credentials_id=base.id,
-        bot_token="123456:ABC-DEF",
-        allowed_user_ids="111222333,444555666",
+        gateway_credential_id="tg_testbot",
+        adapter_type="telegram",
     )
-    db.add(tg)
+    db.add(gw)
     db.commit()
     db.refresh(base)
     return base
 
 
+# Keep old name as alias for backward compatibility with existing tests
+telegram_credential = gateway_credential
+
+
 @pytest.fixture
-def telegram_trigger(db, workflow, telegram_credential):
+def telegram_trigger(db, workflow, gateway_credential):
     from models.node import BaseComponentConfig, WorkflowNode
 
     cc = BaseComponentConfig(
         component_type="trigger_telegram",
-        credential_id=telegram_credential.id,
+        credential_id=gateway_credential.id,
         trigger_config={},
         is_active=True,
         priority=10,

@@ -41,7 +41,7 @@ export type ComponentType =
 export type EdgeType = "direct" | "conditional"
 // "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
 export type EdgeLabel = "" | "llm" | "tool" | "output_parser" | "loop_body" | "loop_return" | "skill"
-export type CredentialType = "git" | "llm" | "telegram" | "tool"
+export type CredentialType = "git" | "llm" | "gateway" | "tool"
 export type ExecutionStatus = "pending" | "running" | "interrupted" | "completed" | "failed" | "cancelled"
 
 // Workflow

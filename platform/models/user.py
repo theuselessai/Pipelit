@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -20,7 +20,7 @@ class UserProfile(Base):
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     first_name: Mapped[str] = mapped_column(String(150), default="")
     last_name: Mapped[str] = mapped_column(String(150), default="")
-    telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    external_user_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     github_username: Mapped[str] = mapped_column(String(255), default="")
     gitlab_username: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -45,7 +45,7 @@ class UserProfile(Base):
     )
 
     def __repr__(self):
-        return f"<UserProfile {self.username} (tg:{self.telegram_user_id})>"
+        return f"<UserProfile {self.username} (ext:{self.external_user_id})>"
 
 
 class APIKey(Base):
