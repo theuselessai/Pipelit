@@ -37,7 +37,7 @@ def platform_api_factory(node):
             method: HTTP method (GET, POST, PATCH, DELETE)
             path: API path (e.g., "/openapi.json", "/api/v1/workflows/", "/api/v1/auth/me/")
             body: JSON body for POST/PATCH requests (as string)
-            api_key: API key from create_agent_user tool
+            api_key: API key for authentication
 
         Returns:
             JSON response from the API, or error message.

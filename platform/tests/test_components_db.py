@@ -1,4 +1,4 @@
-"""Tests for DB-dependent components: whoami, create_agent_user, identify_user."""
+"""Tests for DB-dependent components: whoami, identify_user."""
 
 from __future__ import annotations
 

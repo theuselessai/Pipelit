@@ -47,7 +47,7 @@ The `is_agent` flag on UserProfile distinguishes agent-created users from human 
 | Endpoint group | admin | normal |
 |---|---|---|
 | **Credentials** (CRUD) | all credentials | own only (`user_profile_id`) |
-| **Workflows** (CRUD) | all workflows | own + collaborator |
+| **Workflows** (CRUD) | all workflows | own only |
 | **Workflow execution** | all workflows | own workflows |
 | **Executions** (list/detail) | all executions | own only (`Workflow.owner_id`) |
 | **Schedules** (CRUD) | all schedules | own workflow's schedules |
@@ -58,7 +58,7 @@ The `is_agent` flag on UserProfile distinguishes agent-created users from human 
 | **Other users' data** | yes | no (403) |
 | **System settings** | yes | no (403) |
 
-"Own" = workflows where `Workflow.owner_id == current_user.id` or user is a collaborator.
+"Own" = workflows where `Workflow.owner_id == current_user.id`.
 
 ---
 
@@ -175,7 +175,7 @@ Memory tables (`MemoryFact`, `MemoryEpisode`, `MemoryProcedure`, `MemoryUser`) n
 
 #### 3e. Workflows (`platform/api/workflows.py`)
 
-- List: admin sees all workflows, normal sees own + collaborator (already filtered)
+- List: admin sees all workflows, normal sees own only (already filtered)
 - Single/patch/delete: `get_workflow()` helper handles this via Phase 2b
 
 #### 3f. Chat (`platform/api/executions.py` chat endpoints)
