@@ -17,6 +17,10 @@ class OutputDelivery:
         chat_id = payload.get("chat_id")
 
         if not credential_id or not chat_id:
+            logger.debug(
+                "Skipping output delivery for execution %s: credential_id=%s, chat_id=%s",
+                execution.execution_id, credential_id, chat_id,
+            )
             return
 
         text = self._format_output(execution.final_output)

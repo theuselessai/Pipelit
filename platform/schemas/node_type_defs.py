@@ -77,6 +77,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_workflow",
     display_name="Workflow Trigger",
+    description="Triggered by another workflow execution",
     category="trigger",
     outputs=[
         PortDefinition(name="text", data_type=DataType.STRING, description="Text content from workflow trigger"),
@@ -87,6 +88,7 @@ register_node_type(NodeTypeSpec(
 register_node_type(NodeTypeSpec(
     component_type="trigger_error",
     display_name="Error Trigger",
+    description="Triggered when a workflow execution encounters an error",
     category="trigger",
     outputs=[PortDefinition(name="error", data_type=DataType.OBJECT)],
 ))

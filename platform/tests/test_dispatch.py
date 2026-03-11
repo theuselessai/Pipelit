@@ -16,7 +16,6 @@ class TestDispatchEvent:
     def test_creates_execution_on_match(self, db, user_profile, telegram_trigger):
         with patch("handlers.redis") as mock_redis, \
              patch("handlers.Queue") as mock_queue_cls:
-            mock_conn = mock_redis.from_url.return_value
             mock_queue = mock_queue_cls.return_value
             mock_queue.enqueue.return_value = None
 
