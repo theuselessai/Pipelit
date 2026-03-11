@@ -36,6 +36,14 @@ def get_current_user(
     return user
 
 
+def require_admin(
+    user: UserProfile = Depends(get_current_user),
+) -> UserProfile:
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
+    return user
+
+
 def verify_gateway_token(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> None:

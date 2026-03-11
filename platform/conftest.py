@@ -84,6 +84,7 @@ def user_profile(db):
         username="testuser",
         password_hash=bcrypt.hashpw(b"testpass", bcrypt.gensalt()).decode(),
         external_user_id="111222333",
+        role="admin",
     )
     db.add(profile)
     db.commit()

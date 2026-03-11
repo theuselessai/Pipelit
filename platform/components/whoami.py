@@ -96,9 +96,8 @@ def whoami_factory(node):
                         }
                     },
                     "instructions": [
-                        "1. Use create_agent_user to get API credentials if you don't have them",
-                        "2. Use platform_api with method='PATCH' to update your configuration",
-                        "3. Changes take effect on the next execution/conversation",
+                        "1. Use platform_api with method='PATCH' to update your configuration",
+                        "2. Changes take effect on the next execution/conversation",
                     ]
                 }
             }

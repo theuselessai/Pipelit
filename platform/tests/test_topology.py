@@ -238,7 +238,7 @@ class TestBuildTopology:
 class TestSubComponentTypes:
     def test_known_sub_components(self):
         expected = {"ai_model", "run_command", "output_parser", "memory_read",
-                    "memory_write", "code_execute", "create_agent_user",
+                    "memory_write", "code_execute",
                     "platform_api", "whoami", "epic_tools", "task_tools",
                     "spawn_and_await", "workflow_create", "workflow_discover",
                     "scheduler_tools", "system_health", "skill"}

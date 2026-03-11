@@ -31,11 +31,9 @@ def list_executions(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    q = (
-        db.query(WorkflowExecution)
-        .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
-        .filter(Workflow.owner_id == profile.id)
-    )
+    q = db.query(WorkflowExecution).join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
+    if profile.role != "admin":
+        q = q.filter(Workflow.owner_id == profile.id)
     if workflow_slug:
         q = q.filter(Workflow.slug == workflow_slug)
     if status:
@@ -51,15 +49,14 @@ def get_execution(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    execution = (
+    q = (
         db.query(WorkflowExecution)
         .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
-        .filter(
-            WorkflowExecution.execution_id == execution_id,
-            Workflow.owner_id == profile.id,
-        )
-        .first()
+        .filter(WorkflowExecution.execution_id == execution_id)
     )
+    if profile.role != "admin":
+        q = q.filter(Workflow.owner_id == profile.id)
+    execution = q.first()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found.")
     logs = db.query(ExecutionLog).filter(ExecutionLog.execution_id == execution_id).all()
@@ -90,15 +87,14 @@ def cancel_execution(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    execution = (
+    q = (
         db.query(WorkflowExecution)
         .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
-        .filter(
-            WorkflowExecution.execution_id == execution_id,
-            Workflow.owner_id == profile.id,
-        )
-        .first()
+        .filter(WorkflowExecution.execution_id == execution_id)
     )
+    if profile.role != "admin":
+        q = q.filter(Workflow.owner_id == profile.id)
+    execution = q.first()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found.")
     if execution.status in ("pending", "running", "interrupted"):
@@ -145,16 +141,14 @@ def batch_delete_executions(
     if not payload.execution_ids:
         return
     # Only delete executions belonging to workflows owned by this user
-    owned_exec_ids = [
-        e.execution_id for e in
+    q = (
         db.query(WorkflowExecution.execution_id)
         .join(Workflow, Workflow.id == WorkflowExecution.workflow_id)
-        .filter(
-            WorkflowExecution.execution_id.in_(payload.execution_ids),
-            Workflow.owner_id == profile.id,
-        )
-        .all()
-    ]
+        .filter(WorkflowExecution.execution_id.in_(payload.execution_ids))
+    )
+    if profile.role != "admin":
+        q = q.filter(Workflow.owner_id == profile.id)
+    owned_exec_ids = [e.execution_id for e in q.all()]
     if not owned_exec_ids:
         return
     db.query(ExecutionLog).filter(

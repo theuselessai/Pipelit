@@ -3,31 +3,23 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.node import BaseComponentConfig, ModelComponentConfig, TriggerComponentConfig, WorkflowEdge, WorkflowNode
 from models.scheduled_job import ScheduledJob
 from models.user import UserProfile
-from models.workflow import Workflow, WorkflowCollaborator
+from models.workflow import Workflow
 
 
 def get_workflow(slug: str, profile: UserProfile, db: Session) -> Workflow:
-    """Look up a workflow by slug, checking ownership or collaboration."""
-    wf = (
-        db.query(Workflow)
-        .filter(
-            Workflow.slug == slug,
-            or_(
-                Workflow.owner_id == profile.id,
-                Workflow.id.in_(
-                    db.query(WorkflowCollaborator.workflow_id)
-                    .filter(WorkflowCollaborator.user_profile_id == profile.id)
-                ),
-            ),
+    if profile.role == "admin":
+        wf = db.query(Workflow).filter(Workflow.slug == slug).first()
+    else:
+        wf = (
+            db.query(Workflow)
+            .filter(Workflow.slug == slug, Workflow.owner_id == profile.id)
+            .first()
         )
-        .first()
-    )
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
     return wf

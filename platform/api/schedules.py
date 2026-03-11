@@ -29,6 +29,13 @@ def _serialize(job: ScheduledJob) -> dict:
     return ScheduledJobOut.model_validate(job).model_dump()
 
 
+def _owned_job_query(db: Session, profile: UserProfile, job_id: str):
+    q = db.query(ScheduledJob).filter(ScheduledJob.id == job_id)
+    if profile.role != "admin":
+        q = q.join(Workflow, Workflow.id == ScheduledJob.workflow_id).filter(Workflow.owner_id == profile.id)
+    return q
+
+
 @router.get("/")
 def list_schedules(
     limit: int = 50,
@@ -39,6 +46,8 @@ def list_schedules(
     profile: UserProfile = Depends(get_current_user),
 ):
     q = db.query(ScheduledJob)
+    if profile.role != "admin":
+        q = q.join(Workflow, Workflow.id == ScheduledJob.workflow_id).filter(Workflow.owner_id == profile.id)
     if status:
         q = q.filter(ScheduledJob.status == status)
     if workflow_id is not None:
@@ -54,8 +63,10 @@ def create_schedule(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    # Validate workflow exists
-    wf = db.query(Workflow).filter(Workflow.id == payload.workflow_id).first()
+    wf_q = db.query(Workflow).filter(Workflow.id == payload.workflow_id)
+    if profile.role != "admin":
+        wf_q = wf_q.filter(Workflow.owner_id == profile.id)
+    wf = wf_q.first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found.")
 
@@ -92,7 +103,7 @@ def get_schedule(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+    job = _owned_job_query(db, profile, job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Scheduled job not found.")
     return _serialize(job)
@@ -105,7 +116,7 @@ def update_schedule(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+    job = _owned_job_query(db, profile, job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Scheduled job not found.")
 
@@ -124,7 +135,7 @@ def delete_schedule(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+    job = _owned_job_query(db, profile, job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Scheduled job not found.")
     db.delete(job)
@@ -137,7 +148,7 @@ def pause_schedule(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+    job = _owned_job_query(db, profile, job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Scheduled job not found.")
     if job.status != "active":
@@ -154,7 +165,7 @@ def resume_schedule(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+    job = _owned_job_query(db, profile, job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Scheduled job not found.")
     if job.status != "paused":
@@ -173,7 +184,8 @@ def batch_delete_schedules(
 ):
     if not payload.schedule_ids:
         return
-    db.query(ScheduledJob).filter(
-        ScheduledJob.id.in_(payload.schedule_ids)
-    ).delete(synchronize_session=False)
+    q = db.query(ScheduledJob).filter(ScheduledJob.id.in_(payload.schedule_ids))
+    if profile.role != "admin":
+        q = q.join(Workflow, Workflow.id == ScheduledJob.workflow_id).filter(Workflow.owner_id == profile.id)
+    q.delete(synchronize_session=False)
     db.commit()

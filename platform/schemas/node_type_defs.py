@@ -231,24 +231,6 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="create_agent_user",
-    display_name="Create Agent User",
-    description="Create API credentials for agent use",
-    category="agent",
-    outputs=[PortDefinition(name="credentials", data_type=DataType.STRING, description="JSON with username, api_key, api_base_url")],
-    config_schema={
-        "type": "object",
-        "properties": {
-            "api_base_url": {
-                "type": "string",
-                "default": "http://localhost:8000",
-                "description": "Base URL for API (paths start with /api/v1/...)",
-            },
-        },
-    },
-))
-
-register_node_type(NodeTypeSpec(
     component_type="platform_api",
     display_name="Platform API",
     description="Make authenticated requests to the platform API",

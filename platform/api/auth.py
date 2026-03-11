@@ -100,6 +100,7 @@ def setup(payload: SetupRequest, db: Session = Depends(get_db)):
     user = UserProfile(
         username=payload.username,
         password_hash=bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode(),
+        role="admin",
     )
     db.add(user)
     db.flush()

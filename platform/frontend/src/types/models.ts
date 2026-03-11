@@ -88,9 +88,6 @@ export interface MemoryEpisode { id: string; agent_id: string; user_id: string |
 export interface MemoryProcedure { id: string; agent_id: string; name: string; description: string; procedure_type: string; times_used: number; times_succeeded: number; times_failed: number; success_rate: number; is_active: boolean; created_at: string }
 export interface MemoryUser { id: string; canonical_id: string; display_name: string | null; telegram_id: string | null; email: string | null; total_conversations: number; last_seen_at: string; created_at: string }
 
-// Agent Users
-export interface AgentUser { id: number; username: string; purpose: string; api_key_preview: string; created_at: string; created_by: string | null }
-
 // Environment / Setup Wizard
 export interface RuntimeInfo {
   available: boolean;

@@ -25,8 +25,8 @@ class UserProfile(Base):
     gitlab_username: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    # Agent user fields
-    is_agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    role: Mapped[str] = mapped_column(String(10), default="normal")
+
     created_by_agent_id: Mapped[int | None] = mapped_column(
         ForeignKey("user_profiles.id", ondelete="SET NULL"),
         nullable=True,

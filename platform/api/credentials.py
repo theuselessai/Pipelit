@@ -107,7 +107,9 @@ def list_credentials(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    query = db.query(BaseCredential).filter(BaseCredential.user_profile_id == profile.id)
+    query = db.query(BaseCredential)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
     total = query.count()
     creds = query.offset(offset).limit(limit).all()
     return {"items": [_serialize_credential(c, db) for c in creds], "total": total}
@@ -201,7 +203,10 @@ def get_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
     return _serialize_credential(cred, db)
@@ -214,7 +219,10 @@ def update_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
 
@@ -270,7 +278,10 @@ def delete_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
     if cred.gateway_credential:
@@ -295,7 +306,10 @@ def batch_delete_credentials(
 ):
     if not payload.ids:
         return
-    creds = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids), BaseCredential.user_profile_id == profile.id).all()
+    query = db.query(BaseCredential).filter(BaseCredential.id.in_(payload.ids))
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    creds = query.all()
     failed_gw: list[str] = []
     for cred in creds:
         if cred.gateway_credential:
@@ -323,7 +337,10 @@ def activate_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred or not cred.gateway_credential:
         raise HTTPException(status_code=404, detail="Gateway credential not found.")
     try:
@@ -339,7 +356,10 @@ def deactivate_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred or not cred.gateway_credential:
         raise HTTPException(status_code=404, detail="Gateway credential not found.")
     try:
@@ -358,7 +378,10 @@ def test_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id).first()
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id)
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
 
@@ -429,11 +452,10 @@ def list_credential_models(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    cred = (
-        db.query(BaseCredential)
-        .filter(BaseCredential.id == credential_id, BaseCredential.user_profile_id == profile.id, BaseCredential.credential_type == "llm")
-        .first()
-    )
+    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.credential_type == "llm")
+    if profile.role != "admin":
+        query = query.filter(BaseCredential.user_profile_id == profile.id)
+    cred = query.first()
     if not cred or not cred.llm_credential:
         raise HTTPException(status_code=404, detail="LLM credential not found.")
     llm = cred.llm_credential

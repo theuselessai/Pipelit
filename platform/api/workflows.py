@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
 from models.user import UserProfile
-from models.workflow import Workflow, WorkflowCollaborator
+from models.workflow import Workflow
 from schemas.workflow import WorkflowDetailOut, WorkflowIn, WorkflowOut, WorkflowUpdate
 from api._helpers import get_workflow, serialize_workflow, serialize_workflow_detail
 from ws.broadcast import broadcast
@@ -46,18 +45,10 @@ def list_workflows(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    base = (
-        db.query(Workflow)
-        .filter(
-            or_(
-                Workflow.owner_id == profile.id,
-                Workflow.id.in_(
-                    db.query(WorkflowCollaborator.workflow_id)
-                    .filter(WorkflowCollaborator.user_profile_id == profile.id)
-                ),
-            ),
-        )
-    )
+    if profile.role == "admin":
+        base = db.query(Workflow)
+    else:
+        base = db.query(Workflow).filter(Workflow.owner_id == profile.id)
     total = base.count()
     workflows = base.offset(offset).limit(limit).all()
     return {"items": [serialize_workflow(wf, db) for wf in workflows], "total": total}
@@ -148,20 +139,14 @@ def batch_delete_workflows(
 ):
     if not payload.slugs:
         return
-    workflows = (
-        db.query(Workflow)
-        .filter(
-            Workflow.slug.in_(payload.slugs),
-            or_(
-                Workflow.owner_id == profile.id,
-                Workflow.id.in_(
-                    db.query(WorkflowCollaborator.workflow_id)
-                    .filter(WorkflowCollaborator.user_profile_id == profile.id)
-                ),
-            ),
+    if profile.role == "admin":
+        workflows = db.query(Workflow).filter(Workflow.slug.in_(payload.slugs)).all()
+    else:
+        workflows = (
+            db.query(Workflow)
+            .filter(Workflow.slug.in_(payload.slugs), Workflow.owner_id == profile.id)
+            .all()
         )
-        .all()
-    )
     for wf in workflows:
         db.delete(wf)
     db.commit()

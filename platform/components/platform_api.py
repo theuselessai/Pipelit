@@ -43,10 +43,9 @@ def platform_api_factory(node):
             JSON response from the API, or error message.
 
         Example workflow:
-            1. Call create_agent_user to get credentials
-            2. Call platform_api(path="/openapi.json", api_key="...") to discover endpoints
-            3. Call platform_api(method="GET", path="/api/v1/workflows/", api_key="...") to list workflows
-            4. Call platform_api(method="PATCH", path="/api/v1/workflows/my-workflow/nodes/123/",
+            1. Call platform_api(path="/openapi.json", api_key="...") to discover endpoints
+            2. Call platform_api(method="GET", path="/api/v1/workflows/", api_key="...") to list workflows
+            3. Call platform_api(method="PATCH", path="/api/v1/workflows/my-workflow/nodes/123/",
                                  body='{"config": {"system_prompt": "new prompt"}}', api_key="...")
         """
         resolved_base_url = default_base_url.rstrip("/")

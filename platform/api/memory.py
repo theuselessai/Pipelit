@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from auth import get_current_user
+from auth import require_admin
 from database import get_db
 from models.memory import MemoryEpisode, MemoryFact, MemoryProcedure, MemoryUser
 from models.user import UserProfile
@@ -31,7 +31,7 @@ def list_facts(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     stmt = select(MemoryFact)
     if scope:
@@ -53,7 +53,7 @@ class BatchDeleteFactsIn(BaseModel):
 def batch_delete_facts(
     payload: BatchDeleteFactsIn,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     if not payload.ids:
         return
@@ -70,7 +70,7 @@ def list_episodes(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     stmt = select(MemoryEpisode)
     if agent_id:
@@ -90,7 +90,7 @@ class BatchDeleteEpisodesIn(BaseModel):
 def batch_delete_episodes(
     payload: BatchDeleteEpisodesIn,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     if not payload.ids:
         return
@@ -107,7 +107,7 @@ def list_procedures(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     stmt = select(MemoryProcedure)
     if agent_id:
@@ -127,7 +127,7 @@ class BatchDeleteProceduresIn(BaseModel):
 def batch_delete_procedures(
     payload: BatchDeleteProceduresIn,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     if not payload.ids:
         return
@@ -143,7 +143,7 @@ def list_users(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     stmt = select(MemoryUser)
     count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -161,7 +161,7 @@ class BatchDeleteUsersIn(BaseModel):
 def batch_delete_users(
     payload: BatchDeleteUsersIn,
     db: Session = Depends(get_db),
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     if not payload.ids:
         return
@@ -177,7 +177,7 @@ def list_checkpoints(
     thread_id: str | None = Query(None),
     limit: int = 50,
     offset: int = 0,
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     from components.agent import _get_checkpointer
 
@@ -244,7 +244,7 @@ class BatchDeleteCheckpointsIn(BaseModel):
 @router.post("/checkpoints/batch-delete/", status_code=204)
 def batch_delete_checkpoints(
     payload: BatchDeleteCheckpointsIn,
-    profile: UserProfile = Depends(get_current_user),
+    profile: UserProfile = Depends(require_admin),
 ):
     from components.agent import _get_checkpointer
 
