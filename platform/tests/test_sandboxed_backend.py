@@ -47,21 +47,21 @@ def _make_backend(tmp_path, mode="bwrap", **kwargs):
 
 class TestProtocol:
     def test_isinstance_sandbox_backend_protocol(self, tmp_path):
-        backend = _make_backend(tmp_path, mode="none")
+        backend = _make_backend(tmp_path, mode="bwrap")
         assert isinstance(backend, SandboxBackendProtocol)
 
     def test_isinstance_local_shell_backend(self, tmp_path):
         from deepagents.backends.local_shell import LocalShellBackend
 
-        backend = _make_backend(tmp_path, mode="none")
+        backend = _make_backend(tmp_path, mode="bwrap")
         assert isinstance(backend, LocalShellBackend)
 
     def test_virtual_mode_enabled(self, tmp_path):
-        backend = _make_backend(tmp_path, mode="none")
+        backend = _make_backend(tmp_path, mode="bwrap")
         assert backend.virtual_mode is True
 
     def test_cwd_set_to_root_dir(self, tmp_path):
-        backend = _make_backend(tmp_path, mode="none")
+        backend = _make_backend(tmp_path, mode="bwrap")
         assert str(backend.cwd) == str(tmp_path)
 
 
@@ -88,13 +88,13 @@ class TestSandboxDetection:
         assert backend._resolution.mode == "container"
         assert backend._resolution.container_type == "docker"
 
-    def test_fallback_when_no_sandbox(self, tmp_path):
+    def test_rejects_when_no_sandbox(self, tmp_path):
         from components.sandboxed_backend import SandboxedShellBackend
 
         resolution = _make_resolution(mode="none")
         with patch("components.sandboxed_backend.resolve_sandbox_mode", return_value=resolution):
-            backend = SandboxedShellBackend(root_dir=str(tmp_path))
-        assert backend._resolution.mode == "none"
+            with pytest.raises(RuntimeError, match="No sandbox available"):
+                SandboxedShellBackend(root_dir=str(tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -329,54 +329,26 @@ class TestContainerModeEnvScrubbing:
 # ---------------------------------------------------------------------------
 
 
-class TestFallback:
-    def test_execute_falls_back_when_no_sandbox(self, tmp_path):
-        """When no sandbox tool is available, execute() delegates to parent."""
-        backend = _make_backend(tmp_path, mode="none")
-        result = backend.execute("echo fallback")
-        assert result.exit_code == 0
-        assert "fallback" in result.output
+class TestNoSandboxRejection:
+    def test_init_raises_when_no_sandbox(self, tmp_path):
+        """mode=none raises RuntimeError at init — no unsandboxed execution."""
+        with pytest.raises(RuntimeError, match="No sandbox available"):
+            _make_backend(tmp_path, mode="none")
 
-    def test_fallback_with_custom_env(self, tmp_path):
-        """mode=none with custom_env merges into os.environ for subprocess."""
-        backend = _make_backend(tmp_path, mode="none", custom_env={"MY_VAR": "123"})
+    def test_init_raises_with_custom_env(self, tmp_path):
+        """mode=none raises even when custom_env is provided."""
+        with pytest.raises(RuntimeError, match="No sandbox available"):
+            _make_backend(tmp_path, mode="none", custom_env={"MY_VAR": "123"})
 
-        mock_result = MagicMock()
-        mock_result.stdout = b"ok\n"
-        mock_result.stderr = b""
-        mock_result.returncode = 0
+    def test_bwrap_mode_still_works(self, tmp_path):
+        """bwrap mode creates backend without error."""
+        backend = _make_backend(tmp_path, mode="bwrap")
+        assert backend._resolution.mode == "bwrap"
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            backend.execute("echo test")
-
-        call_kwargs = mock_run.call_args
-        env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env")
-        assert env is not None
-        assert env["MY_VAR"] == "123"
-        # Should also contain standard env vars from os.environ
-        assert "PATH" in env
-
-    def test_fallback_without_custom_env(self, tmp_path):
-        """mode=none without custom_env passes env=None to subprocess."""
-        backend = _make_backend(tmp_path, mode="none")
-
-        mock_result = MagicMock()
-        mock_result.stdout = b"ok\n"
-        mock_result.stderr = b""
-        mock_result.returncode = 0
-
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            backend.execute("echo test")
-
-        call_kwargs = mock_run.call_args
-        env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env")
-        assert env is None
-
-    def test_fallback_write_file(self, tmp_path):
-        """Fallback mode can write files in the workspace."""
-        backend = _make_backend(tmp_path, mode="none")
-        backend.execute("echo 'test content' > test.txt")
-        assert (tmp_path / "test.txt").exists()
+    def test_container_mode_still_works(self, tmp_path):
+        """container mode creates backend without error."""
+        backend = _make_backend(tmp_path, mode="container")
+        assert backend._resolution.mode == "container"
 
 
 # ---------------------------------------------------------------------------
@@ -384,45 +356,32 @@ class TestFallback:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _has_bwrap(), reason="bwrap not available")
-class TestSandboxedExecution:
-    """Integration tests using real bwrap with mocked rootfs provisioning.
+@pytest.fixture
+def _setup_rootfs(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
 
-    These tests create a minimal rootfs from the host system for testing
-    purposes, since we can't download Alpine in CI.
-    """
+    for d in ["proc", "dev", "tmp", "workspace"]:
+        (rootfs / d).mkdir(exist_ok=True)
 
-    @pytest.fixture
-    def _setup_rootfs(self, tmp_path):
-        """Create a minimal rootfs-like structure for integration testing.
-
-        We use the host system's binaries via symlinks, which is enough
-        for basic bwrap testing.
-        """
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        rootfs = tmp_path / "rootfs"
-        rootfs.mkdir()
-
-        # Create minimal rootfs structure using host system binds
-        for d in ["proc", "dev", "tmp", "workspace"]:
+    (rootfs / "usr").mkdir(exist_ok=True)
+    for d in ["bin", "lib", "sbin", "lib64"]:
+        host_path = f"/{d}"
+        if os.path.islink(host_path):
+            target = os.readlink(host_path)
+            os.symlink(target, str(rootfs / d))
+        elif os.path.isdir(host_path):
             (rootfs / d).mkdir(exist_ok=True)
 
-        # We'll use host /usr, /bin, etc. as the rootfs base
-        # by creating symlinks (like merged-usr)
-        (rootfs / "usr").mkdir(exist_ok=True)
-        for d in ["bin", "lib", "sbin", "lib64"]:
-            host_path = f"/{d}"
-            if os.path.islink(host_path):
-                target = os.readlink(host_path)
-                os.symlink(target, str(rootfs / d))
-            elif os.path.isdir(host_path):
-                (rootfs / d).mkdir(exist_ok=True)
+    (rootfs / "etc").mkdir(exist_ok=True)
 
-        # etc entries
-        (rootfs / "etc").mkdir(exist_ok=True)
+    return workspace, rootfs
 
-        return workspace, rootfs
+
+@pytest.mark.skipif(not _has_bwrap(), reason="bwrap not available")
+class TestSandboxedExecution:
 
     def test_echo(self, tmp_path, _setup_rootfs):
         workspace, rootfs = _setup_rootfs
@@ -477,13 +436,27 @@ class TestSandboxedExecution:
         assert (workspace / "test.txt").exists()
         assert "sandboxed" in (workspace / "test.txt").read_text()
 
-    def test_timeout_enforcement(self, tmp_path):
-        backend = _make_backend(tmp_path, mode="none")
-        # Use fallback for timeout test (simpler)
-        result = backend.execute("sleep 10", timeout=1)
-        # LocalShellBackend may not enforce timeout via exit code 124,
-        # but the command should not run for 10s
-        assert result is not None
+    def test_timeout_enforcement(self, tmp_path, _setup_rootfs):
+        workspace, rootfs = _setup_rootfs
+
+        cmd = [
+            "bwrap", "--unshare-all",
+            "--bind", str(rootfs), "/",
+            "--ro-bind", "/usr", "/usr",
+        ]
+        for d in ["bin", "lib", "sbin", "lib64"]:
+            if os.path.isdir(f"/{d}") and not os.path.islink(f"/{d}"):
+                cmd += ["--ro-bind", f"/{d}", f"/{d}"]
+        cmd += [
+            "--bind", str(workspace), "/workspace",
+            "--proc", "/proc",
+            "--dev", "/dev",
+            "--die-with-parent",
+            "--chdir", "/workspace",
+            "bash", "-c", "sleep 10",
+        ]
+        with pytest.raises(subprocess.TimeoutExpired):
+            subprocess.run(cmd, capture_output=True, timeout=1)
 
 
 # ---------------------------------------------------------------------------
@@ -495,19 +468,52 @@ class TestSandboxedExecution:
 class TestPythonExecution:
     """Python is available from the host system (or rootfs in production)."""
 
-    def test_python_print(self, tmp_path):
-        backend = _make_backend(tmp_path, mode="none")
-        result = backend.execute("python3 -c \"print('hello from sandbox')\"")
-        assert result.exit_code == 0
-        assert "hello from sandbox" in result.output
+    def test_python_print(self, tmp_path, _setup_rootfs):
+        workspace, rootfs = _setup_rootfs
 
-    def test_python_write_file(self, tmp_path):
-        backend = _make_backend(tmp_path, mode="none")
-        script = "python3 -c \"with open('output.txt', 'w') as f: f.write('from python')\""
-        result = backend.execute(script)
-        assert result.exit_code == 0
-        assert (tmp_path / "output.txt").exists()
-        assert (tmp_path / "output.txt").read_text() == "from python"
+        cmd = [
+            "bwrap", "--unshare-all",
+            "--bind", str(rootfs), "/",
+            "--ro-bind", "/usr", "/usr",
+        ]
+        for d in ["bin", "lib", "sbin", "lib64"]:
+            if os.path.isdir(f"/{d}") and not os.path.islink(f"/{d}"):
+                cmd += ["--ro-bind", f"/{d}", f"/{d}"]
+        cmd += [
+            "--bind", str(workspace), "/workspace",
+            "--proc", "/proc",
+            "--dev", "/dev",
+            "--die-with-parent",
+            "--chdir", "/workspace",
+            "bash", "-c", "python3 -c \"print('hello from sandbox')\"",
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        assert result.returncode == 0
+        assert b"hello from sandbox" in result.stdout
+
+    def test_python_write_file(self, tmp_path, _setup_rootfs):
+        workspace, rootfs = _setup_rootfs
+
+        cmd = [
+            "bwrap", "--unshare-all",
+            "--bind", str(rootfs), "/",
+            "--ro-bind", "/usr", "/usr",
+        ]
+        for d in ["bin", "lib", "sbin", "lib64"]:
+            if os.path.isdir(f"/{d}") and not os.path.islink(f"/{d}"):
+                cmd += ["--ro-bind", f"/{d}", f"/{d}"]
+        cmd += [
+            "--bind", str(workspace), "/workspace",
+            "--proc", "/proc",
+            "--dev", "/dev",
+            "--die-with-parent",
+            "--chdir", "/workspace",
+            "bash", "-c", "python3 -c \"with open('output.txt', 'w') as f: f.write('from python')\"",
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        assert result.returncode == 0
+        assert (workspace / "output.txt").exists()
+        assert (workspace / "output.txt").read_text() == "from python"
 
 
 # ---------------------------------------------------------------------------

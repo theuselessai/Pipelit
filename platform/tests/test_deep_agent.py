@@ -225,7 +225,7 @@ class TestBuildBackend:
 
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
-                   return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                   return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
@@ -268,7 +268,7 @@ class TestBuildBackend:
 
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
-                   return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                   return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
@@ -280,7 +280,7 @@ class TestBuildBackend:
         root = str(tmp_path / "fallback")
 
         with patch("components.sandboxed_backend.resolve_sandbox_mode",
-                    return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                    return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({"filesystem_root_dir": root})
 
@@ -293,7 +293,7 @@ class TestBuildBackend:
 
         with patch("components._agent_shared._get_workspace_dir", return_value=default_dir), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
-                   return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                   return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({})
 
@@ -306,7 +306,7 @@ class TestBuildBackend:
         with patch("database.SessionLocal", return_value=db), \
              patch("components._agent_shared._get_workspace_dir", return_value=fallback_dir), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
-                   return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                   return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": 99999})
 
@@ -330,7 +330,7 @@ class TestBuildBackend:
 
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
-                   return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                   return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
@@ -359,7 +359,7 @@ class TestBuildBackend:
 
         with patch("database.SessionLocal", return_value=db), \
              patch("components.sandboxed_backend.resolve_sandbox_mode",
-                   return_value=MagicMock(mode="none", can_execute=False, container_type=None, reason=None)):
+                   return_value=MagicMock(mode="bwrap", can_execute=True, container_type=None, reason=None)):
             from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
