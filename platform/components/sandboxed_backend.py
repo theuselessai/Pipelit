@@ -321,11 +321,4 @@ class SandboxedShellBackend(LocalShellBackend):
         if self._resolution.mode == "bwrap":
             return self._execute_bwrap(command, workspace, effective_timeout)
 
-        if self._resolution.mode == "container":
-            return self._execute_container(command, workspace, effective_timeout)
-
-        # mode == "none" — no sandbox available, refuse to execute
-        raise RuntimeError(
-            "Cannot execute: no sandbox available. "
-            "Install bubblewrap (apt install bubblewrap) or run in a container."
-        )
+        return self._execute_container(command, workspace, effective_timeout)
