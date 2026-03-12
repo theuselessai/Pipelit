@@ -469,10 +469,6 @@ class TestAuthAPI:
         assert resp.status_code == 200
         assert resp.json()["username"] == user_profile.username
 
-    def test_setup_status(self, client):
-        resp = client.get("/api/v1/auth/setup-status/")
-        assert resp.status_code == 200
-
     def test_login_wrong_credentials(self, client):
         resp = client.post("/api/v1/auth/token/", json={
             "username": "wrong",

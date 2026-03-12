@@ -105,21 +105,6 @@ async def platform_login(username: str, password: str) -> str:
     return json.dumps(result)
 
 
-@mcp.tool()
-async def platform_setup(username: str, password: str) -> str:
-    """Bootstrap the first user (only works if no users exist).
-
-    Args:
-        username: Username for the new admin
-        password: Password for the new admin
-    """
-    result = await _post("/auth/setup/", {"username": username, "password": password})
-    if "key" in result:
-        _save_api_key(result["key"])
-        return json.dumps({"ok": True, "message": "Setup complete and API key saved."})
-    return json.dumps(result)
-
-
 # ── Read tools ───────────────────────────────────────────────────────────────
 
 

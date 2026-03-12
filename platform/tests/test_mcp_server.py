@@ -246,24 +246,6 @@ class TestMcpTools:
             assert "error" in result
 
     @pytest.mark.asyncio
-    async def test_platform_setup_success(self):
-        from mcp_server import platform_setup
-        with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value = {"key": "setup-key"}
-            with patch("mcp_server._save_api_key") as mock_save:
-                result = json.loads(await platform_setup("admin", "secret"))
-                assert result["ok"] is True
-                mock_save.assert_called_once_with("setup-key")
-
-    @pytest.mark.asyncio
-    async def test_platform_setup_failure(self):
-        from mcp_server import platform_setup
-        with patch("mcp_server._post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value = {"error": "Already set up"}
-            result = json.loads(await platform_setup("admin", "secret"))
-            assert "error" in result
-
-    @pytest.mark.asyncio
     async def test_list_workflows(self):
         from mcp_server import list_workflows
         with patch("mcp_server._get", new_callable=AsyncMock) as mock_get:

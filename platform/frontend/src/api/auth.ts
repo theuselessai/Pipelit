@@ -1,5 +1,4 @@
 import { apiFetch } from "./client"
-import type { EnvironmentInfo, RootfsStatus } from "@/types/models"
 
 export interface LoginResult {
   key: string
@@ -28,51 +27,6 @@ export async function loginVerifyMFA(username: string, code: string): Promise<Lo
 
 export async function fetchMe(): Promise<{ username: string; mfa_enabled: boolean }> {
   return apiFetch("/auth/me/")
-}
-
-export interface SetupStatusResult {
-  needs_setup: boolean
-  environment: EnvironmentInfo | null
-}
-
-export async function checkSetupStatus(): Promise<SetupStatusResult> {
-  const res = await fetch("/api/v1/auth/setup-status/")
-  if (!res.ok) throw new Error("Failed to check setup status")
-  return res.json()
-}
-
-export interface SetupConfig {
-  username: string
-  password: string
-  sandbox_mode?: string
-  database_url?: string
-  redis_url?: string
-  log_level?: string
-  platform_base_url?: string
-}
-
-export async function setupUser(config: SetupConfig): Promise<string> {
-  const res = await fetch("/api/v1/auth/setup/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  })
-  if (!res.ok) throw new Error("Setup failed")
-  const data = await res.json()
-  return data.key
-}
-
-export async function recheckEnvironment(): Promise<EnvironmentInfo> {
-  const res = await fetch("/api/v1/auth/setup/recheck/", { method: "POST" })
-  if (!res.ok) throw new Error("Recheck failed")
-  const data = await res.json()
-  return data.environment
-}
-
-export async function checkRootfsStatus(): Promise<RootfsStatus> {
-  const res = await fetch("/api/v1/auth/setup/rootfs-status/")
-  if (!res.ok) throw new Error("Failed to check rootfs status")
-  return res.json()
 }
 
 // ── MFA management (authenticated) ─────────────────────────────────────────

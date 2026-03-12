@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { checkSetupStatus } from "@/api/auth"
 import { useAuth } from "./AuthProvider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,12 +17,6 @@ export default function LoginPage() {
   // MFA step
   const [mfaStep, setMfaStep] = useState(false)
   const [mfaCode, setMfaCode] = useState("")
-
-  useEffect(() => {
-    checkSetupStatus().then((result) => {
-      if (result.needs_setup) navigate("/setup", { replace: true })
-    }).catch(() => {})
-  }, [navigate])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
