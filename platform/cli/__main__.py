@@ -58,7 +58,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
         workspace_path = str(get_pipelit_dir() / "workspaces" / "default")
         os.makedirs(workspace_path, exist_ok=True)
         os.makedirs(os.path.join(workspace_path, ".tmp"), exist_ok=True)
-        ws = Workspace(name="default", path=workspace_path, user_profile_id=user.id)
+        ws = Workspace(name="default", path=workspace_path, user_profile_id=user.id, allow_network=True)
         db.add(ws)
         db.commit()
 
