@@ -36,7 +36,10 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
         try:
             main()
         except SystemExit as e:
-            exit_code = int(e.code) if e.code is not None else 0
+            try:
+                exit_code = int(e.code) if e.code is not None else 0
+            except (TypeError, ValueError):
+                exit_code = 1
 
     return exit_code, "".join(captured_out), "".join(captured_err)
 
@@ -136,6 +139,11 @@ class TestCLISetup:
 
 
 class TestCLIApplyFixture:
+    @pytest.fixture(autouse=True)
+    def _patch_pipelit_dir(self, tmp_path):
+        with patch("config.get_pipelit_dir", return_value=tmp_path / "pipelit"):
+            yield
+
     def test_unknown_fixture_fails(self, cli_db):
         code, out, err = _run_cli([
             "apply-fixture", "nonexistent",

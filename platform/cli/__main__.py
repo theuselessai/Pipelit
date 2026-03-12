@@ -68,6 +68,9 @@ def cmd_setup(args: argparse.Namespace) -> None:
             prepare_golden_image(tier=2)
 
         print(json.dumps({"username": user.username, "setup_completed": True}))
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -77,6 +80,7 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         print(json.dumps({"error": f"Unknown fixture: {args.fixture_name}"}), file=sys.stderr)
         sys.exit(1)
 
+    from config import get_pipelit_dir
     from database import SessionLocal
     from models.credential import BaseCredential, LLMProviderCredential
     from models.node import BaseComponentConfig, WorkflowEdge, WorkflowNode
@@ -203,10 +207,11 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         )
         db.add(mw_node)
 
+        skill_path = str(get_pipelit_dir() / "workspaces" / "default" / "skills")
         skill_cfg = BaseComponentConfig(
             component_type="skill",
             extra_config={
-                "skill_path": "~/.config/pipelit/workspaces/default/skills",
+                "skill_path": skill_path,
                 "skill_source": "filesystem",
             },
         )
@@ -261,12 +266,14 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         ]
         db.add_all(edges)
 
-        skill_dir = os.path.expanduser("~/.config/pipelit/workspaces/default/skills")
-        os.makedirs(skill_dir, exist_ok=True)
+        os.makedirs(skill_path, exist_ok=True)
 
         db.commit()
 
         print(json.dumps({"workflow_slug": "default-agent", "trigger_node_id": "trigger_chat_1"}))
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -277,7 +284,11 @@ def main() -> None:
 
     sp_setup = sub.add_parser("setup", help="Bootstrap first admin user and platform config")
     sp_setup.add_argument("--username", required=True)
-    sp_setup.add_argument("--password", required=True)
+    sp_setup.add_argument(
+        "--password",
+        default=os.environ.get("PIPELIT_SETUP_PASSWORD"),
+        help="Admin password (or set PIPELIT_SETUP_PASSWORD env var)",
+    )
     sp_setup.add_argument("--sandbox-mode", default=None)
     sp_setup.add_argument("--database-url", default=None)
     sp_setup.add_argument("--redis-url", default=None)
@@ -287,9 +298,18 @@ def main() -> None:
     sp_fixture.add_argument("fixture_name", help="Fixture to apply (e.g. default-agent)")
     sp_fixture.add_argument("--provider", required=True, help="LLM provider type")
     sp_fixture.add_argument("--model", required=True, help="LLM model name")
-    sp_fixture.add_argument("--api-key", required=True, help="LLM provider API key")
+    sp_fixture.add_argument(
+        "--api-key",
+        default=os.environ.get("PIPELIT_LLM_API_KEY"),
+        help="LLM provider API key (or set PIPELIT_LLM_API_KEY env var)",
+    )
 
     args = parser.parse_args()
+
+    if args.command == "setup" and not args.password:
+        parser.error("--password is required (or set PIPELIT_SETUP_PASSWORD env var)")
+    if args.command == "apply-fixture" and not args.api_key:
+        parser.error("--api-key is required (or set PIPELIT_LLM_API_KEY env var)")
 
     try:
         if args.command == "setup":

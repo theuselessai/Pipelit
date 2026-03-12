@@ -148,7 +148,12 @@ def mfa_reset(
 ):
     """Emergency MFA reset — only allowed from loopback addresses."""
     client_host = request.client.host if request.client else ""
-    if client_host not in ("127.0.0.1", "::1", "localhost"):
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(client_host)
+        if not ip.is_loopback:
+            raise HTTPException(status_code=403, detail="MFA reset only allowed from localhost.")
+    except ValueError:
         raise HTTPException(status_code=403, detail="MFA reset only allowed from localhost.")
 
     user.totp_secret = None
@@ -175,6 +180,7 @@ def mfa_login_verify(payload: MFALoginVerifyRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=401, detail="Invalid TOTP code.")
 
     user.totp_last_used_at = step
+    db.flush()  # Persist totp_last_used_at before API key update
 
     api_key = db.query(APIKey).filter(APIKey.user_id == user.id).first()
     if api_key:

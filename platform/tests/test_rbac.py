@@ -479,9 +479,6 @@ class TestNormalUserForbidden:
         assert resp.status_code == 403
 
 
-# ── Setup Wizard Test ────────────────────────────────────────────────────────
-
-
 # ── require_admin Dependency Tests ───────────────────────────────────────────
 
 
