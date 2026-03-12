@@ -479,32 +479,6 @@ class TestNormalUserForbidden:
         assert resp.status_code == 403
 
 
-# ── Setup Wizard Test ────────────────────────────────────────────────────────
-
-
-class TestSetupWizard:
-    """Setup endpoint creates the first user with role='admin'."""
-
-    def test_setup_creates_admin_user(self, client, db):
-        assert db.query(UserProfile).count() == 0
-
-        resp = client.post(
-            "/api/v1/auth/setup/",
-            json={"username": "first-admin", "password": "secretpass"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["key"]
-
-        user = (
-            db.query(UserProfile)
-            .filter(UserProfile.username == "first-admin")
-            .first()
-        )
-        assert user is not None
-        assert user.role == UserRole.ADMIN
-
-
 # ── require_admin Dependency Tests ───────────────────────────────────────────
 
 

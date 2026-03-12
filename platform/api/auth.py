@@ -3,33 +3,25 @@
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
-from config import PipelitConfig, get_pipelit_dir, save_conf
 from database import get_db
-from models.user import APIKey, UserProfile, UserRole
+from models.user import APIKey, UserProfile
 from schemas.auth import (
-    EnvironmentInfo,
     MeResponse,
     MFADisableRequest,
     MFALoginVerifyRequest,
     MFASetupResponse,
     MFAStatusResponse,
     MFAVerifyRequest,
-    RootfsStatusResponse,
-    SetupRequest,
-    SetupStatusResponse,
     TokenRequest,
     TokenResponse,
 )
-from services.environment import build_environment_report, refresh_capabilities
 from services.mfa import generate_secret, get_provisioning_uri, verify_code
-from services.rootfs import get_golden_dir, is_rootfs_ready
 
 logger = logging.getLogger(__name__)
 
@@ -78,104 +70,6 @@ def obtain_token(payload: TokenRequest, db: Session = Depends(get_db)):
 @router.get("/me/", response_model=MeResponse)
 def me(user: UserProfile = Depends(get_current_user)):
     return {"username": user.username, "mfa_enabled": user.mfa_enabled}
-
-
-@router.get("/setup-status/", response_model=SetupStatusResponse)
-def setup_status(db: Session = Depends(get_db)):
-    has_users = db.query(UserProfile).first() is not None
-    if has_users:
-        return {"needs_setup": False, "environment": None}
-
-    env = build_environment_report()
-    return {"needs_setup": True, "environment": env}
-
-
-@router.post("/setup/", response_model=TokenResponse, responses={409: {"description": "User already exists"}})
-def setup(payload: SetupRequest, db: Session = Depends(get_db)):
-    if db.query(UserProfile).first() is not None:
-        raise HTTPException(status_code=409, detail="Setup already completed.")
-
-    import bcrypt
-
-    user = UserProfile(
-        username=payload.username,
-        password_hash=bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode(),
-        role=UserRole.ADMIN,
-    )
-    db.add(user)
-    db.flush()
-
-    api_key = APIKey(user_id=user.id, key=str(uuid.uuid4()))
-    db.add(api_key)
-    db.commit()
-    db.refresh(api_key)
-
-    # Write conf.json with setup config + detected environment
-    try:
-        env = build_environment_report()
-        conf = PipelitConfig(
-            setup_completed=True,
-            sandbox_mode=payload.sandbox_mode or env.get("sandbox_mode", "auto"),
-            database_url=payload.database_url or "",
-            redis_url=payload.redis_url or "",
-            log_level=payload.log_level or "",
-            platform_base_url=payload.platform_base_url or "",
-            detected_environment=env,
-        )
-        save_conf(conf)
-
-        # Create default workspace directory + DB row
-        workspace_path = str(get_pipelit_dir() / "workspaces" / "default")
-        os.makedirs(workspace_path, exist_ok=True)
-        os.makedirs(os.path.join(workspace_path, ".tmp"), exist_ok=True)
-        from models.workspace import Workspace
-        ws = Workspace(name="default", path=workspace_path, user_profile_id=user.id)
-        db.add(ws)
-        db.commit()
-
-        # If bwrap mode, enqueue rootfs preparation
-        if env.get("sandbox_mode") == "bwrap" and not env.get("rootfs_ready"):
-            try:
-                from redis import Redis
-                from rq import Queue
-
-                from config import settings
-
-                q = Queue(connection=Redis.from_url(settings.REDIS_URL))
-                from tasks import prepare_rootfs_job
-
-                q.enqueue(prepare_rootfs_job, tier=2)
-            except Exception:
-                logger.warning("Failed to enqueue rootfs preparation job", exc_info=True)
-    except Exception:
-        logger.warning("Failed to write conf.json during setup", exc_info=True)
-
-    return {"key": api_key.key, "requires_mfa": False}
-
-
-@router.post("/setup/recheck/", response_model=dict, responses={409: {"description": "Setup already completed"}})
-def setup_recheck(db: Session = Depends(get_db)):
-    """Re-run environment detection during setup wizard."""
-    if db.query(UserProfile).first() is not None:
-        raise HTTPException(status_code=409, detail="Setup already completed.")
-
-    refresh_capabilities()
-    env = build_environment_report()
-    return {"environment": env}
-
-
-@router.get("/setup/rootfs-status/", response_model=RootfsStatusResponse, responses={409: {"description": "Setup already completed"}})
-def rootfs_status(db: Session = Depends(get_db)):
-    """Check rootfs provisioning status during setup wizard."""
-    if db.query(UserProfile).first() is not None:
-        raise HTTPException(status_code=409, detail="Setup already completed.")
-
-    golden_dir = get_golden_dir()
-    ready = is_rootfs_ready(golden_dir)
-    lock_path = golden_dir.parent / ".rootfs.lock"
-    preparing = not ready and lock_path.exists()
-
-    return {"ready": ready, "preparing": preparing, "error": None}
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +148,12 @@ def mfa_reset(
 ):
     """Emergency MFA reset — only allowed from loopback addresses."""
     client_host = request.client.host if request.client else ""
-    if client_host not in ("127.0.0.1", "::1", "localhost"):
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(client_host)
+        if not ip.is_loopback:
+            raise HTTPException(status_code=403, detail="MFA reset only allowed from localhost.")
+    except ValueError:
         raise HTTPException(status_code=403, detail="MFA reset only allowed from localhost.")
 
     user.totp_secret = None
@@ -281,6 +180,7 @@ def mfa_login_verify(payload: MFALoginVerifyRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=401, detail="Invalid TOTP code.")
 
     user.totp_last_used_at = step
+    db.flush()  # Persist totp_last_used_at before API key update
 
     api_key = db.query(APIKey).filter(APIKey.user_id == user.id).first()
     if api_key:
