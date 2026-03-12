@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import get_db
-from models.user import APIKey, UserProfile
+from models.user import APIKey, UserProfile, UserRole
 
 bearer_scheme = HTTPBearer()
 
@@ -33,6 +33,14 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found.",
         )
+    return user
+
+
+def require_admin(
+    user: UserProfile = Depends(get_current_user),
+) -> UserProfile:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
     return user
 
 

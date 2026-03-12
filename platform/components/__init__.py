@@ -33,7 +33,6 @@ from components import (  # noqa: E402, F401
     categorizer,
     code,
     control_flow,
-    create_agent_user,
     epic_tools,
     get_totp_code,
     platform_api,

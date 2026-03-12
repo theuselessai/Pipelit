@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
 
@@ -10,6 +11,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 from models.encrypted import EncryptedString
+
+
+class UserRole(str, enum.Enum):
+    """User role enum — used for RBAC checks throughout the platform."""
+
+    ADMIN = "admin"
+    NORMAL = "normal"
 
 
 class UserProfile(Base):
@@ -25,8 +33,8 @@ class UserProfile(Base):
     gitlab_username: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    # Agent user fields
-    is_agent: Mapped[bool] = mapped_column(Boolean, default=False)
+    role: Mapped[str] = mapped_column(String(10), default=UserRole.NORMAL)
+
     created_by_agent_id: Mapped[int | None] = mapped_column(
         ForeignKey("user_profiles.id", ondelete="SET NULL"),
         nullable=True,

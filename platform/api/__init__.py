@@ -8,7 +8,6 @@ from api.nodes import router as nodes_router
 from api.executions import router as executions_router
 from api.credentials import router as credentials_router
 from api.memory import router as memory_router
-from api.users import router as users_router
 from api.epics import router as epics_router
 from api.tasks import router as tasks_router
 from api.schedules import router as schedules_router
@@ -23,7 +22,6 @@ api_router.include_router(nodes_router, prefix="/workflows", tags=["nodes", "edg
 api_router.include_router(executions_router, prefix="/executions", tags=["executions"])
 api_router.include_router(credentials_router, prefix="/credentials", tags=["credentials"])
 api_router.include_router(memory_router, prefix="/memories", tags=["memories"])
-api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(epics_router, prefix="/epics", tags=["epics"])
 api_router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(schedules_router, prefix="/schedules", tags=["schedules"])

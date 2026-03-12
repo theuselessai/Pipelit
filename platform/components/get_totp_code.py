@@ -40,7 +40,6 @@ def get_totp_code_factory(node):
             if username:
                 user = db.query(UserProfile).filter(
                     UserProfile.username == username,
-                    UserProfile.is_agent == True,  # noqa: E712
                 ).first()
             else:
                 # Try to find agent user for this workflow/node

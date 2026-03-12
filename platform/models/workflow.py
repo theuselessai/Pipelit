@@ -1,10 +1,10 @@
-"""Workflow and WorkflowCollaborator models."""
+"""Workflow model."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func, text  # noqa: F401
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -52,29 +52,9 @@ class Workflow(Base):
     edges: Mapped[list] = relationship(
         "WorkflowEdge", back_populates="workflow", cascade="all, delete-orphan"
     )
-    collaborators: Mapped[list] = relationship(
-        "WorkflowCollaborator", back_populates="workflow", cascade="all, delete-orphan"
-    )
     executions: Mapped[list] = relationship(
         "WorkflowExecution", back_populates="workflow", cascade="all, delete-orphan"
     )
 
     def __repr__(self):
         return f"<Workflow {self.slug}>"
-
-
-class WorkflowCollaborator(Base):
-    __tablename__ = "workflow_collaborators"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"))
-    user_profile_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id", ondelete="CASCADE"))
-    role: Mapped[str] = mapped_column(String(10))  # owner, editor, viewer
-    invited_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("user_profiles.id", ondelete="SET NULL"), nullable=True
-    )
-    invited_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-    workflow: Mapped[Workflow] = relationship("Workflow", back_populates="collaborators")
-    user_profile: Mapped["UserProfile"] = relationship("UserProfile", foreign_keys=[user_profile_id])  # noqa: F821

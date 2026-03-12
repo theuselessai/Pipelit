@@ -13,7 +13,6 @@ import ExecutionsPage from "@/features/executions/ExecutionsPage"
 import ExecutionDetailPage from "@/features/executions/ExecutionDetailPage"
 import SettingsPage from "@/features/settings/SettingsPage"
 import MemoriesPage from "@/features/memories/MemoriesPage"
-import AgentUsersPage from "@/features/users/AgentUsersPage"
 import EpicsPage from "@/features/epics/EpicsPage"
 import EpicDetailPage from "@/features/epics/EpicDetailPage"
 import WorkspacesPage from "@/features/workspaces/WorkspacesPage"
@@ -43,7 +42,6 @@ export default function App() {
                 <Route path="/epics" element={<EpicsPage />} />
                 <Route path="/epics/:epicId" element={<EpicDetailPage />} />
                 <Route path="/memories" element={<MemoriesPage />} />
-                <Route path="/agent-users" element={<AgentUsersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Route>

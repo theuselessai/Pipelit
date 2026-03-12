@@ -369,9 +369,14 @@ class TestExecutionsAPI:
     def test_batch_delete_only_deletes_owned_executions(self, auth_client, db, workflow, user_profile):
         """Only executions from workflows owned by the current user are deleted.
 
-        Exercises the Workflow ownership join in batch_delete_executions (line 155).
+        Exercises the Workflow ownership join in batch_delete_executions.
+        Uses normal role so admin bypass doesn't apply.
         """
         import bcrypt
+
+        from models.user import UserRole
+        user_profile.role = UserRole.NORMAL
+        db.commit()
 
         # Execution from the authenticated user's workflow
         owned_exec = _make_execution(db, workflow, user_profile, status="completed")
@@ -401,72 +406,6 @@ class TestExecutionsAPI:
         assert db.query(WE).filter(WE.execution_id == owned_exec.execution_id).first() is None
         # Other user's execution must remain (not owned by auth user)
         assert db.query(WE).filter(WE.execution_id == other_exec.execution_id).first() is not None
-
-
-# ── Users ────────────────────────────────────────────────────────────────────
-
-class TestUsersAPI:
-    def test_list_agent_users_empty(self, auth_client):
-        resp = auth_client.get("/api/v1/users/agents/")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["items"] == []
-        assert data["total"] == 0
-
-    def test_list_agent_users(self, auth_client, db):
-        import bcrypt
-        agent = UserProfile(
-            username="agent-bot",
-            password_hash=bcrypt.hashpw(b"random", bcrypt.gensalt()).decode(),
-            is_agent=True,
-            first_name="Test Agent",
-        )
-        db.add(agent)
-        db.flush()
-        key = APIKey(user_id=agent.id)
-        db.add(key)
-        db.commit()
-
-        resp = auth_client.get("/api/v1/users/agents/")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1
-        assert data["items"][0]["username"] == "agent-bot"
-
-    def test_delete_agent_user(self, auth_client, db):
-        import bcrypt
-        agent = UserProfile(
-            username="agent-to-delete",
-            password_hash=bcrypt.hashpw(b"random", bcrypt.gensalt()).decode(),
-            is_agent=True,
-        )
-        db.add(agent)
-        db.flush()
-        key = APIKey(user_id=agent.id)
-        db.add(key)
-        db.commit()
-
-        resp = auth_client.delete(f"/api/v1/users/agents/{agent.id}/")
-        assert resp.status_code == 204
-
-    def test_delete_agent_user_not_found(self, auth_client):
-        resp = auth_client.delete("/api/v1/users/agents/99999/")
-        assert resp.status_code == 404
-
-    def test_batch_delete_agent_users(self, auth_client, db):
-        import bcrypt
-        agent = UserProfile(
-            username="agent-batch-del",
-            password_hash=bcrypt.hashpw(b"random", bcrypt.gensalt()).decode(),
-            is_agent=True,
-        )
-        db.add(agent)
-        db.commit()
-
-        resp = auth_client.post("/api/v1/users/agents/batch-delete/", json={
-            "ids": [agent.id],
-        })
-        assert resp.status_code == 204
 
 
 # ── Workflows ────────────────────────────────────────────────────────────────

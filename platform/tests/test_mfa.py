@@ -384,12 +384,10 @@ class TestMFAStatus:
 
 class TestAgentUserTOTP:
     def test_agent_user_gets_totp_on_creation(self, db):
-        """Agent users created with TOTP secret and mfa_enabled."""
         user = UserProfile(
             username="agent_test_agent1",
             password_hash="randomhash",
             first_name="Test agent",
-            is_agent=True,
             totp_secret=pyotp.random_base32(),
             mfa_enabled=True,
         )
@@ -474,12 +472,10 @@ class TestGetTotpCodeComponent:
         return self.factory(node)
 
     def test_get_code_by_username(self, db):
-        """Retrieve TOTP code for a named agent user."""
         secret = pyotp.random_base32()
         agent = UserProfile(
             username="agent_test_bot",
             password_hash="x",
-            is_agent=True,
             totp_secret=secret,
             mfa_enabled=True,
         )
@@ -503,11 +499,9 @@ class TestGetTotpCodeComponent:
         assert "not found" in result["error"].lower()
 
     def test_user_without_totp_secret(self, db):
-        """Return error when the user has no TOTP secret configured."""
         agent = UserProfile(
             username="agent_no_totp",
             password_hash="x",
-            is_agent=True,
             totp_secret=None,
             mfa_enabled=False,
         )
@@ -562,7 +556,6 @@ class TestGetTotpCodeComponent:
         agent_user = UserProfile(
             username=f"agent_{workflow.slug}_agent_abc",
             password_hash="x",
-            is_agent=True,
             totp_secret=secret,
             mfa_enabled=True,
         )
@@ -582,7 +575,6 @@ class TestGetTotpCodeComponent:
         agent_user = UserProfile(
             username="agent_99_tool_node_1",
             password_hash="x",
-            is_agent=True,
             totp_secret=secret,
             mfa_enabled=True,
         )

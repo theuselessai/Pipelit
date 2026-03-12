@@ -8,7 +8,7 @@ from models.credential import (  # noqa: F401
     LLMProviderCredential,
     ToolCredential,
 )
-from models.workflow import Workflow, WorkflowCollaborator  # noqa: F401
+from models.workflow import Workflow  # noqa: F401
 from models.node import (  # noqa: F401
     BaseComponentConfig,
     ModelComponentConfig,

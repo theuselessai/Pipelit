@@ -156,10 +156,6 @@ class ToolComponentConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "run_command"}
 
 
-class _CreateAgentUserConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "create_agent_user"}
-
-
 class _PlatformApiConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "platform_api"}
 
@@ -270,7 +266,6 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "wait": CodeComponentConfig,
     "error_handler": CodeComponentConfig,
     "run_command": ToolComponentConfig,
-    "create_agent_user": ToolComponentConfig,
     "platform_api": ToolComponentConfig,
     "whoami": ToolComponentConfig,
     "epic_tools": _EpicToolsConfig,
