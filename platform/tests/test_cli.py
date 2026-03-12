@@ -206,6 +206,29 @@ class TestCLIApplyFixture:
         assert llm_cred is not None
         assert llm_cred.provider_type == "venice"
 
+    def test_apply_fixture_base_url(self, cli_db, user_profile):
+        _run_cli([
+            "apply-fixture", "default-agent",
+            "--provider", "ollama", "--model", "llama3",
+            "--api-key", "sk-test", "--base-url", "http://localhost:11434/v1",
+        ])
+
+        from models.credential import LLMProviderCredential
+        llm_cred = cli_db.query(LLMProviderCredential).first()
+        assert llm_cred is not None
+        assert llm_cred.base_url == "http://localhost:11434/v1"
+
+    def test_apply_fixture_base_url_defaults_empty(self, cli_db, user_profile):
+        _run_cli([
+            "apply-fixture", "default-agent",
+            "--provider", "openai", "--model", "gpt-4o", "--api-key", "sk-test",
+        ])
+
+        from models.credential import LLMProviderCredential
+        llm_cred = cli_db.query(LLMProviderCredential).first()
+        assert llm_cred is not None
+        assert llm_cred.base_url == ""
+
     def test_apply_fixture_idempotent(self, cli_db, user_profile):
         _run_cli([
             "apply-fixture", "default-agent",

@@ -120,6 +120,7 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
             base_credentials_id=base_cred.id,
             provider_type=args.provider,
             api_key=args.api_key,
+            base_url=args.base_url or "",
         )
         db.add(llm_cred)
         db.flush()
@@ -303,6 +304,7 @@ def main() -> None:
         default=os.environ.get("PIPELIT_LLM_API_KEY"),
         help="LLM provider API key (or set PIPELIT_LLM_API_KEY env var)",
     )
+    sp_fixture.add_argument("--base-url", default=None, help="LLM provider base URL")
 
     args = parser.parse_args()
 
