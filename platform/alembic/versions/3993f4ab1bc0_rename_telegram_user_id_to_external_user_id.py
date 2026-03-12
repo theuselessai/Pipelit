@@ -21,7 +21,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Copy data from old column to new column (idempotent)
+    try:
+        op.add_column("user_profiles", sa.Column("external_user_id", sa.BigInteger(), nullable=True))
+    except Exception:
+        logger.info("Column external_user_id already exists, skipping")
+
     op.execute("UPDATE user_profiles SET external_user_id = telegram_user_id WHERE external_user_id IS NULL")
 
     # Drop the old unique constraint on telegram_user_id
