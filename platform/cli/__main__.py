@@ -168,6 +168,7 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
 
         agent_cfg = BaseComponentConfig(
             component_type="deep_agent",
+            llm_model_config_id=model_cfg.id,
             extra_config={"conversation_memory": True},
         )
         db.add(agent_cfg)
