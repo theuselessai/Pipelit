@@ -88,6 +88,14 @@ export interface MemoryEpisode { id: string; agent_id: string; user_id: string |
 export interface MemoryProcedure { id: string; agent_id: string; name: string; description: string; procedure_type: string; times_used: number; times_succeeded: number; times_failed: number; success_rate: number; is_active: boolean; created_at: string }
 export interface MemoryUser { id: string; canonical_id: string; display_name: string | null; telegram_id: string | null; email: string | null; total_conversations: number; last_seen_at: string; created_at: string }
 
+// Environment (used by settings page)
+export interface RuntimeInfo { available: boolean; version: string | null; path: string | null }
+export interface ShellToolInfo { available: boolean; tier: number }
+export interface NetworkInfo { dns: boolean; http: boolean }
+export interface CapabilitiesInfo { runtimes: Record<string, RuntimeInfo>; shell_tools: Record<string, ShellToolInfo>; network: NetworkInfo }
+export interface GateResult { passed: boolean; blocked_reason: string | null }
+export interface EnvironmentInfo { os: string; arch: string; container: string | null; bwrap_available: boolean; rootfs_ready: boolean; sandbox_mode: string; capabilities: CapabilitiesInfo; tier1_met: boolean; tier2_warnings: string[]; gate: GateResult }
+
 // Workspace
 export interface WorkspaceEnvVar {
   key: string
