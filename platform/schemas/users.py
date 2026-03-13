@@ -35,7 +35,7 @@ class SelfUpdateIn(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
-    role: str
+    role: Literal["admin", "normal"]
     first_name: str
     last_name: str
     created_at: datetime
