@@ -13,7 +13,7 @@ from api.tasks import router as tasks_router
 from api.schedules import router as schedules_router
 from api.workspaces import router as workspaces_router
 from api.settings import router as settings_router
-from api.users import users_router
+from api.users import router as users_router
 
 api_router = APIRouter(prefix="/api/v1")
 

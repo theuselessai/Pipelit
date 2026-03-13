@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,22 +12,22 @@ from pydantic import BaseModel, Field
 
 
 class UserCreateIn(BaseModel):
-    username: str
-    password: str
-    role: str = "normal"
+    username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=8)
+    role: Literal["admin", "normal"] = "normal"
     first_name: str | None = None
     last_name: str | None = None
 
 
 class UserUpdateIn(BaseModel):
-    role: str | None = None
-    password: str | None = None
+    role: Literal["admin", "normal"] | None = None
+    password: str | None = Field(default=None, min_length=8)
     first_name: str | None = None
     last_name: str | None = None
 
 
 class SelfUpdateIn(BaseModel):
-    password: str | None = None
+    password: str | None = Field(default=None, min_length=8)
     first_name: str | None = None
     last_name: str | None = None
 

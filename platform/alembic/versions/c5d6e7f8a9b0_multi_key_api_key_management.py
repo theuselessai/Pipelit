@@ -49,6 +49,13 @@ def downgrade() -> None:
     connection = op.get_bind()
     connection.execute(text("PRAGMA foreign_keys=OFF"))
 
+    # Keep only the newest API key per user before restoring unique constraint
+    connection.execute(text("""
+        DELETE FROM api_keys WHERE id NOT IN (
+            SELECT MAX(id) FROM api_keys GROUP BY user_id
+        )
+    """))
+
     with op.batch_alter_table("api_keys") as batch_op:
         batch_op.drop_column("name")
         batch_op.drop_column("prefix")

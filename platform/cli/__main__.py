@@ -10,8 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
-import uuid
 
 
 def cmd_setup(args: argparse.Namespace) -> None:
@@ -35,7 +35,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
         db.add(user)
         db.flush()
 
-        raw_key = str(uuid.uuid4())
+        raw_key = secrets.token_urlsafe(32)
         api_key = APIKey(user_id=user.id, key=raw_key, name="default", prefix=raw_key[:8])
         db.add(api_key)
         db.commit()
