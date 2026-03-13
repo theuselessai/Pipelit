@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,13 +10,20 @@ from sqlalchemy.orm import Session
 
 import logging
 
+import redis
+from rq import Queue
+
 from auth import get_current_user
+from components.agent import _get_checkpointer
+from config import settings
 from database import get_db
 from models.execution import ExecutionLog, WorkflowExecution
 from models.node import WorkflowNode
 from models.user import UserProfile, UserRole
 from models.workflow import Workflow
 from schemas.execution import ChatMessageIn, ChatMessageOut, ExecutionDetailOut, ExecutionOut
+from services.execution_recovery import on_execution_job_failure
+from tasks import execute_workflow_job
 from api._helpers import get_workflow
 
 logger = logging.getLogger(__name__)
@@ -215,7 +221,7 @@ def send_chat_message(
         workflow_id=workflow.id,
         trigger_node_id=trigger_node.id,
         user_profile_id=profile.id,
-        thread_id=uuid.uuid4().hex,
+        thread_id=f"{profile.id}:{workflow.id}",
         trigger_payload={"text": payload.text},
     )
     db.add(execution)
@@ -223,13 +229,6 @@ def send_chat_message(
     db.refresh(execution)
 
     # Enqueue via RQ — frontend connects via WebSocket to stream results
-    import redis
-    from rq import Queue
-
-    from config import settings
-    from services.execution_recovery import on_execution_job_failure
-    from tasks import execute_workflow_job
-
     conn = redis.from_url(settings.REDIS_URL)
     queue = Queue("workflows", connection=conn)
     queue.enqueue(
@@ -264,8 +263,6 @@ def get_chat_history(
 
     # Thread ID for chat triggers: "{user_id}:{workflow_id}"
     thread_id = f"{profile.id}:{workflow.id}"
-
-    from components.agent import _get_checkpointer
 
     checkpointer = _get_checkpointer()
     config = {"configurable": {"thread_id": thread_id}}
@@ -378,8 +375,6 @@ def delete_chat_history(
     workflow = get_workflow(slug, profile, db)
 
     thread_id = f"{profile.id}:{workflow.id}"
-
-    from components.agent import _get_checkpointer
 
     checkpointer = _get_checkpointer()
     conn = checkpointer.conn
