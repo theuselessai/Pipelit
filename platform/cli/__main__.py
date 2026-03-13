@@ -35,7 +35,8 @@ def cmd_setup(args: argparse.Namespace) -> None:
         db.add(user)
         db.flush()
 
-        api_key = APIKey(user_id=user.id, key=str(uuid.uuid4()))
+        raw_key = str(uuid.uuid4())
+        api_key = APIKey(user_id=user.id, key=raw_key, name="default", prefix=raw_key[:8])
         db.add(api_key)
         db.commit()
 

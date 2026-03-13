@@ -56,15 +56,25 @@ def obtain_token(payload: TokenRequest, db: Session = Depends(get_db)):
     if user.mfa_enabled:
         return {"key": "", "requires_mfa": True}
 
-    api_key = db.query(APIKey).filter(APIKey.user_id == user.id).first()
-    if api_key:
-        api_key.key = str(uuid.uuid4())
+    # Find or create a "session" key (login always rotates the session key)
+    session_key = (
+        db.query(APIKey)
+        .filter(APIKey.user_id == user.id, APIKey.name == "session")
+        .first()
+    )
+    if session_key:
+        session_key.key = str(uuid.uuid4())
+        session_key.prefix = session_key.key[:8]
+        session_key.is_active = True
     else:
-        api_key = APIKey(user_id=user.id, key=str(uuid.uuid4()))
-        db.add(api_key)
+        raw = str(uuid.uuid4())
+        session_key = APIKey(
+            user_id=user.id, key=raw, name="session", prefix=raw[:8],
+        )
+        db.add(session_key)
     db.commit()
-    db.refresh(api_key)
-    return {"key": api_key.key, "requires_mfa": False}
+    db.refresh(session_key)
+    return {"key": session_key.key, "requires_mfa": False}
 
 
 @router.get("/me/", response_model=MeResponse)
@@ -182,12 +192,22 @@ def mfa_login_verify(payload: MFALoginVerifyRequest, db: Session = Depends(get_d
     user.totp_last_used_at = step
     db.flush()  # Persist totp_last_used_at before API key update
 
-    api_key = db.query(APIKey).filter(APIKey.user_id == user.id).first()
-    if api_key:
-        api_key.key = str(uuid.uuid4())
+    # Find or create a "session" key (MFA login always rotates the session key)
+    session_key = (
+        db.query(APIKey)
+        .filter(APIKey.user_id == user.id, APIKey.name == "session")
+        .first()
+    )
+    if session_key:
+        session_key.key = str(uuid.uuid4())
+        session_key.prefix = session_key.key[:8]
+        session_key.is_active = True
     else:
-        api_key = APIKey(user_id=user.id, key=str(uuid.uuid4()))
-        db.add(api_key)
+        raw = str(uuid.uuid4())
+        session_key = APIKey(
+            user_id=user.id, key=raw, name="session", prefix=raw[:8],
+        )
+        db.add(session_key)
     db.commit()
-    db.refresh(api_key)
-    return {"key": api_key.key, "requires_mfa": False}
+    db.refresh(session_key)
+    return {"key": session_key.key, "requires_mfa": False}

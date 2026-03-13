@@ -94,9 +94,11 @@ def user_profile(db):
 
 @pytest.fixture
 def api_key(db, user_profile):
+    import uuid as _uuid
     from models.user import APIKey
 
-    key = APIKey(user_id=user_profile.id)
+    raw = str(_uuid.uuid4())
+    key = APIKey(user_id=user_profile.id, key=raw, name="default", prefix=raw[:8])
     db.add(key)
     db.commit()
     db.refresh(key)
