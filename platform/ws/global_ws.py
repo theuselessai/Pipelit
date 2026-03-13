@@ -24,11 +24,21 @@ PONG_TIMEOUT = 10  # seconds
 
 
 def _authenticate(token: str) -> bool:
-    """Validate token against APIKey table. Returns True if valid."""
+    """Validate token against APIKey table. Returns True if valid, active, and not expired."""
+    from datetime import datetime, timezone
+
     db = SessionLocal()
     try:
         api_key = db.query(APIKey).filter(APIKey.key == token).first()
-        return api_key is not None
+        if not api_key or not api_key.is_active:
+            return False
+        if api_key.expires_at is not None:
+            expires = api_key.expires_at
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires:
+                return False
+        return True
     finally:
         db.close()
 

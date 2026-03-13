@@ -46,7 +46,7 @@ class UserProfile(Base):
     totp_last_used_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
-    api_key: Mapped[APIKey | None] = relationship("APIKey", back_populates="user", uselist=False)
+    api_keys: Mapped[list[APIKey]] = relationship("APIKey", back_populates="user")
     credentials: Mapped[list] = relationship("BaseCredential", back_populates="user_profile")
     created_by_agent: Mapped[UserProfile | None] = relationship(
         "UserProfile", remote_side="UserProfile.id", foreign_keys=[created_by_agent_id]
@@ -61,13 +61,17 @@ class APIKey(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        __import__("sqlalchemy").ForeignKey("user_profiles.id", ondelete="CASCADE"),
-        unique=True,
+        ForeignKey("user_profiles.id", ondelete="CASCADE"),
     )
     key: Mapped[str] = mapped_column(String(36), default=lambda: str(uuid.uuid4()), unique=True)
+    name: Mapped[str] = mapped_column(String(100), default="default")
+    prefix: Mapped[str] = mapped_column(String(8), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    user: Mapped[UserProfile] = relationship("UserProfile", back_populates="api_key")
+    user: Mapped[UserProfile] = relationship("UserProfile", back_populates="api_keys")
 
     def __repr__(self):
-        return f"<APIKey for user_id={self.user_id}>"
+        return f"<APIKey '{self.name}' for user_id={self.user_id}>"

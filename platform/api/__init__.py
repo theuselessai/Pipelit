@@ -13,10 +13,12 @@ from api.tasks import router as tasks_router
 from api.schedules import router as schedules_router
 from api.workspaces import router as workspaces_router
 from api.settings import router as settings_router
+from api.users import users_router
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(nodes_router, prefix="/workflows", tags=["nodes", "edges"])
 api_router.include_router(executions_router, prefix="/executions", tags=["executions"])

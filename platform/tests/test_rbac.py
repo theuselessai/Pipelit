@@ -58,7 +58,9 @@ def admin_user(db):
 
 @pytest.fixture
 def admin_key(db, admin_user):
-    key = APIKey(user_id=admin_user.id)
+    import uuid as _uuid
+    raw = str(_uuid.uuid4())
+    key = APIKey(user_id=admin_user.id, key=raw, name="default", prefix=raw[:8])
     db.add(key)
     db.commit()
     db.refresh(key)
@@ -86,7 +88,9 @@ def normal_user(db):
 
 @pytest.fixture
 def normal_key(db, normal_user):
-    key = APIKey(user_id=normal_user.id)
+    import uuid as _uuid
+    raw = str(_uuid.uuid4())
+    key = APIKey(user_id=normal_user.id, key=raw, name="default", prefix=raw[:8])
     db.add(key)
     db.commit()
     db.refresh(key)

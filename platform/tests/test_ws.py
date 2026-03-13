@@ -106,6 +106,8 @@ class TestGlobalWsAuthenticate:
         from ws.global_ws import _authenticate
         mock_db = MagicMock()
         mock_key = MagicMock()
+        mock_key.is_active = True
+        mock_key.expires_at = None
         mock_db.query.return_value.filter.return_value.first.return_value = mock_key
 
         with patch("ws.global_ws.SessionLocal", return_value=mock_db):

@@ -85,7 +85,7 @@ class TestCLISetup:
         )
         cli_db.add(existing)
         cli_db.flush()
-        cli_db.add(APIKey(user_id=existing.id, key="existing-key"))
+        cli_db.add(APIKey(user_id=existing.id, key="existing-key", name="default", prefix="existing"))
         cli_db.commit()
 
         code, out, err = _run_cli(["setup", "--username", "another", "--password", "pass"])
