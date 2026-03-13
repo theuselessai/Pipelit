@@ -229,13 +229,19 @@ def send_chat_message(
     db.refresh(execution)
 
     # Enqueue via RQ — frontend connects via WebSocket to stream results
-    conn = redis.from_url(settings.REDIS_URL)
-    queue = Queue("workflows", connection=conn)
-    queue.enqueue(
-        execute_workflow_job,
-        str(execution.execution_id),
-        on_failure=on_execution_job_failure,
-    )
+    try:
+        rq_conn = redis.from_url(settings.REDIS_URL)
+        queue = Queue("workflows", connection=rq_conn)
+        queue.enqueue(
+            execute_workflow_job,
+            str(execution.execution_id),
+            on_failure=on_execution_job_failure,
+        )
+    except Exception:
+        logger.exception("Failed to enqueue chat execution %s", execution.execution_id)
+        db.delete(execution)
+        db.commit()
+        raise HTTPException(status_code=503, detail="Failed to enqueue workflow execution.")
 
     return ChatMessageOut(
         execution_id=execution.execution_id,
@@ -286,7 +292,10 @@ def get_chat_history(
         try:
             before_dt = datetime.fromisoformat(before.replace("Z", "+00:00"))
         except ValueError:
-            pass
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid 'before' datetime format. Use ISO 8601 (e.g. 2026-01-01T00:00:00Z).",
+            )
 
     # Convert to response format with timestamps
     all_messages: list[ChatHistoryMessageOut] = []
@@ -358,7 +367,7 @@ def get_chat_history(
                 filtered.append(msg)
         all_messages = filtered
 
-    # Return last N messages
+    # Return last N messages (has_more computed after filtering)
     has_more = len(all_messages) > limit
     result = all_messages[-limit:] if limit > 0 else all_messages
 
@@ -379,9 +388,14 @@ def delete_chat_history(
     checkpointer = _get_checkpointer()
     conn = checkpointer.conn
 
-    conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
-    conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
-    conn.commit()
+    try:
+        conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+        conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+        conn.commit()
+    except Exception:
+        logger.exception("Failed to delete chat history for thread %s", thread_id)
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete chat history.")
 
 
 def _serialize_execution(execution: WorkflowExecution, db: Session) -> dict:

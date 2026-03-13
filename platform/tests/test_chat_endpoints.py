@@ -174,6 +174,25 @@ class TestSendChatMessage:
         )
         assert resp.status_code == 401
 
+    @patch("api.executions.redis")
+    def test_enqueue_failure_rolls_back_execution(
+        self, mock_redis, auth_client, chat_workflow, db
+    ):
+        """If RQ enqueue fails, the execution record is deleted and 503 returned."""
+        mock_redis.from_url.side_effect = ConnectionError("Redis down")
+
+        resp = auth_client.post(
+            f"/api/v1/workflows/{chat_workflow.slug}/chat/",
+            json={"text": "Hello"},
+        )
+        assert resp.status_code == 503
+        assert "enqueue" in resp.json()["detail"].lower()
+
+        # Execution record should have been rolled back
+        from models.execution import WorkflowExecution
+
+        assert db.query(WorkflowExecution).count() == 0
+
 
 # ── GET /{slug}/chat/history ──────────────────────────────────────────────────
 
@@ -299,6 +318,15 @@ class TestGetChatHistory:
         assert resp.status_code == 404
 
     @patch("api.executions._get_checkpointer")
+    def test_invalid_before_param_returns_400(self, mock_get_cp, auth_client, chat_workflow):
+        """Malformed 'before' datetime returns 400, not silent ignore."""
+        resp = auth_client.get(
+            f"/api/v1/workflows/{chat_workflow.slug}/chat/history?before=not-a-date"
+        )
+        assert resp.status_code == 400
+        assert "before" in resp.json()["detail"].lower()
+
+    @patch("api.executions._get_checkpointer")
     def test_checkpoint_exception_returns_empty(self, mock_get_cp, auth_client, chat_workflow):
         mock_cp = MagicMock()
         mock_cp.get_tuple.side_effect = RuntimeError("DB error")
@@ -387,6 +415,22 @@ class TestDeleteChatHistory:
         assert calls[0][0] == ("DELETE FROM writes WHERE thread_id = ?", (expected_thread_id,))
         assert calls[1][0] == ("DELETE FROM checkpoints WHERE thread_id = ?", (expected_thread_id,))
         mock_conn.commit.assert_called_once()
+
+    @patch("api.executions._get_checkpointer")
+    def test_delete_failure_returns_500(self, mock_get_cp, auth_client, chat_workflow):
+        """If checkpoint deletion fails, returns 500 with rollback."""
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = RuntimeError("DB locked")
+        mock_cp = MagicMock()
+        mock_cp.conn = mock_conn
+        mock_get_cp.return_value = mock_cp
+
+        resp = auth_client.delete(
+            f"/api/v1/workflows/{chat_workflow.slug}/chat/history"
+        )
+        assert resp.status_code == 500
+        assert "delete" in resp.json()["detail"].lower()
+        mock_conn.rollback.assert_called_once()
 
     def test_workflow_not_found_returns_404(self, auth_client):
         resp = auth_client.delete("/api/v1/workflows/nonexistent-slug/chat/history")
