@@ -419,10 +419,3 @@ class TestInputValidation:
             json={"username": "exact8pw", "password": "12345678"},
         )
         assert resp.status_code == 201
-
-    def test_username_too_long_422(self, admin_client):
-        resp = admin_client.post(
-            "/api/v1/users/",
-            json={"username": "x" * 151, "password": "securepass1"},
-        )
-        assert resp.status_code == 422

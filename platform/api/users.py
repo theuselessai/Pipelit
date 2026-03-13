@@ -56,10 +56,9 @@ def _create_api_key(
     db: Session, user_id: int, name: str, expires_at: datetime | None = None,
 ) -> APIKey:
     if expires_at is not None:
-        exp = expires_at
-        if exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
-        if exp <= datetime.now(timezone.utc):
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="expires_at must be in the future.")
     raw_key = secrets.token_urlsafe(32)
     key = APIKey(
