@@ -184,7 +184,7 @@ class TestAuthTokenAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert "key" in data
-        assert len(data["key"]) == 36  # UUID format
+        assert len(data["key"]) >= 32  # secrets.token_urlsafe(32) produces 43-char token
 
     def test_obtain_token_invalid_credentials(self, client):
         resp = client.post(

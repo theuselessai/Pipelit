@@ -29,6 +29,7 @@ def get_current_user(
     and not expired.  Updates ``last_used_at`` with 1-minute debounce.
     """
     token = credentials.credentials
+    now = datetime.now(timezone.utc)
     api_key = db.query(APIKey).filter(APIKey.key == token).first()
     if not api_key:
         raise HTTPException(
@@ -45,7 +46,6 @@ def get_current_user(
 
     # Check expiration
     if api_key.expires_at is not None:
-        now = datetime.now(timezone.utc)
         expires = api_key.expires_at
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
@@ -56,7 +56,6 @@ def get_current_user(
             )
 
     # Debounced last_used_at update (best-effort, never blocks auth)
-    now = datetime.now(timezone.utc)
     if api_key.last_used_at is None or (now - _ensure_tz(api_key.last_used_at)) > _LAST_USED_DEBOUNCE:
         try:
             api_key.last_used_at = now

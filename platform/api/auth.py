@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -26,6 +25,30 @@ from services.mfa import generate_secret, get_provisioning_uri, verify_code
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _rotate_session_key(db: Session, user: UserProfile) -> APIKey:
+    """Find or create a 'session' API key, rotating its value."""
+    import secrets as _secrets
+    session_key = (
+        db.query(APIKey)
+        .filter(APIKey.user_id == user.id, APIKey.name == "session")
+        .first()
+    )
+    if session_key:
+        raw = _secrets.token_urlsafe(32)
+        session_key.key = raw
+        session_key.prefix = raw[:8]
+        session_key.is_active = True
+    else:
+        raw = _secrets.token_urlsafe(32)
+        session_key = APIKey(
+            user_id=user.id, key=raw, name="session", prefix=raw[:8],
+        )
+        db.add(session_key)
+    db.commit()
+    db.refresh(session_key)
+    return session_key
 
 
 def _verify_password(stored_hash: str, password: str) -> bool:
@@ -56,24 +79,7 @@ def obtain_token(payload: TokenRequest, db: Session = Depends(get_db)):
     if user.mfa_enabled:
         return {"key": "", "requires_mfa": True}
 
-    # Find or create a "session" key (login always rotates the session key)
-    session_key = (
-        db.query(APIKey)
-        .filter(APIKey.user_id == user.id, APIKey.name == "session")
-        .first()
-    )
-    if session_key:
-        session_key.key = str(uuid.uuid4())
-        session_key.prefix = session_key.key[:8]
-        session_key.is_active = True
-    else:
-        raw = str(uuid.uuid4())
-        session_key = APIKey(
-            user_id=user.id, key=raw, name="session", prefix=raw[:8],
-        )
-        db.add(session_key)
-    db.commit()
-    db.refresh(session_key)
+    session_key = _rotate_session_key(db, user)
     return {"key": session_key.key, "requires_mfa": False}
 
 
@@ -192,22 +198,5 @@ def mfa_login_verify(payload: MFALoginVerifyRequest, db: Session = Depends(get_d
     user.totp_last_used_at = step
     db.flush()  # Persist totp_last_used_at before API key update
 
-    # Find or create a "session" key (MFA login always rotates the session key)
-    session_key = (
-        db.query(APIKey)
-        .filter(APIKey.user_id == user.id, APIKey.name == "session")
-        .first()
-    )
-    if session_key:
-        session_key.key = str(uuid.uuid4())
-        session_key.prefix = session_key.key[:8]
-        session_key.is_active = True
-    else:
-        raw = str(uuid.uuid4())
-        session_key = APIKey(
-            user_id=user.id, key=raw, name="session", prefix=raw[:8],
-        )
-        db.add(session_key)
-    db.commit()
-    db.refresh(session_key)
+    session_key = _rotate_session_key(db, user)
     return {"key": session_key.key, "requires_mfa": False}

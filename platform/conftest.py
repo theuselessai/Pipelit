@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -94,10 +95,9 @@ def user_profile(db):
 
 @pytest.fixture
 def api_key(db, user_profile):
-    import uuid as _uuid
     from models.user import APIKey
 
-    raw = str(_uuid.uuid4())
+    raw = str(uuid.uuid4())
     key = APIKey(user_id=user_profile.id, key=raw, name="default", prefix=raw[:8])
     db.add(key)
     db.commit()
