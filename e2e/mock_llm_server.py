@@ -13,7 +13,8 @@ import json
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 9999
+_port_idx = sys.argv.index("--port") + 1 if "--port" in sys.argv else -1
+PORT = int(sys.argv[_port_idx]) if 0 < _port_idx < len(sys.argv) else 9999
 
 CANNED_RESPONSE = json.dumps({
     "id": "msg_mock_e2e_test_response",
