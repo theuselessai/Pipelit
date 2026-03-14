@@ -186,7 +186,7 @@ The agent:
 1. Runs `check_system_health()` on a schedule.
 2. If it finds dead scheduled jobs, uses `scheduler_tools` to restart or delete them.
 3. If it finds stuck executions, uses `platform_api` to cancel them.
-4. Reports its actions via a delivery channel (Telegram, webhook, etc.).
+4. Reports its actions via a delivery channel (webhook, gateway, etc.).
 
 !!! info "Check Thresholds"
     - **Stuck executions:** Running longer than 15 minutes.
@@ -194,4 +194,4 @@ The agent:
     - **Scheduled jobs:** Any job with `dead` status or non-zero `error_count`.
 
 !!! tip "Combine with Scheduling"
-    For continuous monitoring, create a scheduled job that runs the health-check workflow every few minutes using [Scheduler Tools](scheduler-tools.md). The agent can then escalate issues by sending alerts via Telegram or webhook delivery.
+    For continuous monitoring, create a scheduled job that runs the health-check workflow every few minutes using [Scheduler Tools](scheduler-tools.md). The agent can then escalate issues by sending alerts via webhook or gateway delivery.

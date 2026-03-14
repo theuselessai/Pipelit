@@ -103,7 +103,7 @@ flowchart LR
 ```
 
 !!! warning "No sandboxing"
-    The Code component executes Python code directly in the Pipelit process using `exec()`. It has access to all built-in Python functions. Unlike the [Code Execute](../sub-components/code-execute.md) sub-component tool, it does not run in a subprocess and does not enforce security restrictions. Use the Code Execute tool for agent-invoked code execution with sandboxing.
+    The Code component executes Python code directly in the Pipelit process using `exec()`. It has access to all built-in Python functions and runs without security restrictions. Use the [Code Execute](../sub-components/code-execute.md) sub-component tool for agent-invoked code execution that requires OS-level sandboxing.
 
 !!! note "Error handling"
     If the code raises an exception, the node fails with a `RuntimeError` containing the error message. The error is visible in the execution logs and on the canvas as a failed node status.

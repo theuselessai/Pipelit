@@ -57,7 +57,7 @@ All five AI nodes accept the same input:
 |------|------|----------|
 | `messages` | `MESSAGES` | Yes |
 
-The `messages` input typically comes from a trigger node (Chat, Telegram, etc.) or from an upstream node that produces LangChain messages. The messages list carries the full conversation context that the LLM uses to generate its response.
+The `messages` input typically comes from a trigger node (Chat, gateway/Telegram, etc.) or from an upstream node that produces LangChain messages. The messages list carries the full conversation context that the LLM uses to generate its response.
 
 ## System Prompt and Jinja2
 

@@ -15,7 +15,7 @@ The **Identify User** component identifies who is interacting with the workflow 
 | Port | Data Type | Required | Description |
 |------|-----------|----------|-------------|
 | `trigger_input` | OBJECT | Yes | Raw trigger payload containing user-identifying information |
-| `channel` | STRING | Yes | Channel type (telegram, webhook, chat, manual) |
+| `channel` | STRING | Yes | Channel type (gateway, webhook, chat, manual) |
 
 ### Outputs
 
@@ -40,7 +40,7 @@ The component examines the trigger payload and automatically detects the channel
 
 | Channel | Identifier Source | Display Name Source |
 |---------|-------------------|---------------------|
-| `telegram` | `message.from.id` | `message.from.first_name` + `last_name` |
+| `gateway` | `user.id` field from gateway payload | `user.name` or `user.first_name` field |
 | `webhook` | `user_id` or `email` field | `user_name` or `name` field |
 | `chat` | `user_id` field | `user_name` field |
 | `manual` | `user_id` field | `user_name` field |
@@ -49,7 +49,7 @@ The component examines the trigger payload and automatically detects the channel
 
 If the `channel` input is not explicitly provided, the component infers it from the trigger payload structure:
 
-- Contains `message.from` -- detected as `telegram`
+- Contains `gateway_user` or `gw_user_id` -- detected as `gateway`
 - Contains `webhook_id` -- detected as `webhook`
 - Contains `source: "manual"` -- detected as `manual`
 - Contains `source: "chat"` -- detected as `chat`
@@ -64,18 +64,18 @@ A workflow that personalizes responses based on user identity:
 
 ```mermaid
 flowchart LR
-    T[Telegram Trigger] --> IU[Identify User]
+    T[Chat Trigger] --> IU[Identify User]
     IU --> A[Agent]
     M[AI Model] -.->|model| A
     MR[Memory Read] -.->|memory| A
 ```
 
-On first interaction from a Telegram user:
+On first interaction from a new user:
 
 ```
 Identify User output:
 {
-  "user_id": "tg_12345678",
+  "user_id": "gw_12345678",
   "user_context": {"is_new": true, "facts": [], "history": []},
   "is_new_user": true
 }
@@ -86,7 +86,7 @@ On subsequent interactions:
 ```
 Identify User output:
 {
-  "user_id": "tg_12345678",
+  "user_id": "gw_12345678",
   "user_context": {
     "is_new": false,
     "facts": [

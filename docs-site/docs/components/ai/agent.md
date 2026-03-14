@@ -58,8 +58,8 @@ Use the context from: {{ identify_user_abc123.user_context }}
 By default, agents are **stateless** -- each execution starts fresh. Enabling conversation memory changes this:
 
 - A **SqliteSaver** checkpointer stores the full conversation state in `platform/checkpoints.db`.
-- The **thread ID** is constructed from `{user_profile_id}:{telegram_chat_id}:{workflow_id}`, so the same user talking to the same workflow always resumes the same conversation.
-- If there is no Telegram chat ID, the thread simplifies to `{user_profile_id}:{workflow_id}`.
+- The **thread ID** is constructed from `{user_profile_id}:{chat_id}:{workflow_id}`, so the same user talking to the same workflow always resumes the same conversation.
+- If there is no chat ID, the thread simplifies to `{user_profile_id}:{workflow_id}`.
 
 !!! info "Ephemeral checkpoints for Spawn & Await"
     If an agent has a `spawn_and_await` tool connected but conversation memory is disabled, a **RedisSaver** checkpointer is used instead. This ephemeral checkpointer only persists state long enough for the child workflow to complete and the agent to resume.
