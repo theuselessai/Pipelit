@@ -226,7 +226,7 @@ curl "http://localhost:8000/api/v1/memories/users/" \
   "items": [
     {
       "id": "user-uuid-1234",
-      "canonical_id": "telegram:123456789",
+      "canonical_id": "gw:123456789",
       "display_name": "John Doe",
       "telegram_id": "123456789",
       "email": null,

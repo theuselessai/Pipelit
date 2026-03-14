@@ -183,7 +183,6 @@ Nodes show real-time execution status on the canvas -- blue spinning circles whi
 
 ## Next steps
 
-- [Set Up a Telegram Bot](telegram-bot.md) -- connect your agent to Telegram
 - [Conditional Routing](conditional-routing.md) -- route different messages to different agents
 - [Agent reference](../components/ai/agent.md) -- full configuration details for agent nodes
 - [Tools reference](../components/tools/index.md) -- explore all available tool types

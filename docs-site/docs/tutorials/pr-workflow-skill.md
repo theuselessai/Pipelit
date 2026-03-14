@@ -10,14 +10,14 @@ Walk through using the `pr-workflow` skill with Claude Code to manage the full l
 
 - Claude Code installed and configured
 - `gh` CLI authenticated with push access to the repository
-- A Pipelit deployment with Telegram configured (for status updates and approval gates)
+- A Pipelit deployment with a message gateway configured (for status updates and approval gates)
 - The `pr-workflow` skill installed from the [skills repository](https://github.com/theuselessai/skills)
 
 ---
 
 ## What is the pr-workflow skill?
 
-The `pr-workflow` skill is a structured Claude Code workflow that manages the full lifecycle of a GitHub pull request with **four approval gates**. Each gate pauses execution, sends a plan to you via Telegram, and waits for your sign-off before making any code changes.
+The `pr-workflow` skill is a structured Claude Code workflow that manages the full lifecycle of a GitHub pull request with **four approval gates**. Each gate pauses execution, sends a plan to you via the message gateway, and waits for your sign-off before making any code changes.
 
 The skill encodes a repeatable engineering process in a `SKILL.md` file — a markdown document with YAML frontmatter that Claude Code reads to understand when and how to execute the workflow. See [Skills](../skills/index.md) for a conceptual overview.
 
@@ -81,7 +81,7 @@ In a Claude Code session within your project directory, invoke the skill with th
 /pr-workflow 42
 ```
 
-Claude Code reads the skill's YAML frontmatter to confirm the invocation, then begins executing the workflow steps. All status updates are sent to the Telegram bot configured in your Pipelit deployment.
+Claude Code reads the skill's YAML frontmatter to confirm the invocation, then begins executing the workflow steps. All status updates are sent via the message gateway configured in your Pipelit deployment.
 
 !!! tip "Automatic invocation"
     The `pr-workflow` skill has a trigger description in its frontmatter that covers common phrasings. Claude Code may invoke the skill automatically when you say things like "check CI on PR 42", "review PR #42", or "merge PR 42" — without needing the explicit `/pr-workflow` command.
@@ -96,7 +96,7 @@ The skill starts by fetching the PR's CI status using the `gh` CLI:
 gh pr view 42 --json statusCheckRollup
 ```
 
-It polls until all checks complete, then sends a summary via Telegram:
+It polls until all checks complete, then sends a summary via the message gateway:
 
 ```
 📋 PR #42 CI Status:
@@ -131,7 +131,7 @@ When CI checks fail, the skill analyzes the failures before making any changes.
 - **Risk:** low
 ```
 
-The plan is sent as a file via Telegram. **The skill waits for your approval before writing any code.**
+The plan is sent as a file via the message gateway. **The skill waits for your approval before writing any code.**
 
 After you approve, the skill applies the fixes using `claude -p`, commits the changes, pushes to the branch, and re-runs the CI status check from the beginning.
 
@@ -170,7 +170,7 @@ It uses `claude -p` to triage each comment — distinguishing confirmed bugs fro
 - False positives: 1 issue to skip
 ```
 
-The report is sent via Telegram. **The skill waits for your approval before applying fixes.**
+The report is sent via the message gateway. **The skill waits for your approval before applying fixes.**
 
 After approval, confirmed issues are fixed with `claude -p`, committed, and pushed.
 
@@ -206,7 +206,7 @@ Lines missing coverage: 14
 ## Estimated coverage after tests: ~94%
 ```
 
-The plan is sent via Telegram. **The skill waits for your approval before writing tests.**
+The plan is sent via the message gateway. **The skill waits for your approval before writing tests.**
 
 After approval, tests are written with `claude -p`, committed, pushed, and CI is re-checked.
 
@@ -214,7 +214,7 @@ After approval, tests are written with `claude -p`, committed, pushed, and CI is
 
 ## Step 7: Merge
 
-Once all checks pass, the skill sends a final summary via Telegram:
+Once all checks pass, the skill sends a final summary via the message gateway:
 
 ```
 🏁 PR #42 Final Status:
@@ -250,4 +250,4 @@ And sends a final confirmation:
 
 - [Skills overview](../skills/index.md) — concepts, invocation syntax, and the skills repository
 - [Self-Improving Agent](self-improving-agent.md) — a related pattern for autonomous agents with human oversight
-- [Telegram Bot](telegram-bot.md) — set up Telegram notifications for your Pipelit workflows
+- [Scheduled Workflows](scheduled-workflow.md) — automate recurring tasks with Pipelit
