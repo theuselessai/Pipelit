@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **E2E smoke test infrastructure** -- Mock LLM server and 17-assertion smoke test script for CI validation ([#159](https://github.com/theuselessai/Pipelit/pull/159))
+- **User management API** -- Full CRUD for user accounts with multi-key API system. Users can have multiple named API keys with optional expiration, soft-revocation, and usage tracking ([#155](https://github.com/theuselessai/Pipelit/pull/155), [#156](https://github.com/theuselessai/Pipelit/pull/156))
+- **Chat API endpoints** -- Restored `POST /workflows/{slug}/chat/` and `DELETE /workflows/{slug}/chat/history` endpoints for direct workflow chat interaction ([#154](https://github.com/theuselessai/Pipelit/pull/154))
+- **RBAC (Role-Based Access Control)** -- Two roles: `admin` and `normal`. Admin-only operations include user management, role assignment, and key management for other users. Last-admin protection prevents lockout ([#142](https://github.com/theuselessai/Pipelit/pull/142))
+- **CLI setup commands** -- `python -m cli setup` replaces the web-based setup wizard for initial admin account creation. `python -m cli apply-fixture` bootstraps a working workflow with LLM credentials ([#144](https://github.com/theuselessai/Pipelit/pull/144), [#146](https://github.com/theuselessai/Pipelit/pull/146))
+- **Message gateway integration** -- External messaging channels (Telegram, chat clients) are now handled by the [plit message gateway](https://github.com/theuselessai/plit). Inbound messages arrive at `POST /api/v1/inbound`, responses delivered via gateway send API ([#135](https://github.com/theuselessai/Pipelit/pull/135))
+- **Gateway credential type** -- New `gateway` credential type for managing gateway adapter connections, replacing direct Telegram bot token credentials
+- **Gateway-mediated triggers** -- Chat and Telegram triggers now receive messages via the gateway rather than direct webhook/polling. The gateway handles bot registration, webhook setup, and message routing
+- **Web search tool** -- SearXNG-powered web search tool for agents
+
+### Changed
+
+- **Sandbox security hardened** -- Removed unsandboxed execution fallback. If no sandbox (bubblewrap or container) is available, shell execution is **refused** with a clear error message ([#140](https://github.com/theuselessai/Pipelit/pull/140))
+- **Network access enabled by default** -- Sandbox workspaces now have network access enabled by default (`--share-net`), allowing agents to use `curl`, `git`, web search, and other network tools without manual configuration ([#150](https://github.com/theuselessai/Pipelit/pull/150))
+- **Deep agent AI model linking** -- `ai_model` config now properly linked to `deep_agent` via `llm_model_config_id` ([#148](https://github.com/theuselessai/Pipelit/pull/148))
+- **Migration hardening** -- Fixed SQLite unnamed unique constraint issue on fresh databases ([#157](https://github.com/theuselessai/Pipelit/pull/157)), hardened downgrades for non-numeric string IDs, added missing `add_column` in rename migration ([#147](https://github.com/theuselessai/Pipelit/pull/147))
+- **Credential ownership checks** -- Added ownership verification and TOCTOU race fix for credential operations
+
+### Removed
+
+- **Setup wizard** -- Web-based `SetupPage` removed from frontend. Initial setup now handled via CLI commands ([#144](https://github.com/theuselessai/Pipelit/pull/144))
+- **Direct Telegram integration** -- Telegram webhook handler, polling mode, and `TelegramCredential` model removed. Telegram messaging now handled by the message gateway
+- **Telegram poller** -- Self-rescheduling RQ-based Telegram polling job removed
+- **MCP server** -- Removed unused MCP server module
+- **Workflow collaborators** -- Removed collaborator model (replaced by RBAC roles)
+
+---
+
 ## [0.1.0] - 2026-02-23
 
 ### Added
