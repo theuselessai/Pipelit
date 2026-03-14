@@ -15,7 +15,7 @@ flowchart TD
     A[Agent executes shell command] --> B{Sandbox mode?}
     B -->|bwrap| C[bwrap --unshare-all]
     B -->|container| D[Env-scrubbed subprocess]
-    B -->|none| E[Unsandboxed fallback ⚠️]
+    B -->|none| E[Execution refused ❌]
 
     C --> F[Alpine rootfs as /]
     C --> G[Workspace at /workspace]
@@ -31,10 +31,9 @@ Pipelit automatically selects the best sandbox mode available on the host:
 |------|-----------|-----------|
 | `bwrap` | Linux host with bubblewrap installed | Full: separate filesystem, network, and process namespaces |
 | `container` | Already inside Docker, Codespaces, Gitpod, Kubernetes | Env-scrubbing only; container provides OS-level isolation |
-| `none` | No sandbox available (logs a warning) | No isolation — use only in development |
 
-!!! warning "Sandbox mode `none`"
-    The `none` mode provides no isolation. Shell commands run directly as the server process. Use only for local development and never expose to untrusted users.
+!!! danger "No unsandboxed fallback"
+    If neither bubblewrap nor a container environment is detected, Pipelit **refuses to execute** shell commands. Install bubblewrap (`apt install bubblewrap`) or run Pipelit inside a container.
 
 ## Environment Detection
 
@@ -56,13 +55,12 @@ After container detection, `resolve_sandbox_mode()` determines the final mode:
 SANDBOX_MODE = "auto"
   ├── Linux without container → check for bwrap
   │     ├── bwrap available → mode: bwrap
-  │     └── bwrap missing → mode: none
+  │     └── bwrap missing → execution refused
   └── Inside container → mode: container
 
 # Explicit modes
-SANDBOX_MODE = "bwrap"     → force bwrap (fails if unavailable)
-SANDBOX_MODE = "container"  → force container env-scrubbing
-SANDBOX_MODE = "none"       → force no isolation (dev only)
+SANDBOX_MODE = "bwrap"      → force bwrap (error if unavailable)
+SANDBOX_MODE = "container"  → force container env-scrubbing (error if not in container)
 ```
 
 ## Alpine Rootfs
@@ -142,14 +140,12 @@ Key isolation properties:
 
 ## Network Access
 
-By default, the sandbox has **no network access** (`--unshare-all` includes the network namespace). To enable network access for a workspace:
+By default, the sandbox has **network access enabled** (`--share-net` is passed to bwrap and `/etc/resolv.conf` is bind-mounted). This allows agents to make HTTP calls, use `git`, `curl`, web search tools, and other network-dependent operations.
 
-1. Open **Settings → Workspaces** (or the Workspace configuration)
-2. Toggle **Allow Network** on the workspace
-3. The next execution will pass `--share-net` and bind `/etc/resolv.conf` into the sandbox
+To disable network access for a workspace, set `allow_network` to `false` in the workspace configuration. This removes `--share-net`, isolating the sandbox from the network entirely (`--unshare-all` creates a separate network namespace).
 
-!!! tip "Network access and skills"
-    Skills that need to make HTTP calls (e.g., `gh` CLI, `curl`) require network access. Enable it on the workspace used by the Deep Agent running the skill.
+!!! tip "When to disable network"
+    Disable network access for workspaces that should not make external calls — for example, sandboxed code evaluation where you want strict isolation.
 
 ## Container Mode
 

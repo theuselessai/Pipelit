@@ -1,6 +1,6 @@
 # Security
 
-Pipelit includes multiple layers of security for authentication, credential management, and agent identity verification.
+Pipelit includes multiple layers of security for authentication, authorization, credential management, and agent identity verification.
 
 ## Authentication
 
@@ -13,11 +13,60 @@ Authorization: Bearer <api-key>
 API keys are generated per user and stored hashed in the database. There is no session-based auth, no OAuth, and no basic auth.
 
 !!! warning "No Default API Key"
-    API keys are created during user setup or via the admin interface. There are no hardcoded or default keys.
+    API keys are created during CLI setup or via the admin interface. There are no hardcoded or default keys.
+
+## Role-Based Access Control (RBAC)
+
+Pipelit has two roles:
+
+| Role | Description |
+|------|-------------|
+| **admin** | Full access to all resources. Can manage users, assign roles, and access admin-only endpoints. |
+| **normal** | Standard access. Can create and manage workflows, credentials, and executions. Cannot manage other users. |
+
+The first user created via `python -m cli setup` is always assigned the **admin** role.
+
+### Admin-Only Operations
+
+The following operations require the `admin` role:
+
+- Creating, updating, and deleting user accounts
+- Changing user roles
+- Managing API keys for other users
+
+All other operations (workflows, credentials, executions, schedules, memory) are available to both roles.
+
+### Last-Admin Protection
+
+Pipelit prevents you from demoting or deleting the last admin user. There must always be at least one admin account.
+
+## Multi-Key API System
+
+Each user can have multiple API keys with different purposes:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Descriptive label (e.g., `github-ci`, `dev-session`) |
+| `prefix` | First 8 characters, shown in the UI for identification |
+| `expires_at` | Optional expiration timestamp |
+| `is_active` | Can be revoked without deletion |
+| `last_used_at` | Tracks when the key was last used |
+
+API keys are shown in full only at creation time. After that, only the prefix is visible.
+
+### Self-Service Key Management
+
+Any authenticated user can manage their own keys:
+
+- `POST /api/v1/users/me/keys` — Create a new API key
+- `GET /api/v1/users/me/keys` — List your API keys
+- `DELETE /api/v1/users/me/keys/{key_id}` — Revoke a key
+
+Admins can also manage keys for other users via `/api/v1/users/{user_id}/keys`.
 
 ## Credential Encryption
 
-Sensitive credential data (LLM provider API keys, Telegram bot tokens, etc.) is encrypted at rest using **Fernet symmetric encryption**:
+Sensitive credential data (LLM provider API keys, gateway tokens, etc.) is encrypted at rest using **Fernet symmetric encryption**:
 
 - Encryption key configured via `FIELD_ENCRYPTION_KEY` environment variable
 - Uses `EncryptedString` SQLAlchemy column type
@@ -61,13 +110,15 @@ Agent users are special accounts created for automated operations:
 
 ## Sandboxed Code Execution
 
-Agent shell commands run inside an OS-level sandbox that isolates each workspace from the host filesystem, environment variables, and network. The sandbox uses bubblewrap (`bwrap`) on Linux with an Alpine rootfs, or falls back to environment scrubbing when running inside a container (Docker, Codespaces, Kubernetes).
+Agent shell commands run inside an OS-level sandbox that isolates each workspace from the host filesystem, environment variables, and network. The sandbox uses bubblewrap (`bwrap`) on Linux with an Alpine rootfs, or container-level isolation when running inside Docker/Kubernetes.
+
+If no sandbox is available, **execution is refused** — Pipelit does not fall back to unsandboxed execution.
 
 Key protections:
 
 - **Filesystem isolation** — agents can only read/write their workspace directory and `/tmp`
 - **Environment scrubbing** — host secrets in environment variables are not visible
-- **Network isolation** — no network access by default (`--unshare-all`); opt-in per workspace
+- **Network control** — network access is configurable per workspace
 - **Process namespace** — agents cannot see host processes
 
 See [Sandbox](sandbox.md) for the full architecture, detection logic, and configuration.
@@ -82,4 +133,4 @@ See [Sandbox](sandbox.md) for the full architecture, detection logic, and config
 | `DEBUG` | `true` OK | Must be `false` |
 | HTTPS | Not required | Required |
 | Redis auth | Not required | Enable `requirepass` |
-| `SANDBOX_MODE` | `auto` OK | Verify `bwrap` or container |
+| Bubblewrap | Must be installed | Must be installed (or run in container) |

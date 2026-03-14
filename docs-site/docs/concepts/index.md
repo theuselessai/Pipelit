@@ -24,7 +24,7 @@ Nodes are the building blocks of workflows. Edges are the connections between th
 
 ### [Triggers](triggers.md)
 
-Triggers are specialized nodes that initiate workflow execution. Pipelit supports chat, Telegram, manual, scheduled, workflow, and error triggers -- all as first-class nodes on the canvas.
+Triggers are specialized nodes that initiate workflow execution. Pipelit supports chat, manual, scheduled, workflow, and error triggers -- all as first-class nodes on the canvas.
 
 </div>
 
