@@ -26,7 +26,7 @@ The platform supports four credential types:
 | Type | Purpose | Fields |
 |------|---------|--------|
 | **LLM** | LLM provider API access | Provider type, API key, base URL, organization ID |
-| **Telegram** | Telegram bot authentication | Bot token |
+| **Gateway** | Messaging channel authentication (e.g., bot tokens) | Token or secret |
 | **Git** | Git repository access | (Configured via Extra Config) |
 | **Tool** | Tool-specific credentials | (Configured via Extra Config) |
 
@@ -38,7 +38,7 @@ Click **Add Credential** to open the creation dialog.
 
 - **Name** (required) -- A descriptive label for the credential
 
-- **Type** (required) -- Select from LLM, Telegram, Git, or Tool
+- **Type** (required) -- Select from LLM, Gateway, Git, or Tool
 
 ### LLM-Specific Fields
 
@@ -52,11 +52,11 @@ When the type is set to **LLM**, additional fields appear:
 - **Base URL** (optional) -- Override the default API endpoint. Useful for OpenAI-compatible providers that use a custom URL.
 - **Organization ID** (optional) -- For OpenAI organization-scoped access
 
-### Telegram-Specific Fields
+### Gateway-Specific Fields
 
-When the type is set to **Telegram**:
+When the type is set to **Gateway**:
 
-- **Bot Token** -- Your Telegram bot token from @BotFather (masked as a password field)
+- **Token** -- The authentication token for the messaging channel (masked as a password field)
 
 ## Testing Credentials
 

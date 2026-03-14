@@ -37,7 +37,7 @@ Episodes record individual agent interactions -- one episode per trigger event h
 |--------|-------------|
 | **Checkbox** | Selection for batch delete |
 | **Agent** | The agent node ID that handled the episode |
-| **Trigger** | Badge showing the trigger type (chat, telegram, etc.) |
+| **Trigger** | Badge showing the trigger type (chat, gateway, etc.) |
 | **Success** | Green "Yes" or red "No" badge |
 | **Summary** | Truncated episode summary (max 300px) |
 | **Started** | When the episode began |
@@ -58,7 +58,7 @@ Checkpoints are LangGraph state snapshots used for conversation memory persisten
 | **Blob Size** | Size of the serialized state (B, KB, or MB) |
 
 !!! info "Thread IDs"
-    Thread IDs are constructed from the user profile ID, Telegram chat ID, and workflow ID. This ensures the same user talking to the same workflow gets continuous conversation history across executions.
+    Thread IDs are constructed from the user profile ID, the external channel user ID, and the workflow ID. This ensures the same user talking to the same workflow gets continuous conversation history across executions.
 
 ## Procedures Tab
 
@@ -76,14 +76,14 @@ Procedures are learned action sequences that agents can discover and reuse. The 
 
 ## Users Tab
 
-The Users tab shows identified users from conversations. Users can be linked across channels (e.g., a Telegram user matched to a chat user).
+The Users tab shows identified users from conversations. Users can be linked across channels (e.g., a gateway user matched to a chat user).
 
 | Column | Description |
 |--------|-------------|
 | **Checkbox** | Selection for batch delete |
 | **Name** | Display name (or "--" if unknown) |
 | **Canonical ID** | Unique user identifier (monospace) |
-| **Telegram** | Telegram user ID (or "--") |
+| **External ID** | External channel user ID (or "--") |
 | **Email** | Email address (or "--") |
 | **Conversations** | Total number of conversations |
 | **Last Seen** | Most recent interaction timestamp |

@@ -188,7 +188,7 @@ Add your component type to the `ComponentType` union in `platform/frontend/src/t
 
 ```typescript
 export type ComponentType =
-    | "trigger_telegram"
+    | "trigger_gateway"
     | "trigger_manual"
     // ... existing types ...
     | "my_component"    // <-- Add here

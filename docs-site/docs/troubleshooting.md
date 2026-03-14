@@ -109,18 +109,6 @@ Authorization: Bearer your-api-key-here
     - Including extra whitespace
     - Using an expired or revoked API key
 
-### Setup wizard doesn't appear
-
-**Cause:** An admin user already exists.
-
-**Solution:** Check setup status:
-
-```bash
-curl http://localhost:8000/api/v1/auth/setup-status/
-```
-
-If `{"needs_setup": false}`, an admin was already created. Log in with those credentials.
-
 ---
 
 ## Database Issues
