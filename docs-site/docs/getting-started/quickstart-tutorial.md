@@ -20,7 +20,7 @@ From the Node Palette, click **Chat** under Triggers. A chat trigger node appear
 
 Click **AI Model** under Sub-Components. An AI model node appears. Select it and configure:
 
-- **Credential** — Select an LLM provider credential (you'll need to [add one](../frontend/credentials-ui.md) first)
+- **Credential** — Select an LLM provider credential (you'll need to [add one](../concepts/providers.md#creating-a-credential) first)
 - **Model** — Choose a model (e.g., `gpt-4o`, `claude-sonnet-4-20250514`)
 
 ## 4. Add an Agent
@@ -56,6 +56,5 @@ The agent's response appears in the chat panel with the calculated result and cu
 ## What's Next?
 
 - [Concepts](../concepts/index.md) — Understand workflows, nodes, edges, and execution
-- [Telegram Bot Tutorial](../tutorials/telegram-bot.md) — Connect your agent to Telegram
 - [Conditional Routing](../tutorials/conditional-routing.md) — Route messages to different agents based on content
 - [Component Reference](../components/index.md) — Explore all available node types

@@ -1,14 +1,33 @@
 # Getting Started
 
-Welcome to Pipelit! This section will guide you through installing, configuring, and running the platform for the first time.
+Welcome to Pipelit! This section guides you through installing, configuring, and running the platform.
+
+## Two Ways to Run Pipelit
+
+### Via plit CLI (Recommended)
+
+The easiest way to run Pipelit is through the [plit](https://github.com/theuselessai/plit) CLI, which manages Pipelit as a Docker container alongside the message gateway:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theuselessai/plit/main/install.sh | bash
+plit init
+plit start
+```
+
+See the [plit documentation](https://github.com/theuselessai/plit) for details.
+
+### Standalone (Development)
+
+If you're contributing to Pipelit or want to run it outside Docker, follow the steps below.
 
 ## Prerequisites
 
-Before you begin, make sure you have:
-
-- **Python 3.10+** — Backend runtime
-- **Redis 8.0+** — Task queue, pub/sub, and search (includes RediSearch natively)
-- **Node.js 18+** — Frontend build toolchain
+| Requirement | Minimum Version | Purpose |
+|-------------|----------------|---------|
+| Python | 3.10+ | Backend runtime |
+| Redis | 8.0+ | Task queue, pub/sub, search |
+| Node.js | 18+ | Frontend build |
+| bubblewrap | 0.4+ | Sandboxed shell execution (Linux) |
 
 ## Steps
 
@@ -18,7 +37,7 @@ Before you begin, make sure you have:
 
 ### 1. [Installation](installation.md)
 
-Clone the repository, set up a Python virtual environment, and install backend and frontend dependencies.
+Clone the repository, set up a Python virtual environment, and install dependencies.
 
 </div>
 
@@ -34,7 +53,7 @@ Generate an encryption key, configure Redis, and set up your `.env` file.
 
 ### 3. [First Run](first-run.md)
 
-Start the backend, RQ worker, and frontend dev server. Create your admin account through the setup wizard.
+Start the backend, workers, and frontend. Create your admin account via CLI.
 
 </div>
 

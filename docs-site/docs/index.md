@@ -9,7 +9,7 @@ hide:
 
 **Build, connect, and orchestrate LLM-powered agents — visually.**
 
-Pipelit is a self-hosted workflow automation platform for designing LLM agent pipelines on a drag-and-drop canvas. Wire up triggers, agents, tools, and routing logic — then watch them execute in real time.
+Pipelit is a self-hosted workflow automation engine for designing LLM agent pipelines on a drag-and-drop canvas. Wire up triggers, agents, tools, and routing logic — then watch them execute in real time.
 
 [Get Started](getting-started/index.md){ .md-button .md-button--primary }
 [View on GitHub](https://github.com/theuselessai/Pipelit){ .md-button }
@@ -20,19 +20,15 @@ Pipelit is a self-hosted workflow automation platform for designing LLM agent pi
 
 ## Quick Start
 
+Install and run via the [plit](https://github.com/theuselessai/plit) CLI:
+
 ```bash
-git clone git@github.com:theuselessai/Pipelit.git
-cd Pipelit
-
-# Backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r platform/requirements.txt
-
-# Frontend
-cd platform/frontend && npm install
+curl -fsSL https://raw.githubusercontent.com/theuselessai/plit/main/install.sh | bash
+plit init
+plit start
 ```
 
-Then follow the full [Getting Started](getting-started/index.md) guide to configure and launch Pipelit.
+Or for development, see the full [Getting Started](getting-started/index.md) guide.
 
 ---
 
@@ -50,7 +46,7 @@ Drag-and-drop React Flow editor with node palette, config panel, and live execut
 
 ### Multi-Trigger
 
-Telegram, webhooks, chat, scheduled intervals, manual — all unified as first-class workflow nodes on the canvas.
+Webhooks, chat, scheduled intervals, manual — all unified as first-class workflow nodes on the canvas. External messaging via the [msg-gateway](https://github.com/theuselessai/plit).
 
 </div>
 
@@ -137,8 +133,8 @@ Structured Claude Code workflows for repeatable engineering tasks. Approval gate
 | **Backend** | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic, RQ (Redis Queue) |
 | **Frontend** | React, Vite, TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query |
 | **Execution** | LangGraph, LangChain, Redis pub/sub, WebSocket |
-| **Auth** | Bearer token API keys, TOTP-based MFA |
+| **Auth** | Bearer token API keys, RBAC (admin/normal), TOTP-based MFA |
 
 ## License
 
-MIT
+Apache 2.0
