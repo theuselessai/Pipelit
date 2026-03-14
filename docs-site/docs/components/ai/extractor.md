@@ -143,7 +143,7 @@ Extract structured order data from conversational input for downstream processin
 
 ```mermaid
 flowchart LR
-    Telegram[Telegram Trigger] --> Extractor
+    Chat[Chat Trigger] --> Extractor
     Model[AI Model<br/>Claude Sonnet] -.->|llm| Extractor
     Parser[Output Parser] -.->|output_parser| Extractor
     Extractor --> Switch

@@ -191,7 +191,7 @@ For long conversations, a context budget is applied:
 
 Agent nodes already support optional `conversation_memory` via `extra_config`. When enabled, a `SqliteSaver` checkpointer (`platform/checkpoints.db`) persists conversation history across executions.
 
-The thread ID is constructed from `user_profile_id`, `telegram_chat_id`, and `workflow_id` so the same user talking to the same workflow gets continuity. The system prompt uses both a `SystemMessage` and a `HumanMessage` fallback (for providers like Venice.ai that ignore the system role), with a stable ID to prevent duplication via LangGraph's `add_messages` reducer.
+The thread ID is constructed from `user_profile_id`, `chat_id`, and `workflow_id` so the same user talking to the same workflow gets continuity. The system prompt uses both a `SystemMessage` and a `HumanMessage` fallback (for providers like Venice.ai that ignore the system role), with a stable ID to prevent duplication via LangGraph's `add_messages` reducer.
 
 ## Layer 3: Sub-Workflow Context Isolation
 

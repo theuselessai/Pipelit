@@ -63,7 +63,7 @@ Tests are organized by the subsystem they exercise:
 | `test_memory_service.py` | Memory service layer |
 | `test_dispatch.py` | Trigger dispatch logic |
 | `test_handlers.py` | Event handler tests |
-| `test_telegram_handler.py` | Telegram trigger handler |
+| `test_gateway_handler.py` | Gateway trigger handler |
 | `test_manual_handler.py` | Manual trigger handler |
 | `test_mfa.py` | Multi-factor authentication |
 | `test_token_usage.py` | Token counting and cost tracking |
@@ -79,8 +79,8 @@ Shared fixtures are defined in `platform/conftest.py`:
 | `user_profile` | A `UserProfile` with username `testuser` |
 | `api_key` | An `APIKey` linked to the test user |
 | `workflow` | A `Workflow` with slug `test-workflow` |
-| `telegram_credential` | A `BaseCredential` with Telegram bot token |
-| `telegram_trigger` | A `WorkflowNode` for a Telegram trigger |
+| `gateway_credential` | A `BaseCredential` with a gateway token |
+| `gateway_trigger` | A `WorkflowNode` for a gateway trigger |
 | `manual_trigger` | A `WorkflowNode` for a manual trigger |
 
 The `_setup_db` fixture runs automatically before each test, creating all tables and dropping them afterward for complete isolation.

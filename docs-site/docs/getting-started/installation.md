@@ -1,6 +1,22 @@
 # Installation
 
-## Prerequisites
+## Via plit CLI (Recommended)
+
+The simplest way to get Pipelit running is via the [plit](https://github.com/theuselessai/plit) CLI, which manages Pipelit and the message gateway as Docker containers:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theuselessai/plit/main/install.sh | bash
+```
+
+This installs the `plit` binary to `~/.local/bin/`. Then run `plit init` to configure and `plit start` to launch everything.
+
+---
+
+## Standalone Setup (Development)
+
+For contributors or anyone running Pipelit outside Docker.
+
+### Prerequisites
 
 | Requirement | Minimum Version | Purpose |
 |-------------|----------------|---------|
@@ -16,16 +32,16 @@
     Deep agent nodes use bubblewrap (`bwrap`) to sandbox shell command execution.
     Most Linux distros ship it by default. Install via `apt install bubblewrap` or
     `dnf install bubblewrap`. On macOS, the built-in `sandbox-exec` is used instead.
-    If neither is available, the execute tool falls back to unsandboxed execution.
+    If neither is available, shell execution is **refused** — Pipelit does not fall back to unsandboxed execution.
 
-## Clone the Repository
+### Clone the Repository
 
 ```bash
 git clone git@github.com:theuselessai/Pipelit.git
 cd Pipelit
 ```
 
-## Backend Setup
+### Backend Setup
 
 Create a Python virtual environment and install dependencies:
 
@@ -35,9 +51,7 @@ source .venv/bin/activate
 pip install -r platform/requirements.txt
 ```
 
-The backend dependencies include FastAPI, SQLAlchemy, LangGraph, LangChain, and all required libraries.
-
-## Frontend Setup
+### Frontend Setup
 
 Install Node.js dependencies:
 
@@ -46,11 +60,7 @@ cd platform/frontend
 npm install
 ```
 
-This installs React, Vite, Shadcn/ui, React Flow, TanStack Query, and other frontend libraries.
-
-## Verify Installation
-
-Check that the key commands are available:
+### Verify Installation
 
 ```bash
 # Python packages

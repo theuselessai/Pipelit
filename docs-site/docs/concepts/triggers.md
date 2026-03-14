@@ -6,7 +6,7 @@ Triggers are the entry points of a workflow. They define **how** and **when** a 
 
 Unlike many automation platforms that treat triggers as external configuration, Pipelit uses a **unified node model**. A trigger is a regular workflow node with:
 
-- A `component_type` prefixed with `trigger_` (e.g., `trigger_chat`, `trigger_telegram`)
+- A `component_type` prefixed with `trigger_` (e.g., `trigger_chat`, `trigger_manual`)
 - Output ports that produce data when the trigger fires
 - A position on the canvas, connected to downstream nodes via edges
 - An orange border (`#f97316`) for visual identification
@@ -19,7 +19,7 @@ This unified design means you can:
 - Inspect trigger output after execution, just like any other node
 
 !!! note "Display names"
-    On the canvas, trigger nodes strip the `trigger_` prefix for cleaner display. For example, a `trigger_telegram` node shows as **telegram**, and a `trigger_chat` node shows as **chat**.
+    On the canvas, trigger nodes strip the `trigger_` prefix for cleaner display. For example, a `trigger_chat` node shows as **chat**, and a `trigger_manual` node shows as **manual**.
 
 ## Trigger types
 
@@ -27,30 +27,31 @@ Pipelit includes six trigger types, each designed for a different input channel:
 
 | Trigger | Component Type | Description | Output Ports |
 |---------|---------------|-------------|--------------|
-| **Chat** | `trigger_chat` | Receives messages from the built-in chat interface | `text` (STRING), `payload` (OBJECT) |
-| **Telegram** | `trigger_telegram` | Receives messages from a Telegram bot | `text` (STRING), `chat_id` (NUMBER), `payload` (OBJECT) |
+| **Chat** | `trigger_chat` | Receives messages from chat clients via the message gateway | `text` (STRING), `files` (ARRAY), `payload` (OBJECT) |
+| **Telegram** | `trigger_telegram` | Receives messages from Telegram via the message gateway | `text` (STRING), `chat_id` (NUMBER), `files` (ARRAY), `payload` (OBJECT) |
 | **Manual** | `trigger_manual` | Fired manually from the UI or API | `payload` (OBJECT) |
-| **Schedule** | `trigger_schedule` | Fires on a recurring interval via the scheduler | `timestamp` (STRING) |
-| **Workflow** | `trigger_workflow` | Fires when another workflow invokes this one as a subworkflow | `payload` (OBJECT) |
+| **Schedule** | `trigger_schedule` | Fires on a recurring interval via the scheduler | `timestamp` (STRING), `payload` (OBJECT) |
+| **Workflow** | `trigger_workflow` | Fires when another workflow invokes this one as a subworkflow | `text` (STRING), `payload` (OBJECT) |
 | **Error** | `trigger_error` | Fires when an error occurs during execution | `error` (OBJECT) |
 
 ### Chat Trigger
 
-The most common trigger for interactive workflows. When a user sends a message through the built-in chat panel or the chat API (`POST /api/v1/workflows/{slug}/chat/`), the chat trigger fires with the message text and full payload.
+The most common trigger for interactive workflows. When a user sends a message through an external chat client, the message gateway forwards it to Pipelit's inbound endpoint, and the chat trigger fires with the message text and full payload.
 
 ```mermaid
 flowchart LR
-    T["Chat Trigger<br/><small>text, payload</small>"] --> Agent
+    GW["Message Gateway"] -->|inbound| T["Chat Trigger<br/><small>text, payload</small>"]
+    T --> Agent
     M[AI Model] -.->|model| Agent
     Agent --> Response["Response"]
 ```
 
 ### Telegram Trigger
 
-Connects your workflow to a Telegram bot. When a message arrives via the Telegram webhook, the trigger fires with the message text, the chat ID (for reply routing), and the full Telegram payload.
+Receives messages from Telegram users via the message gateway. The gateway handles bot registration and webhook setup — Pipelit receives the forwarded message with the text, chat ID (for reply routing), and the full payload.
 
-!!! tip "Telegram credentials"
-    To use the Telegram trigger, create a Telegram credential in the Credentials page with your bot token. The platform handles webhook registration and message routing.
+!!! info "Gateway-mediated"
+    Telegram integration is managed by the [plit message gateway](https://github.com/theuselessai/plit), not Pipelit directly. Configure your Telegram bot credentials in the gateway.
 
 ### Manual Trigger
 
@@ -69,7 +70,7 @@ Fires when another workflow invokes this one as a child via a `workflow` (subwor
 
 ### Error Trigger
 
-A special trigger that fires when an error occurs during execution. This allows you to build error-handling branches that run automatically when something goes wrong -- for example, sending an alert via Telegram or logging the error to an external system.
+A special trigger that fires when an error occurs during execution. This allows you to build error-handling branches that run automatically when something goes wrong -- for example, sending an alert or logging the error to an external system.
 
 ## Trigger-scoped execution
 
@@ -104,7 +105,7 @@ In this example, when the chat trigger fires, only the Chat Trigger, Agent, and 
 
 This design has several practical benefits:
 
-- **Multiple entry points** -- One workflow can serve multiple channels (chat, Telegram, scheduled tasks) without interference.
+- **Multiple entry points** -- One workflow can serve multiple channels (chat, scheduled tasks) without interference.
 - **Safe iteration** -- You can add new nodes to the canvas without affecting existing trigger branches. Unconnected work-in-progress nodes will not cause build errors.
 - **Efficient execution** -- Only the relevant portion of the graph is compiled and run, keeping execution fast even for large workflows.
 - **Independent error handling** -- An error in one trigger's branch does not affect other branches.

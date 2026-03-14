@@ -92,7 +92,7 @@ The `requirements` parameter is a JSON string with optional keys:
 
 ```json
 {
-  "triggers": ["trigger_chat", "trigger_telegram"],
+  "triggers": ["trigger_chat", "trigger_webhook"],
   "node_types": ["agent", "code", "switch"],
   "tools": ["web_search", "run_command"],
   "tags": ["support", "automation"],
@@ -117,12 +117,12 @@ All keys are optional. Omitted keys are not factored into the score.
 An agent tasked with building a new workflow first checks for existing ones:
 
 ```
-User: Build me a workflow that monitors a website and sends Telegram alerts.
+User: Build me a workflow that monitors a website and sends alerts.
 
 Agent thinking: Let me check if something similar already exists.
 
 Tool call: workflow_discover(
-    requirements='{"triggers": ["trigger_schedule"], "node_types": ["agent"], "tools": ["http_request"], "tags": ["monitoring"], "description": "Monitor a website and send alerts via Telegram"}'
+    requirements='{"triggers": ["trigger_schedule"], "node_types": ["agent"], "tools": ["http_request"], "tags": ["monitoring"], "description": "Monitor a website and send alerts via webhook"}'
 )
 
 Result: {
@@ -139,10 +139,10 @@ Result: {
 }
 
 Agent: I found an existing workflow "site-monitor" with a 72% match.
-       I'll fork it and add Telegram delivery.
+       I'll fork it and add webhook delivery.
 ```
 
-The agent then uses `workflow_create` with `based_on: "site-monitor"` and patches to add Telegram notification.
+The agent then uses `workflow_create` with `based_on: "site-monitor"` and patches to add webhook notification.
 
 !!! tip "Discover-Then-Create Pattern"
     The recommended pattern is: discover first, then either reuse (score >= 0.95), fork and patch (score >= 0.50), or create new (score < 0.50). This prevents workflow sprawl and promotes reuse of tested, proven workflows.

@@ -57,15 +57,39 @@ The backend auto-creates the SQLite database and runs Alembic migrations on firs
     npm run dev
     ```
 
-## Setup Wizard
+## Create Admin Account
 
-Open `http://localhost:5173` in your browser. On first visit, the setup wizard will prompt you to create your admin account:
+Pipelit uses CLI commands for initial setup. Run the setup command to create your admin account:
 
-1. Choose a **username**
-2. Set a **password**
-3. Click **Create Account**
+```bash
+cd platform && source ../.venv/bin/activate
+python -m cli setup --username admin --password <your-password>
+```
 
-This creates the first user with full admin privileges and generates an API key for authentication.
+This creates the first user with **admin** privileges, generates an API key, and writes configuration to `conf.json`.
+
+!!! tip "Environment variable alternative"
+    You can pass the password via environment variable instead: `PIPELIT_SETUP_PASSWORD=secret python -m cli setup --username admin`
+
+### Optional: Apply a Quick-Start Fixture
+
+To bootstrap a working workflow with an LLM credential and a chat agent:
+
+```bash
+python -m cli apply-fixture default-agent \
+  --provider anthropic \
+  --model claude-sonnet-4-20250514 \
+  --api-key sk-ant-...
+```
+
+This creates:
+
+- An LLM provider credential with your API key
+- A "default-agent" workflow with a chat trigger, agent, and AI model — ready to use
+
+## Log In
+
+Open `http://localhost:5173` (dev) or `http://localhost:8000` (production) in your browser. Log in with the username and password you created above.
 
 ## Verify Everything Works
 
@@ -73,7 +97,8 @@ After logging in, you should see the workflow dashboard. Verify the backend is h
 
 ```bash
 # Check API is responding
-curl -s http://localhost:8000/api/v1/auth/setup-status/ | python -m json.tool
+curl -s http://localhost:8000/api/v1/auth/me/ \
+  -H "Authorization: Bearer <your-api-key>" | python -m json.tool
 
 # Check Redis connection
 redis-cli ping

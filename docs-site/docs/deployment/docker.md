@@ -152,7 +152,11 @@ docker compose logs -f worker
 docker compose down
 ```
 
-After starting, open `http://localhost:8000` in your browser. The setup wizard will prompt you to create your admin account on first visit.
+After starting, open `http://localhost:8000` in your browser. Create your admin account via the CLI setup command:
+
+```bash
+docker compose exec backend python -m cli setup
+```
 
 ## Scaling Workers
 

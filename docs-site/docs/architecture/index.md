@@ -20,7 +20,7 @@ This section provides a deep dive into Pipelit's internal architecture, covering
 
 Pipelit's architecture follows several guiding principles:
 
-- **Triggers are nodes.** There is no separate trigger subsystem. Triggers (chat, Telegram, webhook, scheduler) are first-class workflow nodes with the same lifecycle as any other node.
+- **Triggers are nodes.** There is no separate trigger subsystem. Triggers (chat, gateway/Telegram, webhook, scheduler) are first-class workflow nodes with the same lifecycle as any other node.
 - **Workflows over agents.** The unit of delegation is workflows, not individual agents. Workflows are composable graphs that subsume agent capabilities.
 - **Trigger-scoped execution.** When a trigger fires, only the nodes reachable downstream from that trigger are compiled and executed. Unconnected nodes on the same canvas are ignored.
 - **Component output convention.** Components return flat dicts. The orchestrator handles wrapping, state management, and side effects via underscore-prefixed keys.

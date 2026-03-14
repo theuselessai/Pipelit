@@ -58,7 +58,7 @@ Before execution, validate your workflow to catch structural issues:
 
 Trigger the workflow to run it. Execution happens in the background via an RQ worker:
 
-1. The trigger fires (chat message, Telegram message, schedule tick, manual dispatch, etc.)
+1. The trigger fires (chat message, inbound gateway message, schedule tick, manual dispatch, etc.)
 2. The builder compiles only the nodes reachable from that trigger
 3. The orchestrator executes nodes in topological order
 4. Each node receives data from upstream nodes via resolved Jinja2 expressions
@@ -85,13 +85,13 @@ A single workflow can contain **multiple trigger nodes**, each defining an indep
 ```mermaid
 flowchart LR
     TC[Chat Trigger] --> Agent
-    TT[Telegram Trigger] --> Agent
+    TT[Gateway/Telegram Trigger] --> Agent
     TS[Schedule Trigger] --> Reporter[Code: Daily Report]
     M[AI Model] -.->|model| Agent
     Agent --> Output[Code: Format]
 ```
 
-In the example above, the same Agent node handles both chat and Telegram inputs, while a separate Schedule Trigger feeds a completely independent reporting branch.
+In the example above, the same Agent node handles both chat and gateway/Telegram inputs, while a separate Schedule Trigger feeds a completely independent reporting branch.
 
 ### Trigger-scoped execution
 
@@ -99,7 +99,7 @@ When a trigger fires, Pipelit does **not** execute the entire workflow. Instead,
 
 This means:
 
-- A chat message only runs the chat branch, not the Telegram branch
+- A chat message only runs the chat branch, not the gateway/Telegram branch
 - A schedule tick only runs the scheduled branch, not the chat branch
 - Nodes you are still building (not yet connected) will not cause errors during execution
 

@@ -71,10 +71,10 @@ Each step maps to a Pipelit component type:
 trigger:
   type: webhook
 
-# Telegram trigger
+# Telegram trigger (receives messages forwarded by plit-gw)
 trigger:
   type: telegram
-  credential: inherit     # Use parent's telegram credential
+  credential: inherit     # Use parent's gateway credential
 
 # Chat trigger (for testing / manual invocation)
 trigger:

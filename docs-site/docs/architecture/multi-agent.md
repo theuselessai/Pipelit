@@ -10,7 +10,7 @@ This architecture builds entirely on Pipelit's existing primitives (workflow CRU
 graph TB
     subgraph Trigger["Trigger Layer"]
         Chat[Chat Trigger]
-        TG[Telegram Trigger]
+        TG[Gateway/Telegram Trigger]
         WH[Webhook Trigger]
     end
 

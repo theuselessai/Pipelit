@@ -105,8 +105,8 @@ The parent agent can invoke subagents as tools during its reasoning loop. Each s
 Conversation memory works the same as the standard Agent. When enabled:
 
 - A **SqliteSaver** checkpointer stores conversation state in `platform/checkpoints.db`.
-- The **thread ID** is constructed from `{user_profile_id}:{telegram_chat_id}:{workflow_id}`.
-- Without a Telegram chat ID, the thread simplifies to `{user_profile_id}:{workflow_id}`.
+- The **thread ID** is constructed from `{user_profile_id}:{chat_id}:{workflow_id}`.
+- Without a chat ID, the thread simplifies to `{user_profile_id}:{workflow_id}`.
 
 When disabled, a **RedisSaver** checkpointer provides ephemeral state for interrupt/resume capability (e.g., subagent delegation).
 

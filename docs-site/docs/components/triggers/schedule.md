@@ -115,7 +115,7 @@ graph LR
 2. **Agent** checks system health and makes HTTP requests to external services.
 3. Results are logged or sent via a delivery channel.
 
-### Scheduled report with Telegram delivery
+### Scheduled report with webhook delivery
 
 ```mermaid
 graph LR
@@ -127,4 +127,4 @@ graph LR
     style AM fill:#3b82f6,color:white
 ```
 
-A daily report workflow: the Schedule Trigger fires at a set interval, a Code node gathers data, and an Agent summarizes and formats the report for delivery.
+A daily report workflow: the Schedule Trigger fires at a set interval, a Code node gathers data, and an Agent summarizes and formats the report for delivery via webhook or HTTP request.

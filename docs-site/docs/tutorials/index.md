@@ -23,18 +23,6 @@ Create a chat-based agent with conversation memory. Learn the fundamentals of tr
 
 <div class="card" markdown>
 
-### [Set Up a Telegram Bot](telegram-bot.md)
-
-<span class="badge badge--trigger">Beginner</span>
-
-Connect Pipelit to Telegram via BotFather. Build a bot that receives messages, processes them with an LLM agent, and sends replies automatically.
-
-**You will learn:** Telegram credentials, webhook setup, Telegram triggers, automatic message delivery.
-
-</div>
-
-<div class="card" markdown>
-
 ### [Conditional Routing with Switch Nodes](conditional-routing.md)
 
 <span class="badge badge--logic">Intermediate</span>
@@ -102,11 +90,10 @@ Define entire workflows in YAML and have agents build them programmatically. Lea
 If you are new to Pipelit, work through the tutorials in order:
 
 1. **[Chatbot](chat-agent.md)** -- learn the core concepts
-2. **[Telegram Bot](telegram-bot.md)** -- add an external channel
-3. **[Conditional Routing](conditional-routing.md)** -- build branching logic
-4. **[Scheduled Workflows](scheduled-workflow.md)** -- automate recurring tasks
-5. **[Multi-Agent](multi-agent.md)** -- coordinate multiple workflows
-6. **[Self-Improving Agent](self-improving-agent.md)** -- enable autonomous evolution
-7. **[YAML DSL](yaml-dsl.md)** -- programmatic workflow creation
+2. **[Conditional Routing](conditional-routing.md)** -- build branching logic
+3. **[Scheduled Workflows](scheduled-workflow.md)** -- automate recurring tasks
+4. **[Multi-Agent](multi-agent.md)** -- coordinate multiple workflows
+5. **[Self-Improving Agent](self-improving-agent.md)** -- enable autonomous evolution
+6. **[YAML DSL](yaml-dsl.md)** -- programmatic workflow creation
 
 Each tutorial builds on concepts introduced in earlier ones.

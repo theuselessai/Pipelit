@@ -115,7 +115,7 @@ Create a workflow that has an agent equipped with the `workflow_create` tool.
     - edges: list of {source, target, type, label, condition_value}
 
     NODE TYPES:
-    Triggers: trigger_chat, trigger_telegram, trigger_schedule, trigger_manual
+    Triggers: trigger_chat, trigger_schedule, trigger_manual
     AI: agent, categorizer, router, extractor
     Tools: run_command, http_request, web_search, calculator, datetime
     Self-Awareness: whoami, create_agent_user, platform_api, epic_tools,
@@ -447,7 +447,6 @@ If the agent also has the `platform_api` tool, it can inspect and patch the exis
 | Node Type | Key Config Fields |
 |-----------|------------------|
 | `trigger_chat` | None required |
-| `trigger_telegram` | None (credential is separate) |
 | `trigger_schedule` | None (schedule is created via API) |
 | `ai_model` | `llm_credential_id`, `model_name` |
 | `agent` | `system_prompt`, `extra_config.conversation_memory` |

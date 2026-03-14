@@ -8,7 +8,7 @@ Pipelit is a self-hosted visual workflow automation platform for building LLM-po
 
 ### Is Pipelit open source?
 
-Yes. Pipelit is released under the MIT license.
+Yes. Pipelit is released under the Apache 2.0 license.
 
 ### What LLM providers are supported?
 
@@ -40,7 +40,7 @@ All stored credentials (API keys, tokens) become unrecoverable. Back up this key
 
 ### Can a workflow have multiple triggers?
 
-Yes. A single workflow can have multiple trigger nodes (e.g., a chat trigger and a Telegram trigger). Each trigger scopes its own execution — only nodes reachable downstream from the firing trigger are compiled and run.
+Yes. A single workflow can have multiple trigger nodes (e.g., a chat trigger and a gateway trigger). Each trigger scopes its own execution -- only nodes reachable downstream from the firing trigger are compiled and run.
 
 ### What happens to nodes not connected to a trigger?
 

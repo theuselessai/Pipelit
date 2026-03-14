@@ -101,7 +101,6 @@ nav:
   - Tutorials:
     - tutorials/index.md
     - Chat Agent: tutorials/chat-agent.md
-    - Telegram Bot: tutorials/telegram-bot.md
     - Conditional Routing: tutorials/conditional-routing.md
     - Scheduled Workflow: tutorials/scheduled-workflow.md
     - Multi-Agent: tutorials/multi-agent.md
@@ -113,7 +112,6 @@ nav:
     - Triggers:
       - components/triggers/index.md
       - Chat: components/triggers/chat.md
-      - Telegram: components/triggers/telegram.md
       - Manual: components/triggers/manual.md
       - Schedule: components/triggers/schedule.md
       - Workflow: components/triggers/workflow.md

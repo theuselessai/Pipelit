@@ -62,7 +62,7 @@ Every node that has already executed in the current run is available by its `nod
 
 ### The `trigger` Shorthand
 
-The special `trigger` variable refers to whichever trigger fired the current execution. This is particularly useful in workflows with multiple triggers (e.g., a chat trigger and a Telegram trigger feeding the same downstream agent).
+The special `trigger` variable refers to whichever trigger fired the current execution. This is particularly useful in workflows with multiple triggers (e.g., a chat trigger and a gateway/Telegram trigger feeding the same downstream agent).
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -78,7 +78,7 @@ Chat ID: {{ trigger.payload.chat_id }}
 ```
 
 !!! tip "Multi-Trigger Workflows"
-    The `trigger` shorthand always resolves to the trigger that initiated the current execution. If a workflow has both a chat trigger and a Telegram trigger connected to the same agent, `{{ trigger.text }}` works correctly in both cases.
+    The `trigger` shorthand always resolves to the trigger that initiated the current execution. If a workflow has both a chat trigger and a gateway/Telegram trigger connected to the same agent, `{{ trigger.text }}` works correctly in both cases.
 
 ### Loop Context
 

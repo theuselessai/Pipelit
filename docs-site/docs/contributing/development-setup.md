@@ -88,7 +88,12 @@ All processes use unified logging with context-aware formatting — server logs 
 
 ### First Login
 
-Open `http://localhost:5173` in your browser. The setup wizard prompts you to create an admin account on first visit.
+Open `http://localhost:5173` in your browser. On first run, create your admin account via the CLI setup command:
+
+```bash
+cd platform && source ../.venv/bin/activate
+python -m cli setup
+```
 
 ??? note "Manual startup (without honcho)"
     If you prefer separate terminals:
@@ -122,7 +127,7 @@ Pipelit/
 │   ├── schemas/            # Pydantic schemas + node type registry
 │   ├── services/           # Business logic (orchestrator, builder, etc.)
 │   ├── components/         # LangGraph node implementations
-│   ├── handlers/           # Trigger handlers (Telegram, webhook, manual)
+│   ├── handlers/           # Trigger handlers (gateway, webhook, manual)
 │   ├── validation/         # Edge type compatibility checks
 │   ├── ws/                 # WebSocket endpoints + broadcast
 │   ├── tasks/              # RQ job wrappers

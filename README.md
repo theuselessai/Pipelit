@@ -15,7 +15,9 @@
 
 ---
 
-Pipelit is a self-hosted workflow automation platform for designing LLM agent pipelines on a drag-and-drop canvas. Wire up triggers, agents, tools, and routing logic — then watch them execute in real time with live WebSocket status updates on every node.
+Pipelit is a self-hosted workflow automation engine for designing LLM agent pipelines on a drag-and-drop canvas. Wire up triggers, agents, tools, and routing logic — then watch them execute in real time with live WebSocket status updates on every node.
+
+Typically run via the [plit](https://github.com/theuselessai/plit) CLI, which manages Pipelit alongside the message gateway as Docker containers.
 
 <!-- TODO: Add a screenshot of the workflow editor here -->
 <!-- <p align="center"><img src="docs/assets/screenshot.png" alt="Workflow Editor" width="90%" /></p> -->
@@ -27,7 +29,7 @@ Pipelit is a self-hosted workflow automation platform for designing LLM agent pi
 |  |  |  |
 |:---:|:---:|:---:|
 | **Visual Canvas** | **Multi-Trigger** | **LLM Agents** |
-| Drag-and-drop React Flow editor with node palette, config panel, and live execution badges | Telegram, webhooks, chat, scheduled intervals, manual — all unified as workflow nodes | LangGraph react agents with tool-calling: shell, HTTP, web search, calculator, datetime, and more |
+| Drag-and-drop React Flow editor with node palette, config panel, and live execution badges | Webhooks, chat, scheduled intervals, manual — all unified as workflow nodes. External messaging via [plit gateway](https://github.com/theuselessai/plit) | LangGraph react agents with tool-calling: shell, HTTP, web search, calculator, datetime, and more |
 | **Conditional Routing** | **Scheduled Execution** | **Real-time Updates** |
 | Switch nodes evaluate rules and route to different branches via conditional edges | Recurring runs with configurable interval, retry with exponential backoff, pause/resume, and crash recovery | Single global WebSocket pushes node status, execution events, and canvas mutations — no polling |
 | **Cost Tracking** | **Conversation Memory** | **Self-Improving Agents** |
@@ -37,14 +39,25 @@ Pipelit is a self-hosted workflow automation platform for designing LLM agent pi
 
 ## Quick Start
 
-### Prerequisites
+### Via plit CLI (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theuselessai/plit/main/install.sh | bash
+plit init
+plit start
+```
+
+### Standalone (Development)
+
+<details>
+<summary><strong>Prerequisites</strong></summary>
 
 - Python 3.10+
 - Redis 8.0+ (includes RediSearch natively — see [Redis Setup](#redis-setup))
 - Node.js 18+
 - Bubblewrap 0.4+ (Linux: `apt install bubblewrap` — macOS uses built-in `sandbox-exec`)
 
-### 1. Install
+</details>
 
 ```bash
 git clone git@github.com:theuselessai/Pipelit.git
@@ -58,62 +71,36 @@ pip install -r platform/requirements.txt
 cd platform/frontend && npm install
 ```
 
-### 2. Configure
+Configure:
 
 ```bash
-# Generate an encryption key for credential storage
 echo "FIELD_ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> .env
+echo "REDIS_URL=redis://localhost:6379/0" >> .env
 ```
 
-Or create a `.env` file in the project root with at minimum:
-
-```env
-FIELD_ENCRYPTION_KEY=<your-generated-key>
-REDIS_URL=redis://localhost:6379/0
-```
-
-### 3. Start Services
-
-Start Redis, then launch everything with a single command:
+Start services:
 
 ```bash
 cd platform && source ../.venv/bin/activate
 honcho start
 ```
 
-This starts four processes via the `Procfile`:
-
-| Process | Command | Description |
-|---------|---------|-------------|
-| **server** | `uvicorn main:app --reload` | FastAPI backend on `:8000` |
-| **frontend** | `npm run dev` | Vite dev server on `:5173`, proxies `/api` to `:8000` |
-| **scheduler** | `rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler` | 1 worker with job scheduler (handles `enqueue_in` delayed jobs) |
-| **worker** | `rq worker-pool workflows -w worker_class.PipelitWorker -n 2` | 2 additional workers for parallel job processing |
-
-The backend auto-creates the database on first startup.
-
-<details>
-<summary><strong>Manual startup (without honcho)</strong></summary>
+Create admin account:
 
 ```bash
-# Terminal 1 — Backend
-cd platform && source ../.venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-# Terminal 2 — RQ Worker with scheduler
-cd platform && source ../.venv/bin/activate
-rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler
-
-# Terminal 3 — Frontend (dev)
-cd platform/frontend
-npm run dev    # http://localhost:5173, proxies /api to :8000
+python -m cli setup --username admin --password <your-password>
 ```
 
-</details>
+Optionally bootstrap a working workflow with an LLM credential:
 
-### 4. First Login
+```bash
+python -m cli apply-fixture default-agent \
+  --provider anthropic \
+  --model claude-sonnet-4-20250514 \
+  --api-key sk-ant-...
+```
 
-Open `http://localhost:5173` — the setup wizard will prompt you to create your admin account.
+Open `http://localhost:5173` (dev) or `http://localhost:8000` (production) and log in.
 
 > **Production:** Skip the frontend dev server — run `cd platform/frontend && npm run build` once, then access the app directly at `http://localhost:8000` (FastAPI serves the built SPA).
 
@@ -126,7 +113,7 @@ Open `http://localhost:5173` — the setup wizard will prompt you to create your
 | **Backend** | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic, RQ (Redis Queue) |
 | **Frontend** | React, Vite, TypeScript, Shadcn/ui, React Flow (@xyflow/react v12), TanStack Query |
 | **Execution** | LangGraph, LangChain, Redis pub/sub, WebSocket |
-| **Auth** | Bearer token API keys, TOTP-based MFA |
+| **Auth** | Bearer token API keys, RBAC (admin/normal), TOTP-based MFA |
 
 ---
 
@@ -140,8 +127,8 @@ Every trigger is a first-class workflow node:
 
 | Trigger | Description |
 |---------|-------------|
-| **Chat** | Built-in web chat interface |
-| **Telegram** | Bot integration with webhook support |
+| **Chat** | Receives messages from chat clients via the message gateway |
+| **Telegram** | Receives messages from Telegram via the message gateway |
 | **Webhook** | Accept external HTTP payloads |
 | **Scheduler** | Recurring interval execution with retry, backoff, and pause/resume |
 | **Manual** | One-click execution from the UI |
@@ -174,10 +161,12 @@ Automatic token counting and USD cost calculation per execution. Set token or US
 Create recurring jobs that fire workflow triggers at configurable intervals. Self-rescheduling via RQ `enqueue_in()` — no external cron needed. Features exponential backoff on failure, pause/resume, and automatic recovery of missed jobs on startup.
 
 ### Security
+- Role-based access control (admin / normal)
 - Encrypted credential storage (Fernet)
 - TOTP-based MFA with rate limiting and account lockout
-- Bearer token authentication
+- Bearer token authentication with multi-key support
 - Agent-to-agent identity verification via TOTP
+- Sandboxed shell execution (bubblewrap on Linux, no unsandboxed fallback)
 
 ---
 
@@ -187,7 +176,7 @@ All endpoints under `/api/v1/`, authenticated via `Authorization: Bearer <key>`.
 
 | Resource | Endpoints |
 |----------|-----------|
-| **Auth** | `POST /auth/token/`, `GET /auth/me/`, `POST /auth/setup/` |
+| **Auth** | `POST /auth/token/`, `GET /auth/me/` |
 | **Workflows** | `GET/POST /workflows/`, `GET/PATCH/DELETE /workflows/{slug}/`, `POST .../validate/` |
 | **Nodes** | `GET/POST /workflows/{slug}/nodes/`, `PATCH/DELETE .../nodes/{node_id}/` |
 | **Edges** | `GET/POST /workflows/{slug}/edges/`, `PATCH/DELETE .../edges/{id}/` |
@@ -195,6 +184,7 @@ All endpoints under `/api/v1/`, authenticated via `Authorization: Bearer <key>`.
 | **Chat** | `POST /workflows/{slug}/chat/`, `DELETE .../chat/history` |
 | **Credentials** | `GET/POST /credentials/`, `GET/PATCH/DELETE .../credentials/{id}/`, `POST .../test/` |
 | **Schedules** | `GET/POST /schedules/`, `GET/PATCH/DELETE .../schedules/{id}/`, `POST .../pause/`, `POST .../resume/` |
+| **Users** | `GET/POST /users/`, `PATCH/DELETE .../users/{id}/`, `POST .../users/me/keys` |
 | **Memory** | Facts, episodes, procedures, users, checkpoints — all with batch delete |
 
 All list endpoints return `{"items": [...], "total": N}` with `limit`/`offset` pagination.
@@ -261,6 +251,12 @@ docker stop redis && docker rm redis
 Enable `conversation_memory` on agent nodes that use `spawn_and_await`. This switches the checkpointer from RedisSaver to SqliteSaver, bypassing the RediSearch requirement.
 
 </details>
+
+---
+
+## Documentation
+
+Full documentation at [pipelit.theuseless.ai](https://pipelit.theuseless.ai).
 
 ---
 

@@ -12,9 +12,9 @@ Components are organized into seven categories, each with a distinct role in the
 
 ### [Triggers](triggers/index.md) <span class="badge badge--trigger">6 types</span>
 
-Entry points that initiate workflow execution. Triggers are first-class nodes on the canvas -- they receive events from external sources (Telegram, chat, schedules) and pass data downstream.
+Entry points that initiate workflow execution. Triggers are first-class nodes on the canvas -- they receive events from external sources (chat, the message gateway, schedules) and pass data downstream.
 
-**Chat** | **Telegram** | **Manual** | **Schedule** | **Workflow** | **Error**
+**Chat** | **Telegram (via gateway)** | **Manual** | **Schedule** | **Workflow** | **Error**
 
 </div>
 

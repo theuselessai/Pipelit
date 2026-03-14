@@ -91,7 +91,7 @@ The foundation for self-improving agents is largely in place:
 
 | Capability | Status | Implementation |
 |------------|--------|----------------|
-| Trigger receiving (Telegram/Chat/Webhook) | Complete | `trigger_telegram`, `trigger_chat`, `trigger_webhook` |
+| Trigger receiving (Chat/Gateway/Webhook) | Complete | `trigger_chat`, `trigger_telegram` (fed by plit-gw), `trigger_webhook` |
 | Agent with tool calling | Complete | `agent` node + 12+ tool sub-component types |
 | Memory read/write | Complete | `memory_read`, `memory_write` tools |
 | Workflow inspect / self-modify | Partial | `whoami` + `platform_api` tools |

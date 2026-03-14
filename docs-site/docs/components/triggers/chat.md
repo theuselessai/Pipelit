@@ -2,7 +2,7 @@
 
 <span class="badge badge--trigger">Trigger</span>
 
-The Chat Trigger provides a built-in web chat interface for interacting with workflows directly from the Pipelit frontend. Users type messages in the ChatPanel, and each message fires the trigger to start a new workflow execution.
+The Chat Trigger receives messages from external chat clients via the message gateway. When a user sends a message through a connected chat interface, the gateway forwards it to Pipelit, and the trigger fires to start a new workflow execution.
 
 **Component type:** `trigger_chat`
 
@@ -15,6 +15,7 @@ The Chat Trigger provides a built-in web chat interface for interacting with wor
 | Port | Type | Description |
 |------|------|-------------|
 | `text` | STRING | The message text sent by the user |
+| `files` | ARRAY | Document files attached to the message |
 | `payload` | OBJECT | Full trigger payload including text and metadata |
 
 ### Inputs
@@ -74,20 +75,20 @@ graph LR
 
 ### Multi-trigger workflow
 
-A Chat Trigger and a Telegram Trigger can both feed the same agent:
+A Chat Trigger and a Manual Trigger can both feed the same agent:
 
 ```mermaid
 graph LR
     CT[Chat Trigger] --> AG[Agent]
-    TT[Telegram Trigger] --> AG
+    TM[Manual Trigger] --> AG
     AM[AI Model] -.-> AG
 
     style CT fill:#f97316,color:white
-    style TT fill:#f97316,color:white
+    style TM fill:#f97316,color:white
     style AM fill:#3b82f6,color:white
 ```
 
-In this layout, the same agent handles messages from both the web chat and Telegram. The `{{ trigger.text }}` expression works regardless of which trigger fired.
+In this layout, the same agent handles messages from both chat and manual triggers. The `{{ trigger.text }}` expression works regardless of which trigger fired.
 
 ## API Endpoint
 

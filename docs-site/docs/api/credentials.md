@@ -1,6 +1,6 @@
 # Credentials
 
-Endpoints for managing credentials (LLM providers, Telegram bots, Git repositories, tool configs). Credentials are global -- any authenticated user can access them. Sensitive fields (API keys, tokens) are masked in responses.
+Endpoints for managing credentials (LLM providers, gateway credentials, Git repositories, tool configs). Credentials are global -- any authenticated user can access them. Sensitive fields (API keys, tokens) are masked in responses.
 
 All endpoints are under `/api/v1/credentials/` and require Bearer token authentication.
 
@@ -11,7 +11,7 @@ All endpoints are under `/api/v1/credentials/` and require Bearer token authenti
 | Type       | Description | Detail Fields |
 |------------|-------------|---------------|
 | `llm`      | LLM provider API key | `provider_type`, `api_key`, `base_url`, `organization_id`, `custom_headers` |
-| `telegram` | Telegram bot token | `bot_token`, `allowed_user_ids` |
+| `gateway`  | Message gateway credential (plit-gw) | `api_key`, `allowed_user_ids` |
 | `git`      | Git repository credential | `provider`, `credential_type`, `username`, `ssh_private_key`, `access_token` |
 | `tool`     | Tool-specific credential | `tool_type`, `config` |
 
@@ -56,10 +56,10 @@ curl http://localhost:8000/api/v1/credentials/ \
     },
     {
       "id": 2,
-      "name": "My Telegram Bot",
-      "credential_type": "telegram",
+      "name": "My Gateway Credential",
+      "credential_type": "gateway",
       "detail": {
-        "bot_token": "1234****6789",
+        "api_key": "gw-****6789",
         "allowed_user_ids": "123456789"
       },
       "created_at": "2025-01-15T11:00:00",
@@ -81,7 +81,7 @@ Create a new credential.
 | Field             | Type   | Required | Description |
 |-------------------|--------|----------|-------------|
 | `name`            | string | yes      | Display name |
-| `credential_type` | string | yes      | One of: `llm`, `telegram`, `git`, `tool` |
+| `credential_type` | string | yes      | One of: `llm`, `gateway`, `git`, `tool` |
 | `detail`          | object | no       | Type-specific configuration (see below) |
 
 ### LLM Detail Fields
@@ -94,12 +94,12 @@ Create a new credential.
 | `organization_id` | string | `""`                 | Organization ID (OpenAI) |
 | `custom_headers`  | object | `{}`                 | Custom HTTP headers |
 
-### Telegram Detail Fields
+### Gateway Detail Fields
 
 | Field              | Type   | Default | Description |
 |--------------------|--------|---------|-------------|
-| `bot_token`        | string | `""`    | Telegram bot token from BotFather |
-| `allowed_user_ids` | string | `""`    | Comma-separated allowed Telegram user IDs |
+| `api_key`          | string | `""`    | Gateway API key from plit-gw |
+| `allowed_user_ids` | string | `""`    | Comma-separated allowed user IDs |
 
 ### Git Detail Fields
 

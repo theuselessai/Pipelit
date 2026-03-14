@@ -29,7 +29,7 @@ The left panel displays all available component types organized into categories:
 
 | Category | Node Types |
 |----------|-----------|
-| **Triggers** | Chat, Telegram, Schedule, Manual, Workflow, Error |
+| **Triggers** | Chat, Gateway, Schedule, Manual, Workflow, Error |
 | **AI** | AI Model, Agent |
 | **Routing** | Categorizer, Extractor |
 | **Memory** | Memory Read, Memory Write, Identify User |
@@ -58,7 +58,7 @@ The canvas is powered by **React Flow** (@xyflow/react v12) and supports:
 Each node on the canvas displays:
 
 - **Icon** -- Font Awesome icon identifying the component type
-- **Type label** -- The component type name (e.g., "Agent", "Telegram", "Switch")
+- **Type label** -- The component type name (e.g., "Agent", "Gateway", "Switch")
 - **Node ID** -- Shortened display label (strips the component type prefix)
 - **Color-coded border** -- Each component category has a distinct color:
 
@@ -169,7 +169,7 @@ Selecting a node opens the details panel on the right. The panel content varies 
 
 Trigger nodes show additional fields:
 
-- **Credential** -- Select a credential for the trigger (e.g., Telegram bot token)
+- **Credential** -- Select a credential for the trigger (e.g., a gateway token for messaging channel triggers)
 - **Active** -- Toggle whether the trigger is actively listening
 - **Priority** -- Numeric priority for ordering when multiple triggers can handle the same event
 - **Trigger Config** -- JSON editor for trigger-specific settings

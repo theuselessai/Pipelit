@@ -22,7 +22,7 @@ platform/frontend/src/
 ├── api/            # TanStack Query hooks + fetch client
 ├── components/     # Shared components (ExpressionTextarea, VariablePicker, layout)
 ├── features/       # Page-level feature modules
-│   ├── auth/       # Login, setup, AuthProvider
+│   ├── auth/       # Login, AuthProvider
 │   ├── workflows/  # Dashboard + editor (canvas, palette, details panel)
 │   ├── credentials/
 │   ├── executions/
@@ -39,12 +39,11 @@ platform/frontend/src/
 
 ## Routes
 
-All pages except `/login` and `/setup` are protected by authentication. The authenticated layout wraps pages in a collapsible sidebar with navigation links.
+All pages except `/login` are protected by authentication. The authenticated layout wraps pages in a collapsible sidebar with navigation links.
 
 | Route | Page | Description |
 |-------|------|-------------|
 | `/login` | Login | Username and password form |
-| `/setup` | Setup | First-time admin account creation |
 | `/` | [Dashboard](dashboard.md) | Workflow list with create/delete |
 | `/workflows/:slug` | [Workflow Editor](editor.md) | Three-panel canvas editor |
 | `/credentials` | [Credentials](credentials-ui.md) | API key and bot token management |

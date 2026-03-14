@@ -133,12 +133,12 @@ patches:
 
 ### DSL Trigger Types
 
-| DSL Trigger | Component Type |
-|-------------|---------------|
-| `chat` | `trigger_chat` |
-| `telegram` | `trigger_telegram` |
-| `manual` | `trigger_manual` |
-| `none` | `trigger_workflow` |
+| DSL Trigger | Component Type | Notes |
+|-------------|---------------|-------|
+| `chat` | `trigger_chat` | Built-in web chat interface |
+| `telegram` | `trigger_telegram` | Receives messages forwarded by the message gateway (plit-gw) |
+| `manual` | `trigger_manual` | One-click execution from the UI |
+| `none` | `trigger_workflow` | Subworkflow -- invoked by a parent workflow |
 
 !!! tip "Discover Before Creating"
     Use [Workflow Discover](workflow-discover.md) first to check if a similar workflow already exists. If a close match is found (score >= 0.50), fork mode is more efficient than creating from scratch.

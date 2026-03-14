@@ -57,7 +57,7 @@ LOG_LEVEL=INFO
 
 ## Generating the Encryption Key
 
-The `FIELD_ENCRYPTION_KEY` is a Fernet key used to encrypt sensitive credential data (LLM API keys, Telegram bot tokens, etc.) at rest in the database. Generate one with:
+The `FIELD_ENCRYPTION_KEY` is a Fernet key used to encrypt sensitive credential data (LLM API keys, gateway tokens, etc.) at rest in the database. Generate one with:
 
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
