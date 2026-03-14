@@ -28,9 +28,12 @@ def upgrade() -> None:
     connection.execute(text("PRAGMA foreign_keys=OFF"))
 
     # SQLite requires batch mode to alter constraints.
-    # We use batch_alter_table to recreate the table without the unique
-    # constraint on user_id, and add new columns.
-    with op.batch_alter_table("api_keys") as batch_op:
+    # The initial migration creates UniqueConstraint('user_id') without a name,
+    # so we must pass naming_convention to let Alembic resolve it by convention.
+    naming_convention = {
+        "uq": "uq_%(table_name)s_%(column_0_name)s",
+    }
+    with op.batch_alter_table("api_keys", naming_convention=naming_convention) as batch_op:
         batch_op.add_column(sa.Column("name", sa.String(100), nullable=False, server_default="default"))
         batch_op.add_column(sa.Column("prefix", sa.String(8), nullable=False, server_default=""))
         batch_op.add_column(sa.Column("last_used_at", sa.DateTime(), nullable=True))
