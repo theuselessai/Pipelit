@@ -48,7 +48,7 @@ The builder compiles a `Workflow` database model into a LangGraph `CompiledGraph
 
 When a trigger fires, the builder only compiles nodes **reachable downstream** from that specific trigger. This is a critical design decision:
 
-- A single workflow can have multiple trigger branches (e.g., a chat trigger and a Telegram trigger feeding different agent chains)
+- A single workflow can have multiple trigger branches (e.g., a chat trigger and a gateway/Telegram trigger feeding different agent chains)
 - Unused nodes on the canvas do not cause build errors
 - Each trigger activation produces a minimal, focused execution graph
 
@@ -56,7 +56,7 @@ When a trigger fires, the builder only compiles nodes **reachable downstream** f
 graph LR
     subgraph "Full Workflow Canvas"
         TC[trigger_chat] --> A1[agent_1]
-        TT[trigger_telegram] --> A2[agent_2]
+        TT[trigger_telegram<br/>via gateway] --> A2[agent_2]
         A2 --> Code[code_1]
         Unused[unused_node]
     end
@@ -180,7 +180,7 @@ The expression context includes:
 | `<node_id>` | `node_outputs[node_id]` | `{{ agent_abc.output }}` |
 | `trigger` | The trigger that fired this execution | `{{ trigger.text }}` |
 
-The `trigger` shorthand always refers to whichever trigger fired the current execution, which is useful in multi-trigger workflows where chat and Telegram triggers feed the same downstream nodes.
+The `trigger` shorthand always refers to whichever trigger fired the current execution, which is useful in multi-trigger workflows where chat and gateway/Telegram triggers feed the same downstream nodes.
 
 ### Jinja2 Features
 

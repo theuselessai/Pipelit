@@ -20,7 +20,7 @@ platform/
 │   └── _helpers.py      # Response serialization helpers
 ├── models/              # SQLAlchemy ORM models
 │   ├── user.py          # UserProfile, APIKey
-│   ├── credential.py    # BaseCredential, LLMProviderCredential, TelegramCredential
+│   ├── credential.py    # BaseCredential, LLMProviderCredential, GatewayCredential
 │   ├── workflow.py      # Workflow, WorkflowCollaborator
 │   ├── node.py          # WorkflowNode, WorkflowEdge, ComponentConfig hierarchy
 │   ├── execution.py     # WorkflowExecution, ExecutionLog, PendingTask
@@ -41,13 +41,13 @@ platform/
 │   ├── executor.py      # WorkflowExecutor + RQ job wrappers
 │   ├── expressions.py   # Jinja2 template resolver for node config
 │   ├── cache.py         # Redis-backed graph caching
-│   ├── delivery.py      # Routes results to Telegram, webhooks, etc.
+│   ├── delivery.py      # Routes results to the gateway, webhooks, etc.
 │   ├── llm.py           # create_llm_from_db(), resolve_llm_for_node()
 │   ├── scheduler.py     # Self-rescheduling scheduler (execute, backoff, recovery)
 │   └── state.py         # WorkflowState (LangGraph MessagesState)
 ├── handlers/            # Event/trigger handlers
 │   ├── __init__.py      # dispatch_event() - unified trigger dispatch
-│   ├── telegram.py      # TelegramTriggerHandler
+│   ├── telegram.py      # TelegramTriggerHandler (receives messages from plit-gw)
 │   ├── webhook.py       # Incoming webhook endpoint
 │   └── manual.py        # Manual execution endpoint
 ├── components/          # LangGraph node component implementations (20+ files)
@@ -196,7 +196,8 @@ class NodeCreate(BaseModel):
     node_id: str
     component_type: Literal[
         "agent", "categorizer", "router", "extractor",
-        "trigger_chat", "trigger_telegram", "trigger_webhook",
+        "trigger_chat", "trigger_telegram",  # trigger_telegram fed by plit-gw
+        "trigger_webhook",
         "code", "switch", "loop", ...
     ]
     config: ComponentConfigData | None = None
@@ -236,7 +237,7 @@ Key RQ job types:
 - **`execute_workflow_job`** -- Runs a complete workflow execution
 - **`execute_node_job`** -- Runs a single node (used for re-invocations after subworkflow completion)
 - **`execute_scheduled_job`** -- Runs a scheduled job, then self-reschedules via `Queue.enqueue_in()`
-- **`dispatch_event`** -- Routes incoming events (Telegram messages, webhooks) to the appropriate trigger handler
+- **`dispatch_event`** -- Routes incoming events (gateway messages, webhooks) to the appropriate trigger handler
 
 ### Self-Rescheduling Scheduler
 

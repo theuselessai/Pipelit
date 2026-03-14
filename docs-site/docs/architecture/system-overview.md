@@ -48,7 +48,7 @@ graph TB
 
     subgraph External["External Services"]
         LLM[LLM Providers<br/>OpenAI / Anthropic / etc.]
-        Telegram[Telegram Bot API]
+        Gateway[Message Gateway<br/>plit-gw]
         Webhooks[Incoming Webhooks]
     end
 
@@ -85,7 +85,7 @@ graph TB
     Builder -->|cache compiled graph| Cache
 
     %% External triggers
-    Telegram -->|incoming messages| Routes
+    Gateway -->|forwarded messages| Routes
     Webhooks -->|incoming payloads| Routes
 
     %% Styling
@@ -103,7 +103,7 @@ graph TB
     class PubSub,JobQueue,Cache,ExecState redis
     class Executor,Orchestrator,Scheduler worker
     class Builder,LangGraph,Components,Topology exec
-    class LLM,Telegram,Webhooks external
+    class LLM,Gateway,Webhooks external
 ```
 
 ## Component Descriptions
@@ -159,7 +159,7 @@ Background processing is handled by RQ workers that dequeue jobs from Redis.
 ### External Services
 
 - **LLM Providers** -- Agent and AI nodes call external LLM APIs (OpenAI, Anthropic, and others) via LangChain. Credentials are stored encrypted with Fernet.
-- **Telegram Bot API** -- The Telegram trigger handler receives incoming messages and dispatches them to workflows.
+- **Message Gateway (plit-gw)** -- The gateway forwards messages from external messaging channels (including Telegram) to the `trigger_telegram` handler. Pipelit does not connect to Telegram directly.
 - **Incoming Webhooks** -- External services can trigger workflow execution via webhook endpoints.
 
 ## Request Flow
