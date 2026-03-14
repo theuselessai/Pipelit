@@ -1,0 +1,89 @@
+name: E2E
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "platform/alembic/**"
+      - "platform/api/**"
+      - "platform/auth.py"
+      - "platform/models/**"
+      - "platform/schemas/**"
+      - "platform/main.py"
+      - "platform/cli/**"
+      - "platform/ws/**"
+      - "e2e/**"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Docker image to test (default: build from plit repo)"
+        required: false
+        type: string
+
+jobs:
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    # Smoke tests: PR + RC tags + manual dispatch (mock LLM)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.ref, '-rc'))
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        if: inputs.image == ''
+        run: |
+          # Clone plit repo for Dockerfile
+          git clone --depth 1 https://github.com/theuselessai/plit.git /tmp/plit
+          # Build image with this PR's Pipelit branch
+          # PIPELIT_REF: PR branch name (head_ref) or tag name (ref_name)
+          docker build \
+            --build-arg PIPELIT_REF="${{ github.head_ref || github.ref_name }}" \
+            -t plit-e2e:local \
+            /tmp/plit
+
+      - name: Pull Docker image
+        if: inputs.image != ''
+        run: docker pull ${{ inputs.image }} && docker tag ${{ inputs.image }} plit-e2e:local
+
+      - name: Run smoke E2E
+        run: ./e2e/run_smoke.sh plit-e2e:local
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          for c in $(docker ps -a --filter name=plit-e2e-smoke --format '{{.Names}}'); do
+            echo "=== Logs: $c ==="
+            docker logs "$c" 2>&1 | tail -100
+          done
+
+  e2e-full:
+    runs-on: ubuntu-latest
+    # Full tests: stable release tags only (real Anthropic key)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          git clone --depth 1 https://github.com/theuselessai/plit.git /tmp/plit
+          docker build \
+            --build-arg PIPELIT_REF="${{ github.ref_name }}" \
+            -t plit-e2e:local \
+            /tmp/plit
+
+      - name: Run full E2E
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: ./e2e/run_smoke.sh plit-e2e:local
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          for c in $(docker ps -a --filter name=plit-e2e-smoke --format '{{.Names}}'); do
+            echo "=== Logs: $c ==="
+            docker logs "$c" 2>&1 | tail -100
+          done
