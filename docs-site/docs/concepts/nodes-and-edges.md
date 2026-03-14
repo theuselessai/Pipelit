@@ -14,7 +14,7 @@ Pipelit organizes its node types into seven categories:
 graph TD
     subgraph Triggers["Triggers (6 types)"]
         direction LR
-        TC[Chat] ~~~ TT[Telegram] ~~~ TM[Manual]
+        TC[Chat] ~~~ TT[Telegram/GW] ~~~ TM[Manual]
         TS[Schedule] ~~~ TW[Workflow] ~~~ TE[Error]
     end
 
@@ -57,7 +57,7 @@ graph TD
 
 | Category | Types | Purpose |
 |----------|-------|---------|
-| **Triggers** | `trigger_chat`, `trigger_telegram`, `trigger_manual`, `trigger_schedule`, `trigger_workflow`, `trigger_error` | Initiate workflow execution from external events |
+| **Triggers** | `trigger_chat`, `trigger_telegram`, `trigger_manual`, `trigger_schedule`, `trigger_workflow`, `trigger_error` | Initiate workflow execution from external events. `trigger_telegram` receives messages forwarded by the message gateway (plit-gw). |
 | **AI** | `agent`, `categorizer`, `router`, `extractor` | LLM-powered reasoning, classification, routing, and data extraction |
 | **Tools** | `run_command`, `http_request`, `web_search`, `calculator`, `datetime` | Capabilities that agents can invoke during reasoning |
 | **Logic** | `switch`, `code`, `merge`, `filter`, `loop`, `wait`, `human_confirmation`, `aggregator`, `workflow` | Flow control, data transformation, and branching |

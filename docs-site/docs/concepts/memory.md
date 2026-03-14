@@ -33,10 +33,10 @@ Under the hood, conversation memory uses a **SQLite checkpointer** (`platform/ch
 Each conversation thread is identified by a composite key:
 
 ```
-thread_id = user_profile_id + telegram_chat_id + workflow_id
+thread_id = user_profile_id + chat_id + workflow_id
 ```
 
-This means the same user talking to the same workflow gets continuity, regardless of whether the conversation happens over chat, Telegram, or any other channel. Different users on the same workflow get separate threads.
+This means the same user talking to the same workflow gets continuity, regardless of which channel the conversation arrives from. Different users on the same workflow get separate threads.
 
 !!! info "Enabling conversation memory"
     Toggle the **Conversation Memory** switch in the Node Details Panel for any agent node. The setting is stored as `conversation_memory: true` in the agent's `extra_config`.
@@ -125,11 +125,11 @@ Each procedure has:
 
 #### Memory users
 
-Memory users provide **cross-channel identity tracking**. They allow the same person on Telegram, email, or other channels to be recognized as a single identity.
+Memory users provide **cross-channel identity tracking**. They allow the same person arriving via the message gateway, email, or other channels to be recognized as a single identity.
 
 Each memory user has:
 
-- A `canonical_id` (e.g., `telegram:12345`)
+- A `canonical_id` (e.g., `gw:12345` for a gateway user, or `email:user@example.com`)
 - Channel-specific identifiers (`telegram_id`, `email`)
 - A `display_name`
 - Cached preferences (denormalized from facts for fast lookup)

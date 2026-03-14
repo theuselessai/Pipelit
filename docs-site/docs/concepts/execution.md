@@ -6,7 +6,7 @@ An **execution** is a single run of a workflow. When a trigger fires, Pipelit co
 
 ```mermaid
 sequenceDiagram
-    participant Trigger as Trigger (chat/telegram/schedule)
+    participant Trigger as Trigger (chat/gateway/schedule)
     participant Handler as Trigger Handler
     participant DB as Database
     participant Builder as Topology Builder
@@ -58,7 +58,7 @@ When a trigger fires, the builder does **not** compile the entire workflow. Inst
 
 This design enables several patterns:
 
-- **Multiple trigger branches** -- a single workflow can have a chat trigger and a Telegram trigger, each leading to different processing paths. Firing one trigger does not execute the other branch.
+- **Multiple trigger branches** -- a single workflow can have a chat trigger and a gateway/Telegram trigger, each leading to different processing paths. Firing one trigger does not execute the other branch.
 - **Unused nodes** -- nodes that are not connected to any trigger (e.g., nodes being configured but not yet wired in) are silently ignored.
 - **No build errors from disconnected nodes** -- incomplete branches do not cause validation failures during execution.
 
@@ -242,7 +242,7 @@ Execution state is stored in Redis with a 1-hour TTL. The state dict contains:
 |-----|-------------|
 | `messages` | LangGraph message list (HumanMessage, AIMessage, ToolMessage, etc.) |
 | `trigger` | The trigger payload that started the execution |
-| `user_context` | User profile ID and Telegram chat ID |
+| `user_context` | User profile ID and external chat ID (e.g., from the message gateway) |
 | `execution_id` | UUID of the current execution |
 | `route` | Current routing value for conditional edges |
 | `node_outputs` | Dict of `{node_id: {port: value}}` for all completed nodes |
@@ -270,7 +270,7 @@ When all in-flight nodes complete (the Redis counter reaches zero), the orchestr
 1. Extracts the final output from state (last AI message, or `node_outputs`).
 2. Sets `execution.status = "completed"` and persists cost data.
 3. Publishes `execution_completed` via WebSocket.
-4. Runs output delivery (Telegram reply, webhook callback, etc.).
+4. Runs output delivery (gateway response, webhook callback, etc.).
 5. Completes the memory episode for the execution.
 6. If this is a child execution, resumes the parent at its waiting node.
 7. Cleans up all Redis keys for the execution.

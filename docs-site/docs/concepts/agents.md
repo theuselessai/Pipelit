@@ -104,21 +104,21 @@ When conversation memory is enabled (toggle in the Node Details Panel):
 The thread ID determines which conversation history an agent loads. It is constructed from three components:
 
 ```
-{user_profile_id}:{telegram_chat_id}:{workflow_id}
+{user_profile_id}:{chat_id}:{workflow_id}
 ```
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
 | `user_profile_id` | `state["user_context"]` | Identifies the human user |
-| `telegram_chat_id` | `state["user_context"]` | Separates Telegram chats (omitted if empty) |
+| `chat_id` | `state["user_context"]` | Separates conversations by channel (omitted if empty) |
 | `workflow_id` | Agent node's workflow | Isolates conversations per workflow |
 
 This means:
 
 - The same user talking to the same workflow always gets the same conversation thread.
 - Different users get separate threads even on the same workflow.
-- Different Telegram chats (group vs. DM) get separate threads.
-- If there is no Telegram chat ID, the thread ID simplifies to `{user_profile_id}:{workflow_id}`.
+- Different channels or chat sessions get separate threads.
+- If there is no chat ID, the thread ID simplifies to `{user_profile_id}:{workflow_id}`.
 
 !!! info "Ephemeral Checkpoints for Spawn & Await"
     If an agent has a `spawn_and_await` tool connected but conversation memory is disabled, a **RedisSaver** checkpointer is used instead of SqliteSaver. This ephemeral checkpointer only persists state long enough for the child workflow to complete and the agent to resume. The thread ID uses the format `exec:{execution_id}:{node_id}`.
