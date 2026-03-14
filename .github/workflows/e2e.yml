@@ -77,7 +77,7 @@ jobs:
 
       - name: Run full E2E
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: ./e2e/run_smoke.sh plit-e2e:local
 
       - name: Container logs on failure
