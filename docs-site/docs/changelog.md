@@ -4,6 +4,16 @@ All notable changes to Pipelit will be documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.10] - 2026-03-19
+
+### Added
+
+- **Frontend serving via env var** -- `FRONTEND_DIST_PATH` env var allows serving the React SPA from a path outside the default location, fixing frontend not served in Docker when volume mounts shadow the built dist ([#170](https://github.com/theuselessai/Pipelit/pull/170))
+- **Frontend E2E test** -- Smoke test now verifies the frontend is served from the root URL (section 7) ([#170](https://github.com/theuselessai/Pipelit/pull/170))
+- **DSL test fixtures** -- Six topology + Gherkin behavior spec pairs covering complete agent, branching, loop/filter, memory/subworkflow, deep agent meta, and error routing scenarios ([#170](https://github.com/theuselessai/Pipelit/pull/170))
+
+---
+
 ## [0.3.9] - 2026-03-15
 
 ### Added
