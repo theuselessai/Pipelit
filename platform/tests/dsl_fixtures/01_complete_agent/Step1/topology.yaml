@@ -1,0 +1,20 @@
+# Test 1: Complete Agent
+# Covers: trigger_manual, agent, ai_model, tools, code, direct edges
+
+name: Complete Agent Test
+trigger: manual
+
+model:
+  discover: true
+
+steps:
+  - type: agent
+    id: main_agent
+    memory: true
+    tools:
+      - calculator
+      - type: code
+      - type: web_search
+
+  - type: code
+    id: format_output

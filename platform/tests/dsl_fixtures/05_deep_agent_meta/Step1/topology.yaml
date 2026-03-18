@@ -1,0 +1,19 @@
+# Test 5: Deep Agent & Meta Operations
+# Covers: trigger_telegram, deep_agent, meta tools (discover, spawn, health)
+
+name: Deep Agent Meta Test
+trigger: telegram
+
+model:
+  discover: true
+
+steps:
+  - type: agent
+    id: meta_agent
+    memory: true
+    tools:
+      - type: whoami
+      - type: workflow_discover
+      - type: spawn_and_await
+      - type: system_health
+      - type: platform_api

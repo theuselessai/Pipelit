@@ -1,0 +1,22 @@
+# Test 3: Loop & Filter
+# Covers: trigger_manual, loop, agent (extractor), code, loop_body/loop_return edges
+
+name: Loop Filter Test
+trigger: manual
+
+model:
+  discover: true
+
+steps:
+  - type: code
+    id: generate_items
+
+  - type: loop
+    id: process_items
+    over: "{{ generate_items.items }}"
+    body:
+      - type: agent
+        id: extract_info
+
+  - type: code
+    id: filter_results

@@ -8,6 +8,7 @@
 #   4. API key lifecycle
 #   5. Gateway health + credentials
 #   6. Chat round-trip (send → gateway → Pipelit → RQ → mock LLM → WS response)
+#   7. Frontend serving (React SPA served from root URL)
 #
 # Usage:
 #   ./e2e/run_smoke.sh [IMAGE]
@@ -300,6 +301,18 @@ else
         assert "Response contains mock text" "echo '$LISTEN_OUTPUT' | grep -q 'E2E_MOCK_RESPONSE_OK'"
     fi
 fi
+
+# ── Frontend Serving ─────────────────────────────────────────────────────────
+
+echo ""
+echo "═══ 7. Frontend Serving ═══"
+
+FRONTEND_HTML=$(curl -sf "http://localhost:${PIPELIT_PORT}/")
+FRONTEND_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "http://localhost:${PIPELIT_PORT}/")
+
+assert "Root URL returns 200" "[ '$FRONTEND_STATUS' = '200' ]"
+assert "HTML contains Pipelit title" "echo '$FRONTEND_HTML' | grep -q '<title>Pipelit</title>'"
+assert "HTML contains React root div" "echo '$FRONTEND_HTML' | grep -q 'id=\"root\"'"
 
 echo ""
 echo "═══ Done ═══"
