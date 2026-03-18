@@ -1,0 +1,35 @@
+# Test 2: Branching & Routing
+# Covers: trigger_chat, agent (categorizer), switch, wait, human, conditional edges
+
+name: Branching Flow Test
+trigger: chat
+
+model:
+  discover: true
+
+steps:
+  - type: agent
+    id: categorizer
+
+  - type: switch
+    id: router
+    rules:
+      - field: node_outputs.categorizer.output
+        operator: contains
+        value: urgent
+        route: urgent_handler
+      - field: node_outputs.categorizer.output
+        operator: contains
+        value: question
+        route: question_handler
+    default: feedback_handler
+
+  - type: human
+    id: urgent_handler
+
+  - type: wait
+    id: question_handler
+    duration: 2
+
+  - type: code
+    id: feedback_handler

@@ -188,7 +188,7 @@ app.include_router(inbound_router, prefix="/api/v1", tags=["inbound"])
 app.include_router(ws_router)
 
 # Serve frontend static files (built React SPA)
-frontend_dist = Path(__file__).parent / "frontend" / "dist"
+frontend_dist = Path(os.environ.get("FRONTEND_DIST_PATH", Path(__file__).parent / "frontend" / "dist"))
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="spa")
 

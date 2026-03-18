@@ -1,0 +1,41 @@
+# Test 6: Error Handling & Routing
+# Covers: http, switch, agent with task tools, conditional edges
+
+name: Error Routing Test
+trigger: manual
+
+model:
+  discover: true
+
+steps:
+  - type: http
+    id: fetch_data
+    url: https://api.example.com/data
+    method: GET
+
+  - type: switch
+    id: response_router
+    rules:
+      - field: node_outputs.fetch_data.status_code
+        operator: equals
+        value: "200"
+        route: process_success
+      - field: node_outputs.fetch_data.status_code
+        operator: gte
+        value: "400"
+        route: handle_error
+    default: handle_unknown
+
+  - type: transform
+    id: process_success
+
+  - type: agent
+    id: handle_error
+    tools:
+      - type: epic_tools
+      - type: task_tools
+
+  - type: agent
+    id: handle_unknown
+    tools:
+      - type: scheduler_tools

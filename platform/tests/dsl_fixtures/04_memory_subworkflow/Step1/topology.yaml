@@ -1,0 +1,19 @@
+# Test 4: Memory & Subworkflow
+# Covers: trigger_workflow, code (simulating memory ops), workflow call
+
+name: Memory Subworkflow Test
+trigger: none
+
+steps:
+  - type: code
+    id: identify_user
+
+  - type: code
+    id: read_memory
+
+  - type: workflow
+    id: call_processor
+    workflow: message-processor
+
+  - type: code
+    id: write_memory
