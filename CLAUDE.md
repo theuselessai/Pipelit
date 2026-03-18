@@ -10,6 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 
 
+## Roadmap & Versioning
+
+Milestones use **PROJECT version** (from `plit/VERSION`), not Pipelit's own semver. The GitHub project board at https://github.com/orgs/theuselessai/projects/1 tracks project-level milestones. See `plit/ROADMAP.md` for the full milestone → component mapping.
+
+Current focus: **v0.5.0** — Workflow Creation & API Client (Pipelit issues: #163, #164, #165, #166, #167, #127)
+
 ## Project Overview
 
 Visual workflow automation platform for building LLM-powered agents. Design workflows on a React Flow canvas, connect triggers (Telegram, webhooks, chat, scheduler), LLM agents, tools, and routing logic. Executes via LangGraph with real-time WebSocket status updates. FastAPI + SQLAlchemy backend with RQ for background task processing.

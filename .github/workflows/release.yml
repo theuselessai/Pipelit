@@ -41,10 +41,28 @@ jobs:
             exit 1
           fi
 
+      - name: Generate OpenAPI spec
+        run: |
+          cp VERSION openapi-version.txt
+          # Generate spec by importing the FastAPI app
+          pip install -q -r platform/requirements.txt 2>/dev/null || true
+          python -c "
+          import json, sys
+          sys.path.insert(0, 'platform')
+          from main import app
+          spec = app.openapi()
+          with open('openapi.json', 'w') as f:
+              json.dump(spec, f, indent=2)
+          print(f'Generated OpenAPI spec v{spec[\"info\"][\"version\"]}')
+          " || echo "::warning::Could not generate OpenAPI spec — will skip artifact"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          ASSETS=""
+          [ -f openapi.json ] && ASSETS="openapi.json"
           gh release create "$GITHUB_REF_NAME" \
             --title "Pipelit $GITHUB_REF_NAME" \
-            --notes-file release_notes.md
+            --notes-file release_notes.md \
+            $ASSETS
