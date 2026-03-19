@@ -53,7 +53,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   memory_write: DatabaseZap,
   identify_user: UserSearch,
   skill: GraduationCap,
-  reply_chat: MessageSquare,
+  reply_chat: Send,
 }
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [

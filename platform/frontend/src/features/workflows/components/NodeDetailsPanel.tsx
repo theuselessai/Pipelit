@@ -364,7 +364,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
       }
     }
-    if (["agent", "deep_agent"].includes(node.component_type) && inputTemplate) {
+    if (["agent", "deep_agent"].includes(node.component_type)) {
       parsedExtra.input_template = inputTemplate
     }
     if (node.component_type === "reply_chat") {

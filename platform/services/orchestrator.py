@@ -142,7 +142,7 @@ def save_state(execution_id: str, state: dict) -> None:
                 pipe.set(key, json.dumps(serialized), ex=STATE_TTL)
                 pipe.execute()
                 return
-        except Exception:
+        except redis_lib.WatchError:
             continue
     r.set(key, json.dumps(serialized), ex=STATE_TTL)
 
@@ -699,13 +699,11 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
         node_results[node_id] = node_result.model_dump(mode="json")
         state["node_results"] = node_results
 
-        # Clear _resume_input after node execution to prevent stale data on subsequent nodes
+        # Clear ephemeral keys before saving so they don't leak into subsequent nodes
         state.pop("_resume_input", None)
+        state.pop("_input_override", None)
 
         save_state(execution_id, state)
-
-        # Clear _input_override so it doesn't leak into subsequent nodes
-        state.pop("_input_override", None)
 
         # Extract output for log and WS event (truncate large values)
         node_output = state.get("node_outputs", {}).get(node_id)
