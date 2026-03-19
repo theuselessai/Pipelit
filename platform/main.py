@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from sqlalchemy import text as sa_text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from api import api_router
 from api.executions import chat_router
@@ -190,7 +191,14 @@ app.include_router(ws_router)
 # Serve frontend static files (built React SPA)
 frontend_dist = Path(os.environ.get("FRONTEND_DIST_PATH", Path(__file__).parent / "frontend" / "dist"))
 if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="spa")
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="spa-assets")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        file_path = frontend_dist / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(frontend_dist / "index.html")
 
 
 if __name__ == "__main__":

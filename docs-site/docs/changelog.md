@@ -4,6 +4,14 @@ All notable changes to Pipelit will be documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.11] - 2026-03-19
+
+### Fixed
+
+- **SPA client-side routing** -- Routes like `/login`, `/workflows` now correctly serve `index.html` instead of returning 404. Static assets and API routes are unaffected.
+
+---
+
 ## [0.3.10] - 2026-03-19
 
 ### Added
