@@ -38,6 +38,16 @@ cleanup() {
     echo ""
     echo "═══ Cleanup ═══"
     [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null && echo "  Stopped mock LLM server"
+    
+    # Capture container logs on failure before removing
+    if [ "$FAIL" -gt 0 ] && docker ps -a --filter "name=$CONTAINER_NAME" --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
+        echo ""
+        echo "═══ Container Logs (failure) ═══"
+        docker logs "$CONTAINER_NAME" 2>&1 | tail -200
+        echo ""
+        echo "═══ End Container Logs ═══"
+    fi
+    
     docker rm -f "$CONTAINER_NAME" 2>/dev/null && echo "  Removed container $CONTAINER_NAME"
     echo ""
     echo "═══ Results: $PASS passed, $FAIL failed ═══"

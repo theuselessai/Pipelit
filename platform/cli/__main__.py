@@ -230,6 +230,23 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         )
         db.add(skill_node)
 
+        # Add reply_chat node for output delivery via gateway WebSocket
+        reply_cfg = BaseComponentConfig(
+            component_type="reply_chat",
+            extra_config={"message": "{{ deep_agent_1.output }}"},
+        )
+        db.add(reply_cfg)
+        db.flush()
+        reply_node = WorkflowNode(
+            workflow_id=wf.id,
+            node_id="reply_chat_1",
+            component_type="reply_chat",
+            component_config_id=reply_cfg.id,
+            position_x=800,
+            position_y=400,
+        )
+        db.add(reply_node)
+
         edges = [
             WorkflowEdge(
                 workflow_id=wf.id,
@@ -265,6 +282,14 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
                 target_node_id="deep_agent_1",
                 edge_type="direct",
                 edge_label="skill",
+            ),
+            # Edge: deep_agent -> reply_chat (terminal output)
+            WorkflowEdge(
+                workflow_id=wf.id,
+                source_node_id="deep_agent_1",
+                target_node_id="reply_chat_1",
+                edge_type="direct",
+                edge_label="",
             ),
         ]
         db.add_all(edges)
