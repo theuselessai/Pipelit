@@ -125,7 +125,26 @@ def load_state(execution_id: str) -> dict:
 
 def save_state(execution_id: str, state: dict) -> None:
     r = _redis()
-    r.set(_state_key(execution_id), json.dumps(serialize_state(state)), ex=STATE_TTL)
+    key = _state_key(execution_id)
+    serialized = serialize_state(state)
+    new_outputs = serialized.get("node_outputs", {})
+    for attempt in range(5):
+        try:
+            with r.pipeline() as pipe:
+                pipe.watch(key)
+                existing_raw = pipe.get(key)
+                if existing_raw:
+                    existing = json.loads(existing_raw)
+                    old_outputs = existing.get("node_outputs", {})
+                    merged_outputs = {**old_outputs, **new_outputs}
+                    serialized["node_outputs"] = merged_outputs
+                pipe.multi()
+                pipe.set(key, json.dumps(serialized), ex=STATE_TTL)
+                pipe.execute()
+                return
+        except Exception:
+            continue
+    r.set(key, json.dumps(serialized), ex=STATE_TTL)
 
 
 def _publish_event(execution_id: str, event_type: str, data: dict | None = None, workflow_slug: str | None = None) -> None:
@@ -472,6 +491,21 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             db_node.component_config.extra_config = resolve_config_expressions(
                 db_node.component_config.extra_config, expr_node_outputs, expr_trigger
             )
+        input_template = (db_node.component_config.extra_config or {}).get("input_template")
+        if input_template:
+            state["_input_override"] = resolve_expressions(
+                input_template, expr_node_outputs, expr_trigger
+            )
+
+        _node_input_log: dict | None = None
+        _sp = db_node.component_config.system_prompt
+        _it = state.get("_input_override")
+        if _sp or _it:
+            _node_input_log = {}
+            if _sp:
+                _node_input_log["system_prompt"] = _sp[:4000]
+            if _it:
+                _node_input_log["input_template"] = _it[:4000]
 
         from components import get_component_factory
         factory = get_component_factory(node_info["component_type"])
@@ -516,6 +550,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 duration_ms=duration_ms, error=error_msg,
                 error_code=exc_type,
                 metadata=node_result.metadata,
+                input=_node_input_log,
             )
             _publish_event(execution_id, "node_status", {
                 "node_id": node_id, "status": NodeStatus.FAILED.value,
@@ -669,6 +704,9 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
 
         save_state(execution_id, state)
 
+        # Clear _input_override so it doesn't leak into subsequent nodes
+        state.pop("_input_override", None)
+
         # Extract output for log and WS event (truncate large values)
         node_output = state.get("node_outputs", {}).get(node_id)
         log_output = _safe_json(node_output) if node_output is not None else result_data
@@ -677,6 +715,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             db, execution_id, node_id, "completed",
             duration_ms=duration_ms, output=log_output,
             metadata=node_result.metadata,
+            input=_node_input_log,
         )
         ws_data = {
             "node_id": node_id, "status": NodeStatus.SUCCESS.value,
@@ -1468,6 +1507,7 @@ def _write_log(
     error: str = "",
     error_code: str | None = None,
     metadata: dict | None = None,
+    input: dict | None = None,
 ) -> None:
     from models.execution import ExecutionLog
 
@@ -1475,6 +1515,7 @@ def _write_log(
         execution_id=execution_id,
         node_id=node_id,
         status=status,
+        input=input,
         output=output,
         error=error[:2000] if error else "",
         error_code=error_code,

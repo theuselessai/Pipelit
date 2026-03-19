@@ -163,6 +163,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [compactingKeep, setCompactingKeep] = useState<string>(
     (node.config.extra_config?.compacting_keep as number)?.toString() ?? "20"
   )
+  const [inputTemplate, setInputTemplate] = useState<string>(
+    (node.config.extra_config?.input_template as string) ?? ""
+  )
+  const [replyMessage, setReplyMessage] = useState<string>(
+    (node.config.extra_config?.message as string) ?? ""
+  )
 
   // Deep agent state
   const [workspaceId, setWorkspaceId] = useState<string>((node.config.extra_config?.workspace_id as number)?.toString() ?? "")
@@ -357,6 +363,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         enable_todos: enableTodos,
         subagents: subagents.filter((sa) => sa.name.trim() && sa.description.trim() && sa.system_prompt.trim()),
       }
+    }
+    if (["agent", "deep_agent"].includes(node.component_type) && inputTemplate) {
+      parsedExtra.input_template = inputTemplate
+    }
+    if (node.component_type === "reply_chat") {
+      parsedExtra.message = replyMessage
     }
     if (node.component_type === "skill") {
       parsedExtra = { ...parsedExtra, skill_path: skillPath, skill_source: skillSource }
@@ -892,6 +904,23 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               </div>
             </PopoutWindow>
           )}
+        </div>
+      )}
+
+      {isAgentNode && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Input Template</label>
+          <p className="text-xs text-muted-foreground">
+            Override the agent&apos;s input messages with a template. Supports{" "}
+            <code className="text-xs">{"{{ node_id.output }}"}</code> expressions.
+            Leave empty to use the full conversation history (default).
+          </p>
+          <Textarea
+            value={inputTemplate}
+            onChange={(e) => setInputTemplate(e.target.value)}
+            placeholder={"{{ scribe.output }}"}
+            className="font-mono text-sm min-h-[80px]"
+          />
         </div>
       )}
 
@@ -1656,6 +1685,25 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <p className="text-[10px] text-muted-foreground mt-1">Access current item: <code className="bg-muted px-1 rounded">{"{{ loop.item }}"}</code></p>
               <p className="text-[10px] text-muted-foreground">Access index: <code className="bg-muted px-1 rounded">{"{{ loop.index }}"}</code></p>
             </div>
+          </div>
+        </>
+      )}
+
+      {node.component_type === "reply_chat" && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">Reply Message</Label>
+            <p className="text-xs text-muted-foreground">
+              Message to send back to the chat caller. Supports{" "}
+              <code className="text-xs">{"{{ node_id.output }}"}</code> expressions.
+            </p>
+            <Textarea
+              value={replyMessage}
+              onChange={(e) => setReplyMessage(e.target.value)}
+              placeholder={"{{ agent.output }}"}
+              className="font-mono text-sm min-h-[80px]"
+            />
           </div>
         </>
       )}

@@ -229,7 +229,11 @@ def deep_agent_factory(node):
     def _deep_agent_node_inner(state: dict) -> dict:
         from datetime import datetime, timezone
 
-        messages = list(state.get("messages", []))
+        _input_override = state.get("_input_override")
+        if _input_override:
+            messages = [HumanMessage(content=_input_override)]
+        else:
+            messages = list(state.get("messages", []))
 
         if _prompt_fallback:
             messages = [_prompt_fallback] + messages

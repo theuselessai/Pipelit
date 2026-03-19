@@ -37,6 +37,7 @@ export type ComponentType =
   | "trigger_workflow"
   | "trigger_error"
   | "trigger_chat"
+  | "reply_chat"
   | "skill"
 export type EdgeType = "direct" | "conditional"
 // "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.

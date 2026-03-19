@@ -188,7 +188,11 @@ def agent_factory(node):
         from datetime import datetime, timezone
         from langgraph.types import Command
 
-        messages = list(state.get("messages", []))
+        _input_override = state.get("_input_override")
+        if _input_override:
+            messages = [HumanMessage(content=_input_override)]
+        else:
+            messages = list(state.get("messages", []))
 
         # If this agent has no tools, strip tool-related messages from upstream
         # agents to avoid confusing the LLM with foreign tool calls/responses.

@@ -4,6 +4,24 @@ All notable changes to Pipelit will be documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.12] - 2026-03-19
+
+### Added
+
+- **`input_template` for node input scoping** — Agent and deep_agent nodes can declare `input_template` in `extra_config` to receive a specific slice of state as their input message (e.g. `{{ scribe.output }}`), instead of inheriting the full conversation history. Enables clean parallel fan-out patterns.
+- **`reply_chat` terminal node** — New component type that sends a message back to the chat caller and ends the workflow. Reads message from `system_prompt` (Jinja-resolved) with `extra_config.message` fallback. Registered in frontend Output category.
+- **Node input/output debug logging** — `execution_logs.input` column now stores resolved `system_prompt` and `input_template` values per node execution for full observability.
+- **Frontend: `input_template` field** — Visible in agent/deep_agent node config panel with Jinja template support.
+- **Frontend: `reply_chat` node type** — Available in Output category of node palette with message field.
+
+### Fixed
+
+- **Parallel state race condition** — `save_state` now uses Redis `WATCH`/`MULTI` for atomic read-merge-write of `node_outputs`, preventing parallel workers from overwriting each other's outputs.
+- **`_input_override` state leak** — Cleared after each node completes so downstream nodes don't inherit stale overrides.
+- **Merge node type validation** — Changed merge input type from `ARRAY` to `ANY` so it can accept outputs from agent/deep_agent nodes in fan-in patterns.
+
+---
+
 ## [0.3.11] - 2026-03-19
 
 ### Fixed
