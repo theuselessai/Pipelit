@@ -472,6 +472,11 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             db_node.component_config.extra_config = resolve_config_expressions(
                 db_node.component_config.extra_config, expr_node_outputs, expr_trigger
             )
+        input_template = (db_node.component_config.extra_config or {}).get("input_template")
+        if input_template:
+            state["_input_override"] = resolve_expressions(
+                input_template, expr_node_outputs, expr_trigger
+            )
 
         from components import get_component_factory
         factory = get_component_factory(node_info["component_type"])

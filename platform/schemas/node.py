@@ -43,6 +43,7 @@ ComponentTypeStr = Literal[
     "trigger_workflow",
     "trigger_error",
     "trigger_chat",
+    "reply_chat",
     "skill",
 ]
 EdgeTypeStr = Literal["direct", "conditional"]
@@ -70,6 +71,7 @@ class ComponentConfigData(BaseModel):
     is_active: bool = True
     priority: int = 0
     trigger_config: dict = {}
+    input_template: str | None = None
 
 
 class NodeIn(BaseModel):

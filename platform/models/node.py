@@ -250,6 +250,10 @@ class _TriggerChatConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "trigger_chat"}
 
 
+class _ReplyChatConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "reply_chat"}
+
+
 # Mapping from component_type string to the config class to use for creation
 COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "ai_model": ModelComponentConfig,
@@ -289,6 +293,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "trigger_workflow": TriggerComponentConfig,
     "trigger_error": TriggerComponentConfig,
     "trigger_chat": TriggerComponentConfig,
+    "reply_chat": _ReplyChatConfig,
 }
 
 

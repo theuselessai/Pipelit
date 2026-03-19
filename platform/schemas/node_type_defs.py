@@ -93,6 +93,20 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="error", data_type=DataType.OBJECT)],
 ))
 
+# ── Output Nodes ──────────────────────────────────────────────────────────────
+
+register_node_type(NodeTypeSpec(
+    component_type="reply_chat",
+    display_name="Reply to Chat",
+    description="Sends a message back to the chat caller and ends the workflow",
+    category="output",
+    config_schema={
+        "message": {"type": "string", "description": "Message to send back (supports {{ node.output }} templates)", "default": ""},
+    },
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY)],
+    outputs=[PortDefinition(name="output", data_type=DataType.STRING)],
+))
+
 # ── AI Agents ─────────────────────────────────────────────────────────────────
 
 register_node_type(NodeTypeSpec(
@@ -455,7 +469,7 @@ register_node_type(NodeTypeSpec(
     display_name="Merge",
     description="Merge outputs from multiple branches into one",
     category="logic",
-    inputs=[PortDefinition(name="branches", data_type=DataType.ARRAY, required=True)],
+    inputs=[PortDefinition(name="branches", data_type=DataType.ANY, required=True)],
     outputs=[PortDefinition(name="merged", data_type=DataType.ANY)],
 ))
 

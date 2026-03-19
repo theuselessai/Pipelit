@@ -207,6 +207,8 @@ def update_node(
                 cc.system_prompt = v
             elif k == "extra_config":
                 cc.extra_config = v
+            elif k == "input_template":
+                cc.input_template = v
 
     # Enforce interrupt_before for human_confirmation nodes
     if node.component_type == "human_confirmation":
