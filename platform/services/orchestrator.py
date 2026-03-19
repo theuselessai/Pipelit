@@ -125,7 +125,26 @@ def load_state(execution_id: str) -> dict:
 
 def save_state(execution_id: str, state: dict) -> None:
     r = _redis()
-    r.set(_state_key(execution_id), json.dumps(serialize_state(state)), ex=STATE_TTL)
+    key = _state_key(execution_id)
+    serialized = serialize_state(state)
+    new_outputs = serialized.get("node_outputs", {})
+    for attempt in range(5):
+        try:
+            with r.pipeline() as pipe:
+                pipe.watch(key)
+                existing_raw = pipe.get(key)
+                if existing_raw:
+                    existing = json.loads(existing_raw)
+                    old_outputs = existing.get("node_outputs", {})
+                    merged_outputs = {**old_outputs, **new_outputs}
+                    serialized["node_outputs"] = merged_outputs
+                pipe.multi()
+                pipe.set(key, json.dumps(serialized), ex=STATE_TTL)
+                pipe.execute()
+                return
+        except Exception:
+            continue
+    r.set(key, json.dumps(serialized), ex=STATE_TTL)
 
 
 def _publish_event(execution_id: str, event_type: str, data: dict | None = None, workflow_slug: str | None = None) -> None:
