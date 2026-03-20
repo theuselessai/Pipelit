@@ -4,11 +4,23 @@ All notable changes to Pipelit will be documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.3.15] - 2026-03-20
+## [0.3.16] - 2026-03-21
 
 ### Added
 
 - **`import-fixture` CLI command** — Generic fixture loader that creates workflows from JSON fixture files, remapping LLM credential and model config references to the local DB. Usage: `python -m cli import-fixture path/to/fixture.json` ([#176](https://github.com/theuselessai/Pipelit/pull/176))
+- **`validate_gherkin` tool** — New tool component that validates Gherkin `.feature` specs via `gherkin-official` parser (syntax) and `gherlint` CLI through sandbox backend (lint). Returns structured JSON with parse errors, lint warnings/errors. ([#178](https://github.com/theuselessai/Pipelit/pull/182))
+- **`validate_topology` tool** — New tool component that wraps the DSL compiler's `validate_dsl()` in dry-run mode for topology YAML validation. Pure Python, no subprocess. ([#179](https://github.com/theuselessai/Pipelit/pull/182))
+- **`dev.sh` agent-oriented dev harness** — Container dev script with JSON output, health checks, agent API key management, and hot-reload. Subcommands: `up`, `down`, `restart`, `status`, `logs`, `exec`, `test`.
+- **Workflow-generator fixture updated** — Validation tools wired to Gherkin Agent and Topology Agent via tool edges. Agent prompts updated with `[validation]` section for self-validation before output. 20 nodes, 19 edges.
+
+### Changed
+
+- **DSL compiler updated** — Added 9 step types (`deep_agent`, `reply_chat`, `categorizer`, `router`, `extractor`, `filter`, `merge`, `wait`, `identify_user`), 13 tool types, `schedule`/`error`/`workflow` triggers, skill edge support. Removed broken ghost mappings (`code_execute`, `http_request`). Updated model preference table. ([#177](https://github.com/theuselessai/Pipelit/pull/182))
+
+### Fixed
+
+- **Auto-reply for terminal agent nodes** — When an agent or deep_agent node is terminal and the workflow has no explicit `reply_chat` node, the orchestrator now auto-promotes its output so `deliver()` sends the response back via the gateway. ([#174](https://github.com/theuselessai/Pipelit/pull/174))
 
 ---
 
