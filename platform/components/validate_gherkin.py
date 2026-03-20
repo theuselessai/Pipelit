@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import shlex
+import uuid
 
 from langchain_core.tools import tool
 
@@ -97,10 +98,11 @@ def validate_gherkin_factory(node):
                 # Encode content as base64 so arbitrary Gherkin can be safely
                 # embedded in a shell command without quoting issues.
                 encoded = base64.b64encode(gherkin_spec.encode()).decode()
+                temp_filename = f"/tmp/_validate_gherkin_{uuid.uuid4().hex}.feature"
                 cmd = (
-                    f"echo {shlex.quote(encoded)} | base64 -d > /tmp/_validate_gherkin.feature"
-                    f" && gherlint lint /tmp/_validate_gherkin.feature"
-                    f"; STATUS=$?; rm -f /tmp/_validate_gherkin.feature; exit $STATUS"
+                    f"echo {shlex.quote(encoded)} | base64 -d > {shlex.quote(temp_filename)}"
+                    f" && gherlint lint {shlex.quote(temp_filename)}"
+                    f"; STATUS=$?; rm -f {shlex.quote(temp_filename)}; exit $STATUS"
                 )
                 resp = backend.execute(cmd, timeout=30)
                 _parse_gherlint_output(resp.output or "", "", resp.exit_code or 0, result)

@@ -236,11 +236,11 @@ steps:
     id: my_agent
     prompt: "You are a test agent"
     tools:
-      - calculator
+      - run_command
 """
         result = compile_dsl(yaml_str, user_profile.id, db)
         assert result["success"] is True
-        assert result["node_count"] == 4  # trigger + agent + ai_model + calculator
+        assert result["node_count"] == 4  # trigger + agent + ai_model + run_command
 
         wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
         nodes = db.query(WorkflowNode).filter_by(workflow_id=wf.id).all()
@@ -251,8 +251,8 @@ steps:
         model_node = next(n for n in nodes if n.component_type == "ai_model")
         assert model_node.component_config.model_name == "gpt-4"
 
-        calc_node = next(n for n in nodes if n.component_type == "calculator")
-        assert calc_node is not None
+        tool_node = next(n for n in nodes if n.component_type == "run_command")
+        assert tool_node is not None
 
         # Verify tool edge
         tool_edges = [
@@ -435,15 +435,15 @@ name: Fork Add Tool
 patches:
   - action: add_tool
     step_id: agent_1
-    tool: calculator
+    tool: whoami
 """
         result = compile_dsl(yaml_str, user_profile.id, db)
         assert result["success"] is True
 
         forked_wf = db.query(Workflow).filter_by(slug=result["slug"]).first()
         nodes = db.query(WorkflowNode).filter_by(workflow_id=forked_wf.id).all()
-        calc_nodes = [n for n in nodes if n.component_type == "calculator"]
-        assert len(calc_nodes) == 1
+        whoami_nodes = [n for n in nodes if n.component_type == "whoami"]
+        assert len(whoami_nodes) == 1
 
     @patch("services.dsl_compiler.broadcast", create=True)
     def test_fork_nonexistent_source(self, mock_broadcast, db, user_profile):

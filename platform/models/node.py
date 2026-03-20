@@ -295,6 +295,8 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "memory_write": OtherComponentConfig,
     "identify_user": OtherComponentConfig,
     "skill": _SkillConfig,
+    "validate_gherkin": _ValidateGherkinConfig,
+    "validate_topology": _ValidateTopologyConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,
     "trigger_manual": TriggerComponentConfig,

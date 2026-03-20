@@ -41,12 +41,10 @@ def validate_topology_factory(node):
             result["errors"].append("Empty topology YAML provided")
             return json.dumps(result)
 
+        db = None
         try:
             db = SessionLocal()
-            try:
-                dsl_result = validate_dsl(topology_yaml, db)
-            finally:
-                db.close()
+            dsl_result = validate_dsl(topology_yaml, db)
 
             result["valid"] = dsl_result.get("valid", False)
             result["errors"] = dsl_result.get("errors", [])
@@ -56,6 +54,9 @@ def validate_topology_factory(node):
         except Exception as e:
             logger.debug("validate_topology: unexpected error", exc_info=True)
             result["errors"].append(f"Validation error: {e}")
+        finally:
+            if db is not None:
+                db.close()
 
         return json.dumps(result)
 
