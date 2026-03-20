@@ -39,6 +39,8 @@ export type ComponentType =
   | "trigger_chat"
   | "reply_chat"
   | "skill"
+  | "validate_gherkin"
+  | "validate_topology"
 export type EdgeType = "direct" | "conditional"
 // "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
 export type EdgeLabel = "" | "llm" | "tool" | "output_parser" | "loop_body" | "loop_return" | "skill"
