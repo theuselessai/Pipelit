@@ -44,6 +44,7 @@ STEP_TYPE_MAP: dict[str, str] = {
     "agent": "agent",
     "deep_agent": "deep_agent",
     "switch": "switch",
+    "assertion": "assertion",
     "loop": "loop",
     "workflow": "workflow",
     "human": "human_confirmation",

@@ -125,6 +125,10 @@ class _SwitchConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "switch"}
 
 
+class _AssertionConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "assertion"}
+
+
 class CodeComponentConfig(BaseComponentConfig):
     """Config for code-type components."""
     __mapper_args__ = {"polymorphic_identity": "code"}

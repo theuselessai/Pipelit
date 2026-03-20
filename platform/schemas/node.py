@@ -13,6 +13,7 @@ ComponentTypeStr = Literal[
     "agent",
     "deep_agent",
     "switch",
+    "assertion",
     "run_command",
     "get_totp_code",
     "platform_api",
