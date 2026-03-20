@@ -281,6 +281,160 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         db.close()
 
 
+def cmd_import_fixture(args: argparse.Namespace) -> None:
+    """Import a workflow from a fixture JSON file."""
+    from database import SessionLocal
+    from models.credential import BaseCredential
+    from models.node import BaseComponentConfig, WorkflowEdge, WorkflowNode
+    from models.user import UserProfile
+    from models.workflow import Workflow
+
+    if not os.path.isfile(args.file):
+        print(json.dumps({"error": f"File not found: {args.file}"}), file=sys.stderr)
+        sys.exit(1)
+
+    with open(args.file, encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"error": f"Invalid JSON: {e}"}), file=sys.stderr)
+            sys.exit(1)
+
+    missing = [k for k in ("slug", "name", "nodes", "edges") if k not in data]
+    if missing:
+        print(json.dumps({"error": f"Missing required fields: {', '.join(missing)}"}), file=sys.stderr)
+        sys.exit(1)
+
+    slug = data["slug"]
+    db = SessionLocal()
+    try:
+        if db.query(Workflow).filter(Workflow.slug == slug).first():
+            print(json.dumps({"skipped": True, "workflow_slug": slug, "reason": "already exists"}))
+            return
+
+        user = db.query(UserProfile).first()
+        if not user:
+            print(json.dumps({"error": "No user found. Run 'setup' first."}), file=sys.stderr)
+            sys.exit(1)
+
+        # Resolve LLM credential — reuse first existing or create one
+        llm_cred_base = db.query(BaseCredential).filter(BaseCredential.credential_type == "llm").first()
+        if not llm_cred_base:
+            print(json.dumps({"error": "No LLM credential found. Run 'apply-fixture default-agent' first."}), file=sys.stderr)
+            sys.exit(1)
+        cred_id = llm_cred_base.id
+
+        # Resolve default model name from an ai_model node in the fixture
+        default_model = ""
+        for nd in data["nodes"]:
+            if nd["component_type"] == "ai_model" and nd.get("config", {}).get("model_name"):
+                default_model = nd["config"]["model_name"]
+                break
+
+        wf = Workflow(
+            name=data["name"],
+            slug=slug,
+            description=data.get("description", ""),
+            owner_id=user.id,
+            is_active=data.get("is_active", True),
+            max_execution_seconds=data.get("max_execution_seconds", 600),
+        )
+        db.add(wf)
+        db.flush()
+
+        # Build llm edge map: target_node_id → source_node_id (ai_model)
+        llm_edge_map: dict[str, str] = {}
+        for ed in data["edges"]:
+            if ed.get("edge_label") == "llm":
+                llm_edge_map[ed["target_node_id"]] = ed["source_node_id"]
+
+        # Create nodes
+        node_configs: dict[str, BaseComponentConfig] = {}
+
+        for nd in data["nodes"]:
+            cfg = nd["config"]
+            extra = cfg.get("extra_config") or {}
+            # input_template lives inside extra_config, not as a top-level column
+            if cfg.get("input_template"):
+                extra["input_template"] = cfg["input_template"]
+            cc = BaseComponentConfig(
+                component_type=nd["component_type"],
+                system_prompt=cfg.get("system_prompt") or "",
+                extra_config=extra,
+                is_active=cfg.get("is_active", True),
+                priority=cfg.get("priority", 0),
+            )
+
+            # Wire LLM fields for ai_model nodes
+            if nd["component_type"] == "ai_model":
+                cc.llm_credential_id = cred_id
+                cc.model_name = cfg.get("model_name") or default_model
+                if cfg.get("temperature") is not None:
+                    cc.temperature = cfg["temperature"]
+                if cfg.get("max_tokens") is not None:
+                    cc.max_tokens = cfg["max_tokens"]
+
+            # Trigger config
+            if cfg.get("trigger_config"):
+                cc.trigger_config = cfg["trigger_config"]
+
+            db.add(cc)
+            db.flush()
+            node_configs[nd["node_id"]] = cc
+
+        # Wire llm_model_config_id via edge relationships
+        for agent_id, model_id in llm_edge_map.items():
+            if agent_id in node_configs and model_id in node_configs:
+                node_configs[agent_id].llm_model_config_id = node_configs[model_id].id
+
+        db.flush()
+
+        # Create WorkflowNode rows
+        for nd in data["nodes"]:
+            node = WorkflowNode(
+                workflow_id=wf.id,
+                node_id=nd["node_id"],
+                label=nd.get("label") or nd["node_id"],
+                component_type=nd["component_type"],
+                component_config_id=node_configs[nd["node_id"]].id,
+                position_x=nd.get("position_x", 0),
+                position_y=nd.get("position_y", 0),
+                is_entry_point=nd.get("is_entry_point", False),
+                interrupt_before=nd.get("interrupt_before", False),
+                interrupt_after=nd.get("interrupt_after", False),
+            )
+            db.add(node)
+
+        # Create edges
+        for ed in data["edges"]:
+            edge = WorkflowEdge(
+                workflow_id=wf.id,
+                source_node_id=ed["source_node_id"],
+                target_node_id=ed["target_node_id"],
+                edge_type=ed.get("edge_type", "direct"),
+                edge_label=ed.get("edge_label", ""),
+                condition_value=ed.get("condition_value", ""),
+                condition_mapping=ed.get("condition_mapping"),
+                priority=ed.get("priority", 0),
+            )
+            db.add(edge)
+
+        db.commit()
+
+        trigger = next((n["node_id"] for n in data["nodes"] if n["component_type"].startswith("trigger_")), None)
+        print(json.dumps({
+            "workflow_slug": slug,
+            "trigger_node_id": trigger,
+            "nodes": len(data["nodes"]),
+            "edges": len(data["edges"]),
+        }))
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="cli", description="Pipelit platform CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -308,6 +462,9 @@ def main() -> None:
     )
     sp_fixture.add_argument("--base-url", default=None, help="LLM provider base URL")
 
+    sp_import = sub.add_parser("import-fixture", help="Import a workflow from a fixture JSON file")
+    sp_import.add_argument("file", help="Path to fixture JSON file")
+
     args = parser.parse_args()
 
     if args.command == "setup" and not args.password:
@@ -320,6 +477,8 @@ def main() -> None:
             cmd_setup(args)
         elif args.command == "apply-fixture":
             cmd_apply_fixture(args)
+        elif args.command == "import-fixture":
+            cmd_import_fixture(args)
     except SystemExit:
         raise
     except Exception as exc:
