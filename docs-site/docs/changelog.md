@@ -4,6 +4,14 @@ All notable changes to Pipelit will be documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.14] - 2026-03-20
+
+### Fixed
+
+- **Auto-reply for terminal agent nodes** — When an agent or deep_agent node is terminal (no downstream executable nodes) and the workflow has no explicit `reply_chat` node, the orchestrator now auto-promotes its output to `state["output"]` so `deliver()` sends the response back via the gateway. Fixes E2E chat round-trip for the `default-agent` workflow. ([#174](https://github.com/theuselessai/Pipelit/pull/174))
+
+---
+
 ## [0.3.12] - 2026-03-19
 
 ### Added
