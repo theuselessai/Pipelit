@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from components import register
-from components.operators import OPERATORS, UNARY_OPERATORS, _resolve_field
+from components.operators import _resolve_field, evaluate_rules
 
 
 @register("switch")
@@ -17,18 +17,7 @@ def switch_factory(node):
         enable_fallback = extra.get("enable_fallback", False)
 
         def switch_node(state: dict) -> dict:
-            route = ""
-            for rule in rules:
-                field_path = rule.get("field", "")
-                operator = rule.get("operator", "equals")
-                value = rule.get("value", "")
-                rule_id = rule.get("id", "")
-
-                field_val = _resolve_field(field_path, state)
-                op_fn = OPERATORS.get(operator)
-                if op_fn and op_fn(field_val, value):
-                    route = rule_id
-                    break
+            route = evaluate_rules(rules, state, mode="first_match")
 
             if not route and enable_fallback:
                 route = "__other__"
