@@ -335,6 +335,15 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="validate_gherkin",
+    display_name="Validate Gherkin",
+    description="Validate Gherkin .feature specs for syntax errors and lint warnings",
+    category="sub_component",
+    inputs=[PortDefinition(name="gherkin_spec", data_type=DataType.STRING, description="Gherkin feature spec text")],
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON validation result")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",
