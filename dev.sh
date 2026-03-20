@@ -35,7 +35,7 @@ HEALTH_TIMEOUT=120  # seconds
 DEV_PROCFILE=$(cat <<'PROCFILE'
 redis: /root/.config/plit/dragonfly --logtostderr --port 6399
 gateway: GATEWAY_CONFIG=/root/.config/plit/config.json /usr/local/bin/plit-gw
-pipelit: /root/.local/share/plit/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /root/.local/share/plit/pipelit/platform
+pipelit: FRONTEND_DIST_PATH=/root/.local/share/plit/pipelit/platform/frontend/dist /root/.local/share/plit/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /root/.local/share/plit/pipelit/platform
 scheduler: /root/.local/share/plit/venv/bin/rq worker --worker-class worker_class.PipelitWorker workflows --with-scheduler
 worker: /root/.local/share/plit/venv/bin/rq worker-pool workflows -w worker_class.PipelitWorker -n 4
 PROCFILE

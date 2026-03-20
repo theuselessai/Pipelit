@@ -45,6 +45,8 @@ ComponentTypeStr = Literal[
     "trigger_chat",
     "reply_chat",
     "skill",
+    "validate_gherkin",
+    "validate_topology",
 ]
 EdgeTypeStr = Literal["direct", "conditional"]
 # "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.

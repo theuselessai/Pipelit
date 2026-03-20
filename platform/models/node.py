@@ -225,6 +225,14 @@ class _SkillConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "skill"}
 
 
+class _ValidateGherkinConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "validate_gherkin"}
+
+
+class _ValidateTopologyConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "validate_topology"}
+
+
 class TriggerComponentConfig(BaseComponentConfig):
     """Config for trigger nodes."""
     __mapper_args__ = {"polymorphic_identity": "trigger_telegram"}

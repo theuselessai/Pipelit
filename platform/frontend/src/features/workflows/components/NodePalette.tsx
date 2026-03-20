@@ -8,7 +8,7 @@ import {
   GitFork, Route, FileOutput, Split,
   Terminal,
   Repeat, Pause, Merge, Filter,
-  Code, UserCheck, ShieldAlert, FileText,
+  Code, UserCheck, ShieldAlert, FileText, CheckSquare, FileCheck,
   Database, DatabaseZap, UserSearch, UserPlus, Plug, Fingerprint, KeyRound,
   ClipboardList, ListChecks, Rocket, PencilRuler, CalendarClock, HeartPulse,
   type LucideIcon,
@@ -54,6 +54,8 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   identify_user: UserSearch,
   skill: GraduationCap,
   reply_chat: MessageSquare,
+  validate_gherkin: CheckSquare,
+  validate_topology: FileCheck,
 }
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
@@ -62,7 +64,7 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "Routing", types: ["categorizer", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
   { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"] },
-  { label: "Tools", types: ["run_command", "workflow_discover"] },
+  { label: "Tools", types: ["run_command", "workflow_discover", "validate_gherkin", "validate_topology"] },
   { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait"] },
   { label: "Output", types: ["reply_chat"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "error_handler", "output_parser"] },
