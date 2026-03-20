@@ -1024,6 +1024,46 @@ def _resume_from_child(
 
 # ── Advance / finalize ─────────────────────────────────────────────────────────
 
+_AGENT_COMPONENT_TYPES = {"agent", "deep_agent"}
+
+
+def _auto_promote_agent_output(
+    completed_node_id: str,
+    state: dict,
+    topo_data: dict,
+    execution_id: str,
+) -> None:
+    """Promote a terminal agent node's output to state["output"].
+
+    When an agent node is terminal (no downstream executable nodes) and the
+    workflow has no explicit ``reply_chat`` node, the agent's output is the
+    intended chat reply.  Setting ``state["output"]`` ensures
+    ``_extract_output()`` finds it and ``deliver()`` sends it back.
+    """
+    if state.get("output") is not None:
+        return  # already set by another node
+
+    node_info = topo_data["nodes"].get(completed_node_id)
+    if not node_info or node_info.get("component_type") not in _AGENT_COMPONENT_TYPES:
+        return
+
+    has_reply_chat = any(
+        n.get("component_type") == "reply_chat"
+        for n in topo_data["nodes"].values()
+    )
+    if has_reply_chat:
+        return
+
+    node_output = state.get("node_outputs", {}).get(completed_node_id, {})
+    output_text = node_output.get("output")
+    if output_text:
+        state["output"] = output_text
+        save_state(execution_id, state)
+        logger.info(
+            "Auto-promoted terminal agent %s output for execution %s",
+            completed_node_id, execution_id,
+        )
+
 
 def _advance(
     execution_id: str,
@@ -1043,6 +1083,12 @@ def _advance(
         if _check_loop_body_done(execution_id, completed_node_id, topo_data, db, delay_seconds=delay_seconds):
             r.decr(_inflight_key(execution_id))
             return
+
+        # Auto-reply: if a terminal agent node completes and the workflow
+        # has no explicit reply_chat node, promote its output to
+        # state["output"] so _finalize → deliver() sends the reply.
+        _auto_promote_agent_output(completed_node_id, state, topo_data, execution_id)
+
         remaining = r.decr(_inflight_key(execution_id))
         if remaining <= 0:
             _finalize(execution_id, db)

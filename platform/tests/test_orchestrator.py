@@ -373,6 +373,123 @@ class TestOrchestratorAdvance:
             _advance("exec-1", "a", state, topo_data, MagicMock())
             mock_fin.assert_called_once()
 
+    def test_advance_terminal_agent_auto_promotes_output(self):
+        """Terminal agent node with no reply_chat promotes output to state."""
+        from services.orchestrator import _advance
+
+        topo_data = {
+            "nodes": {"deep_agent_1": {"component_type": "deep_agent"}},
+            "edges_by_source": {},
+            "incoming_count": {"deep_agent_1": 0},
+        }
+        state = {
+            "node_outputs": {"deep_agent_1": {"output": "Hello from agent"}},
+        }
+
+        with patch("services.orchestrator._finalize") as mock_fin, \
+             patch("services.orchestrator._redis") as mock_r, \
+             patch("services.orchestrator.save_state") as mock_save, \
+             patch("services.orchestrator._publish_event"):
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
+
+            _advance("exec-1", "deep_agent_1", state, topo_data, MagicMock())
+
+            assert state["output"] == "Hello from agent"
+            mock_save.assert_called_once_with("exec-1", state)
+            mock_fin.assert_called_once()
+
+    def test_advance_terminal_agent_skips_when_reply_chat_exists(self):
+        """Terminal agent does NOT auto-promote if reply_chat node exists."""
+        from services.orchestrator import _advance
+
+        topo_data = {
+            "nodes": {
+                "agent_1": {"component_type": "agent"},
+                "reply_chat_1": {"component_type": "reply_chat"},
+            },
+            "edges_by_source": {},
+            "incoming_count": {"agent_1": 0, "reply_chat_1": 1},
+        }
+        state = {
+            "node_outputs": {"agent_1": {"output": "Hello"}},
+        }
+
+        with patch("services.orchestrator._finalize") as mock_fin, \
+             patch("services.orchestrator._redis") as mock_r, \
+             patch("services.orchestrator.save_state") as mock_save, \
+             patch("services.orchestrator._publish_event"):
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
+
+            _advance("exec-1", "agent_1", state, topo_data, MagicMock())
+
+            assert "output" not in state
+            mock_save.assert_not_called()
+
+    def test_advance_terminal_non_agent_does_not_promote(self):
+        """Terminal non-agent node (e.g. switch) does NOT auto-promote."""
+        from services.orchestrator import _advance
+
+        topo_data = {
+            "nodes": {"switch_1": {"component_type": "switch"}},
+            "edges_by_source": {},
+            "incoming_count": {"switch_1": 0},
+        }
+        state = {
+            "node_outputs": {"switch_1": {"route": "category_a"}},
+        }
+
+        with patch("services.orchestrator._finalize") as mock_fin, \
+             patch("services.orchestrator._redis") as mock_r, \
+             patch("services.orchestrator.save_state") as mock_save, \
+             patch("services.orchestrator._publish_event"):
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
+
+            _advance("exec-1", "switch_1", state, topo_data, MagicMock())
+
+            assert "output" not in state
+            mock_save.assert_not_called()
+
+    def test_advance_non_terminal_agent_does_not_promote(self):
+        """Agent with downstream edges does NOT auto-promote."""
+        from services.orchestrator import _advance
+
+        topo_data = {
+            "nodes": {
+                "agent_1": {"component_type": "agent"},
+                "switch_1": {"component_type": "switch"},
+            },
+            "edges_by_source": {
+                "agent_1": [{"source_node_id": "agent_1", "target_node_id": "switch_1", "edge_type": "direct"}],
+            },
+            "incoming_count": {"agent_1": 0, "switch_1": 1},
+        }
+        state = {
+            "node_outputs": {"agent_1": {"output": "Hello"}},
+        }
+
+        with patch("services.orchestrator._queue") as mock_q, \
+             patch("services.orchestrator._redis") as mock_r, \
+             patch("services.orchestrator.save_state") as mock_save, \
+             patch("services.orchestrator._publish_event"):
+            mock_queue = MagicMock()
+            mock_q.return_value = mock_queue
+            mock_redis = MagicMock()
+            mock_r.return_value = mock_redis
+            mock_redis.decr.return_value = 0
+
+            _advance("exec-1", "agent_1", state, topo_data, MagicMock())
+
+            assert "output" not in state
+            mock_save.assert_not_called()
+            # Should enqueue the switch instead
+            mock_queue.enqueue.assert_called_once()
+
 
 # ── Switch component tests ────────────────────────────────────────────────────
 
