@@ -51,6 +51,7 @@ from components import (  # noqa: E402, F401
     deep_agent,
     router,
     run_command,
+    validate_gherkin,
     subworkflow,
     switch,
     trigger,
