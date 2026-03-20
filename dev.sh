@@ -151,12 +151,12 @@ emit_status_json() {
     local admin_key
     admin_key=$(get_admin_api_key)
 
+    local agent_key=""
     if [[ -z "$admin_key" ]]; then
         log "WARNING: No admin API key found — agent key creation will be skipped."
+    else
+        agent_key=$(ensure_agent_key "$admin_key")
     fi
-
-    local agent_key
-    agent_key=$(ensure_agent_key "$admin_key")
 
     printf '{
   "status": "ready",

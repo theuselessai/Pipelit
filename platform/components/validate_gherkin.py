@@ -159,7 +159,7 @@ def _parse_lint_line(line: str) -> dict | None:
     if len(parts) >= 4:
         try:
             line_no = int(parts[1].strip())
-            remainder = parts[3].strip() if len(parts) > 3 else parts[2].strip()
+            remainder = parts[3].strip()
             code, _, message = remainder.partition(" ")
             if code and code[0].isalpha() and any(c.isdigit() for c in code):
                 return {"code": code, "message": message.strip(), "line": line_no}
