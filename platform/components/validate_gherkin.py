@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-import subprocess
-import tempfile
-from pathlib import Path
+import shlex
 
 from langchain_core.tools import tool
 
@@ -18,6 +17,27 @@ logger = logging.getLogger(__name__)
 @register("validate_gherkin")
 def validate_gherkin_factory(node):
     """Return a LangChain tool that validates Gherkin .feature specs."""
+
+    # Resolve parent workspace and build sandbox backend (same pattern as run_command)
+    from components.run_command import _resolve_parent_workspace
+    from components._agent_shared import _build_backend
+
+    parent_extra = _resolve_parent_workspace(node)
+    backend = None
+    if parent_extra.get("workspace_id"):
+        try:
+            backend = _build_backend(parent_extra)
+            logger.info(
+                "validate_gherkin %s: using sandbox backend (workspace_id=%s)",
+                node.node_id,
+                parent_extra["workspace_id"],
+            )
+        except Exception:
+            logger.warning(
+                "validate_gherkin %s: failed to build sandbox backend, lint checks will be skipped",
+                node.node_id,
+                exc_info=True,
+            )
 
     @tool
     def validate_gherkin(gherkin_spec: str) -> str:
@@ -71,34 +91,23 @@ def validate_gherkin_factory(node):
             result["parse_errors"].append(error_info)
             return json.dumps(result)
 
-        # ── Tier 2: Lint via gherlint CLI ────────────────────────────────
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".feature",
-                delete=False,
-            ) as tmp:
-                tmp.write(gherkin_spec)
-                tmp_path = tmp.name
-
+        # ── Tier 2: Lint via gherlint CLI (sandboxed) ────────────────────
+        if backend is not None:
             try:
-                proc = subprocess.run(
-                    ["gherlint", "lint", tmp_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
+                # Encode content as base64 so arbitrary Gherkin can be safely
+                # embedded in a shell command without quoting issues.
+                encoded = base64.b64encode(gherkin_spec.encode()).decode()
+                cmd = (
+                    f"echo {shlex.quote(encoded)} | base64 -d > /tmp/_validate_gherkin.feature"
+                    f" && gherlint lint /tmp/_validate_gherkin.feature"
+                    f"; STATUS=$?; rm -f /tmp/_validate_gherkin.feature; exit $STATUS"
                 )
-                _parse_gherlint_output(
-                    proc.stdout, proc.stderr, proc.returncode, result
-                )
-            finally:
-                Path(tmp_path).unlink(missing_ok=True)
-        except FileNotFoundError:
-            logger.debug("gherlint not found on PATH, skipping lint checks")
-        except subprocess.TimeoutExpired:
-            logger.warning("gherlint timed out after 30s")
-        except Exception:
-            logger.debug("gherlint lint failed", exc_info=True)
+                resp = backend.execute(cmd, timeout=30)
+                _parse_gherlint_output(resp.output or "", "", resp.exit_code or 0, result)
+            except Exception:
+                logger.debug("gherlint lint failed", exc_info=True)
+        else:
+            logger.debug("validate_gherkin: no sandbox backend, skipping lint checks")
 
         return json.dumps(result)
 

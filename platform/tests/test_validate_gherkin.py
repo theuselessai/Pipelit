@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
+
+_platform_dir = str(Path(__file__).resolve().parent.parent)
+if _platform_dir not in sys.path:
+    sys.path.insert(0, _platform_dir)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -26,11 +32,35 @@ def _make_node():
     )
 
 
-def _get_tool():
-    """Create a validate_gherkin tool instance."""
+def _exec_resp(output="", exit_code=0):
+    """Build a fake backend.execute() response."""
+    resp = MagicMock()
+    resp.output = output
+    resp.exit_code = exit_code
+    return resp
+
+
+def _get_tool(lint_resp=None):
+    """Create a validate_gherkin tool instance.
+
+    When *lint_resp* is None, no sandbox backend is injected (lint skipped).
+    When *lint_resp* is provided, a mock backend returning that response is used.
+    """
     from components.validate_gherkin import validate_gherkin_factory
     node = _make_node()
-    return validate_gherkin_factory(node)
+
+    if lint_resp is None:
+        # No workspace → no backend → lint tier skipped
+        with patch("components.run_command._resolve_parent_workspace", return_value={}):
+            return validate_gherkin_factory(node)
+
+    mock_backend = MagicMock()
+    mock_backend.execute.return_value = lint_resp
+    with (
+        patch("components.run_command._resolve_parent_workspace", return_value={"workspace_id": "test-ws"}),
+        patch("components._agent_shared._build_backend", return_value=mock_backend),
+    ):
+        return validate_gherkin_factory(node)
 
 
 VALID_FEATURE = """\
@@ -69,13 +99,9 @@ class TestValidateGherkinRegistration:
 
 
 class TestValidateGherkinValidSpec:
-    @patch("subprocess.run")
-    def test_valid_gherkin_returns_valid(self, mock_run):
+    def test_valid_gherkin_returns_valid(self):
         """Valid Gherkin spec should return valid: true with no errors."""
-        mock_run.return_value = MagicMock(
-            stdout="", stderr="", returncode=0,
-        )
-        tool = _get_tool()
+        tool = _get_tool(lint_resp=_exec_resp(output="", exit_code=0))
         raw = tool.invoke({"gherkin_spec": VALID_FEATURE})
         result = json.loads(raw)
 
@@ -83,13 +109,9 @@ class TestValidateGherkinValidSpec:
         assert result["parse_errors"] == []
         assert result["lint_errors"] == []
 
-    @patch("subprocess.run")
-    def test_valid_gherkin_no_lint_errors(self, mock_run):
+    def test_valid_gherkin_no_lint_errors(self):
         """When gherlint reports no issues, lint_errors should be empty."""
-        mock_run.return_value = MagicMock(
-            stdout="", stderr="", returncode=0,
-        )
-        tool = _get_tool()
+        tool = _get_tool(lint_resp=_exec_resp(output="", exit_code=0))
         raw = tool.invoke({"gherkin_spec": VALID_FEATURE})
         result = json.loads(raw)
 
@@ -109,15 +131,13 @@ class TestValidateGherkinSyntaxError:
 
 
 class TestValidateGherkinLintWarnings:
-    @patch("subprocess.run")
-    def test_lint_warnings_populated(self, mock_run):
+    def test_lint_warnings_populated(self):
         """Lint warnings should be captured from gherlint output."""
-        mock_run.return_value = MagicMock(
-            stdout="test.feature:3:1: C0101 Step should start with a capital letter\n",
-            stderr="",
-            returncode=0,
+        resp = _exec_resp(
+            output="test.feature:3:1: C0101 Step should start with a capital letter\n",
+            exit_code=0,
         )
-        tool = _get_tool()
+        tool = _get_tool(lint_resp=resp)
         raw = tool.invoke({"gherkin_spec": VALID_FEATURE})
         result = json.loads(raw)
 
@@ -126,15 +146,13 @@ class TestValidateGherkinLintWarnings:
         assert result["lint_warnings"][0]["code"] == "C0101"
         assert result["lint_warnings"][0]["line"] == 3
 
-    @patch("subprocess.run")
-    def test_lint_errors_set_valid_false(self, mock_run):
+    def test_lint_errors_set_valid_false(self):
         """Lint errors (E-codes) should set valid to false."""
-        mock_run.return_value = MagicMock(
-            stdout="test.feature:5:1: E0001 Critical error found\n",
-            stderr="",
-            returncode=1,
+        resp = _exec_resp(
+            output="test.feature:5:1: E0001 Critical error found\n",
+            exit_code=1,
         )
-        tool = _get_tool()
+        tool = _get_tool(lint_resp=resp)
         raw = tool.invoke({"gherkin_spec": VALID_FEATURE})
         result = json.loads(raw)
 
@@ -142,19 +160,17 @@ class TestValidateGherkinLintWarnings:
         assert len(result["lint_errors"]) == 1
         assert result["lint_errors"][0]["code"] == "E0001"
 
-    @patch("subprocess.run")
-    def test_multiple_warnings_and_errors(self, mock_run):
+    def test_multiple_warnings_and_errors(self):
         """Multiple lint issues should all be captured."""
-        mock_run.return_value = MagicMock(
-            stdout=(
+        resp = _exec_resp(
+            output=(
                 "test.feature:3:1: C0101 Step lowercase\n"
                 "test.feature:5:1: W0301 Missing Given\n"
                 "test.feature:8:1: E0001 Critical problem\n"
             ),
-            stderr="",
-            returncode=1,
+            exit_code=1,
         )
-        tool = _get_tool()
+        tool = _get_tool(lint_resp=resp)
         raw = tool.invoke({"gherkin_spec": VALID_FEATURE})
         result = json.loads(raw)
 
@@ -204,24 +220,22 @@ class TestValidateGherkinNonGherkin:
         assert len(result["parse_errors"]) > 0
 
 
-class TestValidateGherkinGherlintUnavailable:
-    @patch("subprocess.run", side_effect=FileNotFoundError("gherlint not found"))
-    def test_missing_gherlint_still_validates_syntax(self, mock_run):
-        """When gherlint is not installed, syntax validation still works."""
-        tool = _get_tool()
+class TestValidateGherkinNoBackend:
+    def test_no_backend_still_validates_syntax(self):
+        """When no sandbox backend is available, syntax validation still works."""
+        tool = _get_tool()  # no lint_resp → no backend
         raw = tool.invoke({"gherkin_spec": VALID_FEATURE})
         result = json.loads(raw)
 
         assert result["valid"] is True
         assert result["parse_errors"] == []
-        # Lint results empty since gherlint unavailable
+        # Lint results empty since no backend available
         assert result["lint_warnings"] == []
         assert result["lint_errors"] == []
 
-    @patch("subprocess.run", side_effect=FileNotFoundError("gherlint not found"))
-    def test_missing_gherlint_syntax_error_still_caught(self, mock_run):
-        """Syntax errors are caught even without gherlint."""
-        tool = _get_tool()
+    def test_no_backend_syntax_error_still_caught(self):
+        """Syntax errors are caught even without a backend."""
+        tool = _get_tool()  # no lint_resp → no backend
         raw = tool.invoke({"gherkin_spec": MALFORMED_FEATURE})
         result = json.loads(raw)
 
