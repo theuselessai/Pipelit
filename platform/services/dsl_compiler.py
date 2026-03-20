@@ -42,27 +42,46 @@ logger = logging.getLogger(__name__)
 STEP_TYPE_MAP: dict[str, str] = {
     "code": "code",
     "agent": "agent",
-    "http": "http_request",
+    "deep_agent": "deep_agent",
     "switch": "switch",
     "loop": "loop",
     "workflow": "workflow",
     "human": "human_confirmation",
     "transform": "code",
+    "reply_chat": "reply_chat",
+    "categorizer": "categorizer",
+    "router": "router",
+    "extractor": "extractor",
+    "filter": "filter",
+    "merge": "merge",
+    "wait": "wait",
+    "identify_user": "identify_user",
 }
 
 TRIGGER_TYPE_MAP: dict[str, str] = {
     "telegram": "trigger_telegram",
     "chat": "trigger_chat",
     "none": "trigger_workflow",
+    "workflow": "trigger_workflow",
     "manual": "trigger_manual",
+    "schedule": "trigger_schedule",
+    "error": "trigger_error",
 }
 
 TOOL_TYPE_MAP: dict[str, str] = {
-    "code": "code_execute",
-    "http_request": "http_request",
-    "web_search": "web_search",
-    "calculator": "calculator",
-    "datetime": "datetime",
+    "run_command": "run_command",
+    "platform_api": "platform_api",
+    "whoami": "whoami",
+    "epic_tools": "epic_tools",
+    "task_tools": "task_tools",
+    "spawn_and_await": "spawn_and_await",
+    "workflow_create": "workflow_create",
+    "workflow_discover": "workflow_discover",
+    "scheduler_tools": "scheduler_tools",
+    "system_health": "system_health",
+    "get_totp_code": "get_totp_code",
+    "memory_read": "memory_read",
+    "memory_write": "memory_write",
 }
 
 # ── Model preference table for discover mode ─────────────────────────────────
@@ -75,15 +94,15 @@ MODEL_PREFERENCE_TABLE: dict[str, tuple[int, int, int]] = {
     "gpt-4o": (50, 70, 85),
     "gpt-4-turbo": (60, 60, 82),
     "gpt-4": (70, 50, 80),
-    "gpt-3.5-turbo": (10, 95, 50),
     "o1-mini": (30, 80, 75),
     "o1": (80, 40, 90),
+    "o3-mini": (35, 85, 80),
     # Anthropic
     "claude-3-haiku": (15, 95, 55),
     "claude-haiku-3-5": (18, 90, 60),
     "claude-3-5-sonnet": (40, 70, 85),
     "claude-sonnet-4": (45, 65, 88),
-    "claude-opus": (90, 30, 95),
+    "claude-opus-4": (90, 30, 95),
     # Open-source
     "llama-3.1-8b": (5, 95, 45),
     "llama-3.1-70b": (25, 60, 70),
@@ -472,13 +491,88 @@ def _build_step_config(
             extra["conversation_memory"] = True
         config["extra_config"] = extra
 
-    elif step_type == "http":
+    elif step_type == "deep_agent":
+        config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
+        # Model: step-level override -> workflow-level default -> inherit from parent
+        step_model = step.get("model", {})
+        if step_model:
+            s_cred, s_model, s_temp = _resolve_model(step_model, parent_node, db)
+            config["llm_credential_id"] = s_cred
+            config["model_name"] = s_model
+            config["temperature"] = s_temp
+        elif cred_id is not None:
+            config["llm_credential_id"] = cred_id
+            config["model_name"] = model_name
+            config["temperature"] = temperature
+        elif parent_node:
+            inherit_info = _resolve_model({"inherit": True}, parent_node, db)
+            if inherit_info[0] is not None:
+                config["llm_credential_id"] = inherit_info[0]
+                config["model_name"] = inherit_info[1]
+                config["temperature"] = inherit_info[2]
+        extra: dict[str, Any] = {}
+        if step.get("memory"):
+            extra["conversation_memory"] = True
+        if step.get("enable_filesystem"):
+            extra["enable_filesystem"] = True
+        if step.get("filesystem_backend"):
+            extra["filesystem_backend"] = step["filesystem_backend"]
+        if step.get("filesystem_root_dir"):
+            extra["filesystem_root_dir"] = step["filesystem_root_dir"]
+        if step.get("enable_todos"):
+            extra["enable_todos"] = True
+        if step.get("subagents"):
+            extra["subagents"] = step["subagents"]
+        config["extra_config"] = extra
+
+    elif step_type == "reply_chat":
         config["extra_config"] = {
-            "url": step.get("url", ""),
-            "method": step.get("method", "GET"),
-            "headers": step.get("headers", {}),
-            "body": step.get("body", ""),
-            "timeout": step.get("timeout", 30),
+            "message": step.get("message") or step.get("template", ""),
+        }
+
+    elif step_type in ("categorizer", "router", "extractor"):
+        config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
+        # These AI nodes need a model sub-component
+        step_model = step.get("model", {})
+        if step_model:
+            s_cred, s_model, s_temp = _resolve_model(step_model, parent_node, db)
+            config["llm_credential_id"] = s_cred
+            config["model_name"] = s_model
+            config["temperature"] = s_temp
+        elif cred_id is not None:
+            config["llm_credential_id"] = cred_id
+            config["model_name"] = model_name
+            config["temperature"] = temperature
+        elif parent_node:
+            inherit_info = _resolve_model({"inherit": True}, parent_node, db)
+            if inherit_info[0] is not None:
+                config["llm_credential_id"] = inherit_info[0]
+                config["model_name"] = inherit_info[1]
+                config["temperature"] = inherit_info[2]
+        ai_extra: dict[str, Any] = {}
+        if step_type == "categorizer" and step.get("categories"):
+            ai_extra["categories"] = step["categories"]
+        if step_type == "extractor" and step.get("schema"):
+            ai_extra["extraction_schema"] = step["schema"]
+        config["extra_config"] = ai_extra
+
+    elif step_type == "filter":
+        config["extra_config"] = {
+            "rules": step.get("rules", []),
+        }
+
+    elif step_type == "merge":
+        config["extra_config"] = {}
+
+    elif step_type == "wait":
+        config["extra_config"] = {
+            "delay": step.get("delay", 0),
+            "delay_unit": step.get("delay_unit", "seconds"),
+        }
+
+    elif step_type == "identify_user":
+        config["extra_config"] = {
+            "channel": step.get("channel", ""),
         }
 
     elif step_type == "switch":
@@ -763,8 +857,9 @@ def _build_graph(
                     "edge_label": "loop_return",
                 })
 
-        # ── Agent sub-components ─────────────────────────────────────
-        if step_type == "agent":
+        # ── AI node sub-components (model, tools, skills) ─────────
+        _ai_step_types = ("agent", "deep_agent", "categorizer", "router", "extractor")
+        if step_type in _ai_step_types:
             # ai_model node (if model is specified)
             if config.get("llm_credential_id"):
                 model_node_id = f"ai_model_{step_id}"
@@ -787,40 +882,74 @@ def _build_graph(
                     "edge_label": "llm",
                 })
 
-            # Inline tools
-            for j, tool_spec in enumerate(step.get("tools", [])):
-                if not isinstance(tool_spec, (str, dict)):
-                    raise ValueError(f"Tool {j} in step '{step_id}' must be a string or mapping, got {type(tool_spec).__name__}")
-                tool_type = tool_spec if isinstance(tool_spec, str) else tool_spec.get("type", "")
-                tool_component = TOOL_TYPE_MAP.get(tool_type)
-                if not tool_component:
-                    raise ValueError(
-                        f"Unknown inline tool type '{tool_type}'. "
-                        f"Valid: {', '.join(TOOL_TYPE_MAP)}"
-                    )
-                tool_node_id = f"{tool_component}_{step_id}_{j + 1}"
-                tool_config: dict[str, Any] = {}
+            # Inline tools (agent and deep_agent only)
+            if step_type in ("agent", "deep_agent"):
+                for j, tool_spec in enumerate(step.get("tools", [])):
+                    if not isinstance(tool_spec, (str, dict)):
+                        raise ValueError(f"Tool {j} in step '{step_id}' must be a string or mapping, got {type(tool_spec).__name__}")
+                    tool_type = tool_spec if isinstance(tool_spec, str) else tool_spec.get("type", "")
+                    tool_component = TOOL_TYPE_MAP.get(tool_type)
+                    if not tool_component:
+                        raise ValueError(
+                            f"Unknown inline tool type '{tool_type}'. "
+                            f"Valid: {', '.join(TOOL_TYPE_MAP)}"
+                        )
+                    tool_node_id = f"{tool_component}_{step_id}_{j + 1}"
+                    tool_config: dict[str, Any] = {}
 
-                # Tool-specific config from dict-form specs
-                if isinstance(tool_spec, dict):
-                    tool_extra = {k: v for k, v in tool_spec.items() if k != "type"}
-                    if tool_extra:
-                        tool_config["extra_config"] = tool_extra
+                    # Tool-specific config from dict-form specs
+                    if isinstance(tool_spec, dict):
+                        tool_extra = {k: v for k, v in tool_spec.items() if k != "type"}
+                        if tool_extra:
+                            tool_config["extra_config"] = tool_extra
 
-                nodes.append({
-                    "node_id": tool_node_id,
-                    "component_type": tool_component,
-                    "is_entry_point": False,
-                    "position_x": x_offset + 50,
-                    "position_y": 350 + j * 80,
-                    "config": tool_config,
-                })
-                edges.append({
-                    "source_node_id": tool_node_id,
-                    "target_node_id": step_id,
-                    "edge_type": "direct",
-                    "edge_label": "tool",
-                })
+                    nodes.append({
+                        "node_id": tool_node_id,
+                        "component_type": tool_component,
+                        "is_entry_point": False,
+                        "position_x": x_offset + 50,
+                        "position_y": 350 + j * 80,
+                        "config": tool_config,
+                    })
+                    edges.append({
+                        "source_node_id": tool_node_id,
+                        "target_node_id": step_id,
+                        "edge_type": "direct",
+                        "edge_label": "tool",
+                    })
+
+                # Inline skills (agent and deep_agent only)
+                for k, skill_spec in enumerate(step.get("skills", [])):
+                    if not isinstance(skill_spec, (str, dict)):
+                        raise ValueError(f"Skill {k} in step '{step_id}' must be a string or mapping, got {type(skill_spec).__name__}")
+                    if isinstance(skill_spec, str):
+                        skill_path = skill_spec
+                        skill_source = "filesystem"
+                    else:
+                        skill_path = skill_spec.get("path", "")
+                        skill_source = skill_spec.get("source", "filesystem")
+
+                    skill_node_id = f"skill_{step_id}_{k + 1}"
+                    skill_config: dict[str, Any] = {
+                        "extra_config": {
+                            "skill_path": skill_path,
+                            "skill_source": skill_source,
+                        },
+                    }
+                    nodes.append({
+                        "node_id": skill_node_id,
+                        "component_type": "skill",
+                        "is_entry_point": False,
+                        "position_x": x_offset + 150,
+                        "position_y": 350 + k * 80,
+                        "config": skill_config,
+                    })
+                    edges.append({
+                        "source_node_id": skill_node_id,
+                        "target_node_id": step_id,
+                        "edge_type": "direct",
+                        "edge_label": "skill",
+                    })
 
         prev_node_id = step_id
         x_offset += 300
@@ -1057,12 +1186,18 @@ def _patch_add_step(
             "code": _strip_markdown_fences(step.get("snippet") or step.get("code", "")),
             "language": step.get("language", "python"),
         }
-    elif step_type == "agent":
+    elif step_type in ("agent", "deep_agent"):
         config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
-    elif step_type == "http":
+    elif step_type in ("categorizer", "router", "extractor"):
+        config["system_prompt"] = step.get("prompt") or step.get("system_prompt", "")
+    elif step_type == "reply_chat":
+        config["extra_config"] = {"message": step.get("message", "")}
+    elif step_type == "merge":
+        config["extra_config"] = {}
+    elif step_type == "wait":
         config["extra_config"] = {
-            "url": step.get("url", ""),
-            "method": step.get("method", "GET"),
+            "delay": step.get("delay", 0),
+            "delay_unit": step.get("delay_unit", "seconds"),
         }
 
     new_node = {
