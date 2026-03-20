@@ -107,7 +107,7 @@ def validate_gherkin_factory(node):
                 resp = backend.execute(cmd, timeout=30)
                 _parse_gherlint_output(resp.output or "", "", resp.exit_code or 0, result)
             except Exception:
-                logger.debug("gherlint lint failed", exc_info=True)
+                logger.warning("gherlint lint failed", exc_info=True)
         else:
             logger.debug("validate_gherkin: no sandbox backend, skipping lint checks")
 

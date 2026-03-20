@@ -95,7 +95,7 @@ wait_healthy() {
 
 get_admin_api_key() {
     docker exec "$CONTAINER_NAME" \
-        python3 -c "import sqlite3; print(sqlite3.connect('${DB_PATH}').execute('SELECT key FROM api_keys LIMIT 1').fetchone()[0])" \
+        python3 -c "import sqlite3; conn = sqlite3.connect('${DB_PATH}'); row = conn.execute('SELECT key FROM api_keys LIMIT 1').fetchone(); print(row[0] if row else '')" \
         2>/dev/null || true
 }
 
@@ -150,6 +150,10 @@ print(row[0] if row else '')
 emit_status_json() {
     local admin_key
     admin_key=$(get_admin_api_key)
+
+    if [[ -z "$admin_key" ]]; then
+        log "WARNING: No admin API key found — agent key creation will be skipped."
+    fi
 
     local agent_key
     agent_key=$(ensure_agent_key "$admin_key")
