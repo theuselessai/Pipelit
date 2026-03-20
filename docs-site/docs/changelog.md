@@ -4,6 +4,14 @@ All notable changes to Pipelit will be documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.15] - 2026-03-20
+
+### Added
+
+- **`import-fixture` CLI command** — Generic fixture loader that creates workflows from JSON fixture files, remapping LLM credential and model config references to the local DB. Usage: `python -m cli import-fixture path/to/fixture.json` ([#176](https://github.com/theuselessai/Pipelit/pull/176))
+
+---
+
 ## [0.3.14] - 2026-03-20
 
 ### Fixed
