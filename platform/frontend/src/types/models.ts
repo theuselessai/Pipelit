@@ -39,6 +39,7 @@ export type ComponentType =
   | "skill"
   | "validate_gherkin"
   | "validate_topology"
+  | "assertion"
 export type EdgeType = "direct" | "conditional"
 // "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
 export type EdgeLabel = "" | "llm" | "tool" | "output_parser" | "loop_body" | "loop_return" | "skill"
@@ -112,11 +113,10 @@ export interface WorkspaceUpdate { allow_network?: boolean; env_vars?: Workspace
 // Paginated response
 export interface PaginatedResponse<T> { items: T[]; total: number }
 
-// Switch rules
-export interface SwitchRule { id: string; field: string; operator: string; value: string; label: string }
-
-// Filter rules
-export interface FilterRule { id: string; field: string; operator: string; value: string }
+// Rules (shared base for switch, filter, assertion)
+export interface Rule { id: string; field: string; operator: string; value: string }
+export interface SwitchRule extends Rule { label: string }
+export type FilterRule = Rule
 
 // Checkpoints
 export interface Checkpoint { thread_id: string; checkpoint_ns: string; checkpoint_id: string; parent_checkpoint_id: string | null; step: number | null; source: string | null; blob_size: number }

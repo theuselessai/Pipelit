@@ -21,6 +21,7 @@ import CodeMirrorExpressionEditor from "@/components/CodeMirrorExpressionEditor"
 import PopoutWindow from "@/components/PopoutWindow"
 import type { CodeMirrorLanguage } from "@/components/CodeMirrorEditor"
 import type { WorkflowNode, WorkflowDetail, SwitchRule, FilterRule, ScheduleJobInfo } from "@/types/models"
+import RuleEditor from "./RuleEditor"
 
 interface Props {
   slug: string
@@ -31,52 +32,6 @@ interface Props {
 
 const TRIGGER_TYPES = ["trigger_telegram", "trigger_schedule", "trigger_manual", "trigger_workflow", "trigger_error", "trigger_chat"]
 
-const OPERATOR_OPTIONS = [
-  { group: "Universal", options: [
-    { value: "exists", label: "Exists" },
-    { value: "does_not_exist", label: "Does not exist" },
-    { value: "is_empty", label: "Is empty" },
-    { value: "is_not_empty", label: "Is not empty" },
-  ]},
-  { group: "String", options: [
-    { value: "equals", label: "Equals" },
-    { value: "not_equals", label: "Not equals" },
-    { value: "contains", label: "Contains" },
-    { value: "not_contains", label: "Not contains" },
-    { value: "starts_with", label: "Starts with" },
-    { value: "not_starts_with", label: "Not starts with" },
-    { value: "ends_with", label: "Ends with" },
-    { value: "not_ends_with", label: "Not ends with" },
-    { value: "matches_regex", label: "Matches regex" },
-    { value: "not_matches_regex", label: "Not matches regex" },
-  ]},
-  { group: "Number", options: [
-    { value: "gt", label: "Greater than" },
-    { value: "lt", label: "Less than" },
-    { value: "gte", label: "Greater or equal" },
-    { value: "lte", label: "Less or equal" },
-  ]},
-  { group: "Datetime", options: [
-    { value: "after", label: "After" },
-    { value: "before", label: "Before" },
-    { value: "after_or_equal", label: "After or equal" },
-    { value: "before_or_equal", label: "Before or equal" },
-  ]},
-  { group: "Boolean", options: [
-    { value: "is_true", label: "Is true" },
-    { value: "is_false", label: "Is false" },
-  ]},
-  { group: "Array", options: [
-    { value: "length_eq", label: "Length equals" },
-    { value: "length_neq", label: "Length not equals" },
-    { value: "length_gt", label: "Length greater than" },
-    { value: "length_lt", label: "Length less than" },
-    { value: "length_gte", label: "Length greater or equal" },
-    { value: "length_lte", label: "Length less or equal" },
-  ]},
-]
-
-const UNARY_OPERATORS = new Set(["exists", "does_not_exist", "is_empty", "is_not_empty", "is_true", "is_false"])
 
 /** Close a popout window and clear its state. Use for Save/Cancel buttons — NOT for onClose (which fires from beforeunload when the popup is already closing). */
 function closePopout(popup: Window | null, setter: (w: Window | null) => void) {
@@ -84,9 +39,6 @@ function closePopout(popup: Window | null, setter: (w: Window | null) => void) {
   setter(null)
 }
 
-function generateRuleId(): string {
-  return "r_" + Math.random().toString(36).slice(2, 8)
-}
 
 function formatTimestamp(ts: string | undefined): string {
   if (!ts) return ""
@@ -110,19 +62,6 @@ export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Prop
   return <NodeConfigPanel key={node.node_id} slug={slug} node={node} workflow={workflow} onClose={onClose} />
 }
 
-/** Parse a full field path like "node_outputs.cat_1.category" into { sourceNodeId, outputField }. */
-function parseFieldPath(field: string): { sourceNodeId: string; outputField: string } {
-  if (!field || !field.startsWith("node_outputs.")) return { sourceNodeId: "", outputField: field }
-  const rest = field.slice("node_outputs.".length) // "cat_1.category"
-  const dotIdx = rest.indexOf(".")
-  if (dotIdx === -1) return { sourceNodeId: rest, outputField: "" }
-  return { sourceNodeId: rest.slice(0, dotIdx), outputField: rest.slice(dotIdx + 1) }
-}
-
-function buildFieldPath(sourceNodeId: string, outputField: string): string {
-  if (!sourceNodeId) return outputField
-  return `node_outputs.${sourceNodeId}${outputField ? "." + outputField : ""}`
-}
 
 function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const updateNode = useUpdateNode(slug)
@@ -1375,119 +1314,18 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
       {node.component_type === "switch" && (
         <>
           <Separator />
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold">Routing Rules</Label>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => {
-                  const defaultField = upstreamNodes.length === 1 ? buildFieldPath(upstreamNodes[0], "") : ""
-                  setSwitchRules((prev) => [...prev, { id: generateRuleId(), field: defaultField, operator: "equals", value: "", label: "" }])
-                }}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Add Rule
-              </Button>
-            </div>
-            {switchRules.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-2">No rules defined. Add a rule to create routing branches.</p>
-            )}
-            {switchRules.map((rule, idx) => (
-              <div key={rule.id} className="border rounded-md p-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">Rule {idx + 1}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0"
-                    onClick={() => setSwitchRules((prev) => prev.filter((r) => r.id !== rule.id))}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Label</Label>
-                  <Input
-                    value={rule.label}
-                    onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, label: e.target.value } : r))}
-                    className="text-xs h-7"
-                    placeholder="e.g. Good"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Source Node</Label>
-                  {upstreamNodes.length > 0 ? (
-                    <Select
-                      value={parseFieldPath(rule.field).sourceNodeId || (upstreamNodes.length === 1 ? upstreamNodes[0] : "")}
-                      onValueChange={(v) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(v, parseFieldPath(r.field).outputField) } : r))}
-                    >
-                      <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
-                      <SelectContent>
-                        {upstreamNodes.map((nid) => (
-                          <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      value={parseFieldPath(rule.field).sourceNodeId}
-                      onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(e.target.value, parseFieldPath(r.field).outputField) } : r))}
-                      className="text-xs h-7 font-mono"
-                      placeholder="node_id"
-                    />
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Output Field</Label>
-                  <Input
-                    value={parseFieldPath(rule.field).outputField}
-                    onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(parseFieldPath(r.field).sourceNodeId, e.target.value) } : r))}
-                    className="text-xs h-7 font-mono"
-                    placeholder="e.g. category"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Operator</Label>
-                  <Select
-                    value={rule.operator}
-                    onValueChange={(v) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, operator: v } : r))}
-                  >
-                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {OPERATOR_OPTIONS.map((group) => (
-                        <div key={group.group}>
-                          <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground">{group.group}</div>
-                          {group.options.map((op) => (
-                            <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>
-                          ))}
-                        </div>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {!UNARY_OPERATORS.has(rule.operator) && (
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Value</Label>
-                    <Input
-                      value={rule.value}
-                      onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, value: e.target.value } : r))}
-                      className="text-xs h-7"
-                      placeholder="comparison value"
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-            <div className="flex items-center justify-between pt-1">
-              <div>
-                <Label className="text-xs">Fallback Route</Label>
-                <p className="text-[10px] text-muted-foreground">Route to "other" when no rules match</p>
-              </div>
-              <Switch checked={enableFallback} onCheckedChange={setEnableFallback} />
-            </div>
-          </div>
+          <RuleEditor<SwitchRule>
+            rules={switchRules}
+            onChange={setSwitchRules}
+            upstreamNodes={upstreamNodes}
+            showLabel
+            showSourceNode
+            showFallback
+            enableFallback={enableFallback}
+            onFallbackChange={setEnableFallback}
+            title="Routing Rules"
+            emptyMessage="No rules defined. Add a rule to create routing branches."
+          />
         </>
       )}
 
@@ -1543,75 +1381,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <Label className="text-[10px]">Source Field (optional)</Label>
               <Input value={filterField} onChange={(e) => setFilterField(e.target.value)} className="text-xs h-7 font-mono" placeholder="e.g. items" />
             </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold">Rules</Label>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => setFilterRules((prev) => [...prev, { id: generateRuleId(), field: "", operator: "equals", value: "" }])}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Add Rule
-              </Button>
-            </div>
-            {filterRules.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-2">No rules defined. All items will pass through.</p>
-            )}
-            {filterRules.map((rule, idx) => (
-              <div key={rule.id} className="border rounded-md p-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">Rule {idx + 1}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0"
-                    onClick={() => setFilterRules((prev) => prev.filter((r) => r.id !== rule.id))}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Field</Label>
-                  <Input
-                    value={rule.field}
-                    onChange={(e) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: e.target.value } : r))}
-                    className="text-xs h-7 font-mono"
-                    placeholder="e.g. name, status"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Operator</Label>
-                  <Select
-                    value={rule.operator}
-                    onValueChange={(v) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, operator: v } : r))}
-                  >
-                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {OPERATOR_OPTIONS.map((group) => (
-                        <div key={group.group}>
-                          <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground">{group.group}</div>
-                          {group.options.map((op) => (
-                            <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>
-                          ))}
-                        </div>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {!UNARY_OPERATORS.has(rule.operator) && (
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Value</Label>
-                    <Input
-                      value={rule.value}
-                      onChange={(e) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, value: e.target.value } : r))}
-                      className="text-xs h-7"
-                      placeholder="comparison value"
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
+            <RuleEditor<FilterRule>
+              rules={filterRules}
+              onChange={setFilterRules}
+              upstreamNodes={upstreamNodes}
+              emptyMessage="No rules defined. All items will pass through."
+            />
           </div>
         </>
       )}

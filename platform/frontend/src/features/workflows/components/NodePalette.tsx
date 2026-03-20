@@ -7,7 +7,7 @@ import {
   Cpu, Bot, Brain, GraduationCap,
   GitFork, Route, FileOutput, Split,
   Terminal,
-  Repeat, Pause, Merge, Filter,
+  Repeat, Pause, Merge, Filter, ClipboardCheck,
   Code, UserCheck, ShieldAlert, FileText, CheckSquare, FileCheck,
   Database, DatabaseZap, UserSearch, UserPlus, Plug, Fingerprint, KeyRound,
   Rocket, PencilRuler, CalendarClock, HeartPulse,
@@ -54,6 +54,7 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   reply_chat: MessageSquare,
   validate_gherkin: CheckSquare,
   validate_topology: FileCheck,
+  assertion: ClipboardCheck,
 }
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
