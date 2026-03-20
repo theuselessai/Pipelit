@@ -50,9 +50,9 @@ steps:
     id: my_agent
     prompt: "You are a helpful assistant"
     tools:
-      - calculator
-      - type: web_search
-        searxng_url: http://localhost:8888
+      - run_command
+      - type: platform_api
+        api_base_url: http://localhost:8000
 """
 
 FORK_YAML = """\
@@ -64,18 +64,38 @@ patches:
     prompt: "New prompt"
 """
 
-HTTP_YAML = """\
-name: HTTP Flow
+DEEP_AGENT_YAML = """\
+name: Deep Agent Flow
+trigger: chat
+model:
+  capability: gpt-4
+steps:
+  - type: deep_agent
+    id: my_deep_agent
+    prompt: "You are a deep agent"
+    enable_filesystem: true
+    enable_todos: true
+    tools:
+      - run_command
+    skills:
+      - /path/to/skills
+"""
+
+REPLY_CHAT_YAML = """\
+name: Reply Flow
+trigger: chat
+steps:
+  - type: reply_chat
+    id: reply
+    message: "Hello {{ trigger.text }}"
+"""
+
+MERGE_YAML = """\
+name: Merge Flow
 trigger: manual
 steps:
-  - type: http
-    id: fetch_data
-    url: https://example.com/api
-    method: POST
-    headers:
-      Content-Type: application/json
-    body: '{"key": "value"}'
-    timeout: 60
+  - type: merge
+    id: merge_step
 """
 
 
@@ -200,7 +220,7 @@ class TestBuildGraph:
         model_info = (42, "gpt-4", 0.7)
         nodes, edges = _build_graph(parsed, model_info, MagicMock())
 
-        # trigger + agent + ai_model + calculator tool + web_search tool = 5 nodes
+        # trigger + agent + ai_model + run_command tool + platform_api tool = 5 nodes
         assert len(nodes) == 5
 
         agent_node = next(n for n in nodes if n["component_type"] == "agent")
@@ -210,7 +230,7 @@ class TestBuildGraph:
         model_node = next(n for n in nodes if n["component_type"] == "ai_model")
         assert model_node["config"]["llm_credential_id"] == 42
 
-        tool_nodes = [n for n in nodes if n["component_type"] in ("calculator", "web_search")]
+        tool_nodes = [n for n in nodes if n["component_type"] in ("run_command", "platform_api")]
         assert len(tool_nodes) == 2
 
         # Check tool edges
@@ -221,15 +241,41 @@ class TestBuildGraph:
         llm_edges = [e for e in edges if e["edge_label"] == "llm"]
         assert len(llm_edges) == 1
 
-    def test_http_step(self):
-        parsed = _parse_dsl(HTTP_YAML)
+    def test_deep_agent_step(self):
+        parsed = _parse_dsl(DEEP_AGENT_YAML)
+        model_info = (42, "gpt-4", 0.7)
+        nodes, edges = _build_graph(parsed, model_info, MagicMock())
+
+        # trigger + deep_agent + ai_model + run_command tool + skill = 5 nodes
+        assert len(nodes) == 5
+
+        da_node = next(n for n in nodes if n["component_type"] == "deep_agent")
+        assert da_node["config"]["system_prompt"] == "You are a deep agent"
+        assert da_node["config"]["extra_config"]["enable_filesystem"] is True
+        assert da_node["config"]["extra_config"]["enable_todos"] is True
+
+        # Check skill node and edge
+        skill_nodes = [n for n in nodes if n["component_type"] == "skill"]
+        assert len(skill_nodes) == 1
+        assert skill_nodes[0]["config"]["extra_config"]["skill_path"] == "/path/to/skills"
+
+        skill_edges = [e for e in edges if e["edge_label"] == "skill"]
+        assert len(skill_edges) == 1
+        assert skill_edges[0]["target_node_id"] == "my_deep_agent"
+
+    def test_reply_chat_step(self):
+        parsed = _parse_dsl(REPLY_CHAT_YAML)
         nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
 
-        http_node = next(n for n in nodes if n["component_type"] == "http_request")
-        ec = http_node["config"]["extra_config"]
-        assert ec["url"] == "https://example.com/api"
-        assert ec["method"] == "POST"
-        assert ec["timeout"] == 60
+        reply_node = next(n for n in nodes if n["component_type"] == "reply_chat")
+        assert reply_node["config"]["extra_config"]["message"] == "Hello {{ trigger.text }}"
+
+    def test_merge_step(self):
+        parsed = _parse_dsl(MERGE_YAML)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        merge_node = next(n for n in nodes if n["component_type"] == "merge")
+        assert merge_node["config"]["extra_config"] == {}
 
     def test_multi_step_linear_chain(self):
         yaml_str = """\
@@ -322,14 +368,14 @@ steps:
   - type: agent
     id: my_agent
     tools:
-      - type: web_search
-        searxng_url: http://localhost:8888
+      - type: platform_api
+        api_base_url: http://localhost:9000
 """
         parsed = _parse_dsl(yaml_str)
         nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
 
-        ws_node = next(n for n in nodes if n["component_type"] == "web_search")
-        assert ws_node["config"]["extra_config"]["searxng_url"] == "http://localhost:8888"
+        api_node = next(n for n in nodes if n["component_type"] == "platform_api")
+        assert api_node["config"]["extra_config"]["api_base_url"] == "http://localhost:9000"
 
     def test_trigger_types(self):
         for trigger_name, comp_type in TRIGGER_TYPE_MAP.items():
@@ -631,9 +677,9 @@ class TestForkPatches:
         edges = self._make_edge_dicts()
         _patch_add_tool(nodes, edges, {
             "step_id": "agent_1",
-            "tool": "calculator",
+            "tool": "run_command",
         })
-        tool_nodes = [n for n in nodes if n["component_type"] == "calculator"]
+        tool_nodes = [n for n in nodes if n["component_type"] == "run_command"]
         assert len(tool_nodes) == 1
         tool_edges = [e for e in edges if e["edge_label"] == "tool"]
         assert len(tool_edges) == 1
@@ -642,17 +688,17 @@ class TestForkPatches:
         from services.dsl_compiler import _patch_remove_tool
         nodes = self._make_node_dicts()
         nodes.append({
-            "node_id": "calculator_agent_1_1", "component_type": "calculator",
+            "node_id": "run_command_agent_1_1", "component_type": "run_command",
             "is_entry_point": False, "position_x": 400, "position_y": 400,
             "config": {},
         })
         edges = self._make_edge_dicts()
         edges.append({
-            "source_node_id": "calculator_agent_1_1", "target_node_id": "agent_1",
+            "source_node_id": "run_command_agent_1_1", "target_node_id": "agent_1",
             "edge_type": "direct", "edge_label": "tool",
         })
-        _patch_remove_tool(nodes, edges, {"tool_node_id": "calculator_agent_1_1"})
-        assert not any(n["node_id"] == "calculator_agent_1_1" for n in nodes)
+        _patch_remove_tool(nodes, edges, {"tool_node_id": "run_command_agent_1_1"})
+        assert not any(n["node_id"] == "run_command_agent_1_1" for n in nodes)
         assert not any(e["edge_label"] == "tool" for e in edges)
 
     def test_patch_update_config(self):
@@ -1164,7 +1210,7 @@ class TestDiscoverModel:
             _discover_model("cheapest", None, mock_db)
 
     def test_score_model_cheapest(self):
-        score_cheap = _score_model("gpt-3.5-turbo-latest", "cheapest")
+        score_cheap = _score_model("gpt-4o-mini-latest", "cheapest")
         score_expensive = _score_model("gpt-4-turbo-2024", "cheapest")
         assert score_cheap > score_expensive  # Cheaper model scores higher
 
@@ -1343,3 +1389,321 @@ class TestCompileDslMocked:
         )
         assert result["success"] is False
         assert "not found" in result["error"]
+
+
+# ── New step type tests ─────────────────────────────────────────────────────
+
+
+class TestNewStepTypes:
+    def test_deep_agent_config(self):
+        parsed = _parse_dsl(DEEP_AGENT_YAML)
+        model_info = (42, "gpt-4", 0.7)
+        nodes, edges = _build_graph(parsed, model_info, MagicMock())
+
+        da_node = next(n for n in nodes if n["component_type"] == "deep_agent")
+        assert da_node["config"]["system_prompt"] == "You are a deep agent"
+        ec = da_node["config"]["extra_config"]
+        assert ec["enable_filesystem"] is True
+        assert ec["enable_todos"] is True
+
+    def test_reply_chat_config(self):
+        parsed = _parse_dsl(REPLY_CHAT_YAML)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        reply_node = next(n for n in nodes if n["component_type"] == "reply_chat")
+        assert reply_node["config"]["extra_config"]["message"] == "Hello {{ trigger.text }}"
+
+    def test_merge_config(self):
+        parsed = _parse_dsl(MERGE_YAML)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        merge_node = next(n for n in nodes if n["component_type"] == "merge")
+        assert merge_node["config"]["extra_config"] == {}
+
+    def test_wait_step(self):
+        yaml_str = """\
+name: Wait Test
+steps:
+  - type: wait
+    id: pause
+    delay: 30
+    delay_unit: seconds
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        wait_node = next(n for n in nodes if n["component_type"] == "wait")
+        assert wait_node["config"]["extra_config"]["delay"] == 30
+        assert wait_node["config"]["extra_config"]["delay_unit"] == "seconds"
+
+    def test_filter_step(self):
+        yaml_str = """\
+name: Filter Test
+steps:
+  - type: filter
+    id: my_filter
+    rules:
+      - field: status
+        operator: equals
+        value: active
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        filter_node = next(n for n in nodes if n["component_type"] == "filter")
+        assert len(filter_node["config"]["extra_config"]["rules"]) == 1
+
+    def test_identify_user_step(self):
+        yaml_str = """\
+name: Identify Test
+steps:
+  - type: identify_user
+    id: ident
+    channel: telegram
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        ident_node = next(n for n in nodes if n["component_type"] == "identify_user")
+        assert ident_node["config"]["extra_config"]["channel"] == "telegram"
+
+    def test_categorizer_step(self):
+        yaml_str = """\
+name: Categorizer Test
+model:
+  credential_id: 1
+  model_name: gpt-4
+steps:
+  - type: categorizer
+    id: cat
+    prompt: "Classify this message"
+    categories:
+      - name: support
+        description: "Support request"
+      - name: sales
+        description: "Sales inquiry"
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (1, "gpt-4", None), MagicMock())
+
+        cat_node = next(n for n in nodes if n["component_type"] == "categorizer")
+        assert cat_node["config"]["system_prompt"] == "Classify this message"
+        assert len(cat_node["config"]["extra_config"]["categories"]) == 2
+
+        # Categorizer should get an ai_model sub-component
+        model_nodes = [n for n in nodes if n["component_type"] == "ai_model"]
+        assert len(model_nodes) == 1
+        llm_edges = [e for e in edges if e["edge_label"] == "llm"]
+        assert len(llm_edges) == 1
+
+    def test_router_step(self):
+        yaml_str = """\
+name: Router Test
+model:
+  credential_id: 1
+  model_name: gpt-4
+steps:
+  - type: router
+    id: rt
+    prompt: "Route this to the right department"
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (1, "gpt-4", None), MagicMock())
+
+        router_node = next(n for n in nodes if n["component_type"] == "router")
+        assert router_node["config"]["system_prompt"] == "Route this to the right department"
+
+    def test_extractor_step(self):
+        yaml_str = """\
+name: Extractor Test
+model:
+  credential_id: 1
+  model_name: gpt-4
+steps:
+  - type: extractor
+    id: ext
+    prompt: "Extract the key entities"
+    schema:
+      name: string
+      email: string
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (1, "gpt-4", None), MagicMock())
+
+        ext_node = next(n for n in nodes if n["component_type"] == "extractor")
+        assert ext_node["config"]["system_prompt"] == "Extract the key entities"
+        assert ext_node["config"]["extra_config"]["extraction_schema"]["name"] == "string"
+
+
+# ── New trigger type tests ──────────────────────────────────────────────────
+
+
+class TestNewTriggerTypes:
+    def test_schedule_trigger(self):
+        yaml_str = "name: T\ntrigger: schedule\nsteps:\n  - type: code"
+        parsed = _parse_dsl(yaml_str)
+        nodes, _ = _build_graph(parsed, (None, None, None), MagicMock())
+        assert nodes[0]["component_type"] == "trigger_schedule"
+
+    def test_error_trigger(self):
+        yaml_str = "name: T\ntrigger: error\nsteps:\n  - type: code"
+        parsed = _parse_dsl(yaml_str)
+        nodes, _ = _build_graph(parsed, (None, None, None), MagicMock())
+        assert nodes[0]["component_type"] == "trigger_error"
+
+    def test_workflow_trigger(self):
+        yaml_str = "name: T\ntrigger: workflow\nsteps:\n  - type: code"
+        parsed = _parse_dsl(yaml_str)
+        nodes, _ = _build_graph(parsed, (None, None, None), MagicMock())
+        assert nodes[0]["component_type"] == "trigger_workflow"
+
+    def test_none_and_workflow_both_map_to_trigger_workflow(self):
+        assert TRIGGER_TYPE_MAP["none"] == TRIGGER_TYPE_MAP["workflow"]
+
+
+# ── New tool type tests ─────────────────────────────────────────────────────
+
+
+class TestNewToolTypes:
+    def test_all_tool_types_in_agent(self):
+        """Every TOOL_TYPE_MAP entry can be used as an agent inline tool."""
+        for tool_name, tool_component in TOOL_TYPE_MAP.items():
+            yaml_str = f"""\
+name: Tool {tool_name}
+steps:
+  - type: agent
+    id: my_agent
+    tools:
+      - {tool_name}
+"""
+            parsed = _parse_dsl(yaml_str)
+            nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+            tool_nodes = [n for n in nodes if n["component_type"] == tool_component]
+            assert len(tool_nodes) == 1, f"Tool type '{tool_name}' not found as node"
+            tool_edges = [e for e in edges if e["edge_label"] == "tool"]
+            assert len(tool_edges) == 1, f"Tool edge for '{tool_name}' not found"
+
+    def test_removed_code_execute_not_valid(self):
+        yaml_str = """\
+name: Bad Tool
+steps:
+  - type: agent
+    tools:
+      - code
+"""
+        parsed = _parse_dsl(yaml_str)
+        with pytest.raises(ValueError, match="Unknown inline tool"):
+            _build_graph(parsed, (None, None, None), MagicMock())
+
+    def test_removed_http_request_not_valid(self):
+        """http_request was a ghost type, no longer in TOOL_TYPE_MAP."""
+        yaml_str = """\
+name: Bad Tool
+steps:
+  - type: agent
+    tools:
+      - http_request
+"""
+        parsed = _parse_dsl(yaml_str)
+        with pytest.raises(ValueError, match="Unknown inline tool"):
+            _build_graph(parsed, (None, None, None), MagicMock())
+
+
+# ── Skill edge tests ────────────────────────────────────────────────────────
+
+
+class TestSkillEdges:
+    def test_agent_skill_string(self):
+        yaml_str = """\
+name: Skill Test
+steps:
+  - type: agent
+    id: my_agent
+    skills:
+      - /path/to/skills
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        skill_nodes = [n for n in nodes if n["component_type"] == "skill"]
+        assert len(skill_nodes) == 1
+        assert skill_nodes[0]["config"]["extra_config"]["skill_path"] == "/path/to/skills"
+        assert skill_nodes[0]["config"]["extra_config"]["skill_source"] == "filesystem"
+
+        skill_edges = [e for e in edges if e["edge_label"] == "skill"]
+        assert len(skill_edges) == 1
+        assert skill_edges[0]["target_node_id"] == "my_agent"
+
+    def test_agent_skill_dict(self):
+        yaml_str = """\
+name: Skill Dict Test
+steps:
+  - type: agent
+    id: my_agent
+    skills:
+      - path: /custom/skills
+        source: filesystem
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        skill_nodes = [n for n in nodes if n["component_type"] == "skill"]
+        assert len(skill_nodes) == 1
+        assert skill_nodes[0]["config"]["extra_config"]["skill_path"] == "/custom/skills"
+
+    def test_deep_agent_skill(self):
+        parsed = _parse_dsl(DEEP_AGENT_YAML)
+        nodes, edges = _build_graph(parsed, (42, "gpt-4", 0.7), MagicMock())
+
+        skill_nodes = [n for n in nodes if n["component_type"] == "skill"]
+        assert len(skill_nodes) == 1
+        skill_edges = [e for e in edges if e["edge_label"] == "skill"]
+        assert len(skill_edges) == 1
+
+    def test_multiple_skills(self):
+        yaml_str = """\
+name: Multi Skills
+steps:
+  - type: agent
+    id: my_agent
+    skills:
+      - /path/one
+      - /path/two
+"""
+        parsed = _parse_dsl(yaml_str)
+        nodes, edges = _build_graph(parsed, (None, None, None), MagicMock())
+
+        skill_nodes = [n for n in nodes if n["component_type"] == "skill"]
+        assert len(skill_nodes) == 2
+        skill_edges = [e for e in edges if e["edge_label"] == "skill"]
+        assert len(skill_edges) == 2
+
+    def test_invalid_skill_spec_raises(self):
+        yaml_str = """\
+name: Bad Skill
+steps:
+  - type: agent
+    id: my_agent
+    skills:
+      - null
+"""
+        parsed = _parse_dsl(yaml_str)
+        with pytest.raises(ValueError, match="must be a string or mapping"):
+            _build_graph(parsed, (None, None, None), MagicMock())
+
+
+# ── Model preference table tests ────────────────────────────────────────────
+
+
+class TestModelPreferenceTable:
+    def test_gpt_35_removed(self):
+        assert "gpt-3.5-turbo" not in MODEL_PREFERENCE_TABLE
+
+    def test_o3_mini_added(self):
+        assert "o3-mini" in MODEL_PREFERENCE_TABLE
+
+    def test_claude_opus_4_updated(self):
+        assert "claude-opus-4" in MODEL_PREFERENCE_TABLE
+        # The old "claude-opus" key should be replaced
+        assert "claude-opus" not in MODEL_PREFERENCE_TABLE
