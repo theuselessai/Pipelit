@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core"
 import {
   faMicrochip, faRobot, faTags, faCodeBranch, faWrench, faMagnifyingGlassChart,
-  faSitemap, faCode, faTriangleExclamation, faUserCheck,
+  faSitemap, faCode, faTriangleExclamation, faUserCheck, faClipboardCheck,
   faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
   faCalendarDays, faHandPointer, faHourglass, faHeartPulse,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
@@ -81,6 +81,7 @@ const COMPONENT_COLORS: Record<string, string> = {
   filter: "#6366f1",
   merge: "#6366f1",
   wait: "#6366f1",
+  assertion: "#6366f1",
   workflow: "#6366f1",
   code: "#64748b",
   memory_read: "#f59e0b",
@@ -108,7 +109,7 @@ const COMPONENT_ICONS: Record<string, IconDefinition> = {
   code: faCode, error_handler: faTriangleExclamation,
   memory_read: faDatabase, memory_write: faFloppyDisk, identify_user: faIdCard,
   human_confirmation: faUserCheck, output_parser: faFileExport,
-  loop: faRepeat, wait: faClock, merge: faCodeMerge, filter: faFilter,
+  loop: faRepeat, wait: faClock, merge: faCodeMerge, filter: faFilter, assertion: faClipboardCheck,
   trigger_telegram: faTelegram, trigger_schedule: faCalendarDays,
   trigger_manual: faHandPointer, trigger_workflow: faPlay, trigger_error: faBug,
   trigger_chat: faComments,
@@ -129,7 +130,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isWaiting = data.executionStatus === "waiting"
   const isTrigger = data.componentType.startsWith("trigger_")
   const isLoop = data.componentType === "loop"
-  const isFixedWidth = ["router", "categorizer", "agent", "deep_agent", "extractor", "switch", "loop"].includes(data.componentType)
+  const isFixedWidth = ["router", "categorizer", "agent", "deep_agent", "extractor", "switch", "loop", "assertion"].includes(data.componentType)
   const isTool = ["run_command", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "validate_gherkin", "validate_topology"].includes(data.componentType)
   const isSubComponent = ["ai_model", "run_command", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create", "workflow_discover", "skill", "validate_gherkin", "validate_topology"].includes(data.componentType)
   const isAiModel = data.componentType === "ai_model"
@@ -146,6 +147,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const isSuccess = data.executionStatus === "success"
   const isFailed = data.executionStatus === "failed"
   const isSwitch = data.componentType === "switch"
+  const isAssertion = data.componentType === "assertion"
   const switchHandles = isSwitch ? (data.rules ?? []) : []
   const showFallbackHandle = isSwitch && data.enableFallback
   return (
@@ -283,7 +285,22 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           />
         </>
       )}
-      {!isSubComponent && !(isSwitch && (switchHandles.length > 0 || showFallbackHandle)) && !isLoop && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
+      {isAssertion && (
+        <>
+          <hr className="border-muted-foreground/30 my-1" />
+          <div className="flex flex-col gap-1">
+            <div className="relative flex items-center justify-end pr-4">
+              <span className="text-[10px] text-emerald-500 font-medium">Pass</span>
+              <Handle type="source" position={Position.Right} id="pass" className="!bg-emerald-500 !w-2 !h-2" />
+            </div>
+            <div className="relative flex items-center justify-end pr-4">
+              <span className="text-[10px] text-red-500 font-medium">Fail</span>
+              <Handle type="source" position={Position.Right} id="fail" className="!bg-red-500 !w-2 !h-2" />
+            </div>
+          </div>
+        </>
+      )}
+      {!isSubComponent && !(isSwitch && (switchHandles.length > 0 || showFallbackHandle)) && !isLoop && !isAssertion && <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />}
     </div>
   )
 }
@@ -450,6 +467,8 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
         const rules = (srcNode.config?.extra_config?.rules as SwitchRule[]) ?? []
         const rule = rules.find((r) => r.id === e.condition_value)
         condLabel = rule?.label || e.condition_value
+      } else if (srcNode?.component_type === "assertion") {
+        condLabel = e.condition_value // "pass" or "fail"
       } else {
         condLabel = e.condition_value
       }
@@ -511,6 +530,16 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
           source_node_id: params.source,
           target_node_id: params.target,
           edge_label: "loop_body",
+        })
+        return
+      }
+      if (sourceNode?.component_type === "assertion" && !edge_label && (params.sourceHandle === "pass" || params.sourceHandle === "fail")) {
+        createEdge.mutate({
+          source_node_id: params.source,
+          target_node_id: params.target,
+          edge_type: "conditional",
+          edge_label,
+          condition_value: params.sourceHandle,
         })
         return
       }

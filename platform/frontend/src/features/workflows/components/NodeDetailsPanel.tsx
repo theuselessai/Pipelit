@@ -145,6 +145,11 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [filterSourceNode, setFilterSourceNode] = useState<string>((node.config.extra_config?.source_node as string) ?? "")
   const [filterField, setFilterField] = useState<string>((node.config.extra_config?.field as string) ?? "")
 
+  // Assertion state
+  const [assertionRules, setAssertionRules] = useState<FilterRule[]>(() => (node.config.extra_config?.rules as FilterRule[]) ?? [])
+  const [assertionJudge, setAssertionJudge] = useState<boolean>(Boolean(node.config.extra_config?.use_llm_judge))
+  const [assertionThreshold, setAssertionThreshold] = useState<number>((node.config.extra_config?.pass_threshold as number) ?? 1.0)
+
   // Merge state
   const [mergeMode, setMergeMode] = useState<string>((node.config.extra_config?.mode as string) ?? "append")
 
@@ -328,6 +333,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     }
     if (node.component_type === "filter") {
       parsedExtra = { ...parsedExtra, rules: filterRules, source_node: filterSourceNode || undefined, field: filterField || undefined }
+    }
+    if (node.component_type === "assertion") {
+      parsedExtra = { ...parsedExtra, rules: assertionRules, use_llm_judge: assertionJudge, pass_threshold: assertionThreshold }
     }
     if (node.component_type === "merge") {
       parsedExtra = { ...parsedExtra, mode: mergeMode }
@@ -1387,6 +1395,46 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               upstreamNodes={upstreamNodes}
               emptyMessage="No rules defined. All items will pass through."
             />
+          </div>
+        </>
+      )}
+
+      {node.component_type === "assertion" && (
+        <>
+          <Separator />
+          <RuleEditor<FilterRule>
+            rules={assertionRules}
+            onChange={setAssertionRules}
+            upstreamNodes={upstreamNodes}
+            title="Assertion Rules"
+            emptyMessage="No rules defined. Add rules to validate data."
+          />
+          <Separator />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">LLM Judge</Label>
+                <p className="text-[10px] text-muted-foreground">Use an LLM to evaluate assertions</p>
+              </div>
+              <Switch checked={assertionJudge} onCheckedChange={setAssertionJudge} />
+            </div>
+            {assertionJudge && (
+              <div className="space-y-1">
+                <Label className="text-[10px]">Pass Threshold</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={assertionThreshold}
+                    onChange={(e) => setAssertionThreshold(Number(e.target.value))}
+                    className="flex-1 h-1.5 accent-indigo-500"
+                  />
+                  <span className="text-xs font-mono w-10 text-right">{assertionThreshold.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

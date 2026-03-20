@@ -64,7 +64,7 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
   { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"] },
   { label: "Tools", types: ["run_command", "workflow_discover", "validate_gherkin", "validate_topology"] },
-  { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait"] },
+  { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait", "assertion"] },
   { label: "Output", types: ["reply_chat"] },
   { label: "Other", types: ["workflow", "code", "human_confirmation", "error_handler", "output_parser"] },
 ]
