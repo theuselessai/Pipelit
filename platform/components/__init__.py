@@ -52,6 +52,7 @@ from components import (  # noqa: E402, F401
     router,
     run_command,
     validate_gherkin,
+    validate_topology,
     subworkflow,
     switch,
     trigger,
