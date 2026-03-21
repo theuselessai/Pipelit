@@ -212,8 +212,8 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           </PopoverContent>
         </Popover>
       )}
-      {isFixedWidth && !isSwitch && !isLoop && <hr className="border-muted-foreground/30 my-1" />}
-      {isFixedWidth && !isSwitch && !isLoop && (
+      {isFixedWidth && !isSwitch && !isLoop && !isAssertion && <hr className="border-muted-foreground/30 my-1" />}
+      {isFixedWidth && !isSwitch && !isLoop && !isAssertion && (
         <div className="flex mt-1">
           {hasModel && (
             <div className="relative p-1.5 bg-background rounded-[10px]" style={{ color: "#3b82f6", borderColor: "#3b82f6", borderWidth: 1, borderStyle: "solid" }} title="model">

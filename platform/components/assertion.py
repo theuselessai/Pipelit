@@ -21,9 +21,9 @@ def assertion_factory(node):
 
         results = evaluate_rules(rules, state, mode="all")
 
-        checks = []
+        results_list = []
         for rule, result in zip(rules, results):
-            checks.append({
+            results_list.append({
                 "check": f"{rule.get('field', '')} {rule.get('operator', 'equals')} {rule.get('value', '')}",
                 "passed": result["passed"],
                 "actual": result["actual_value"],
@@ -36,7 +36,7 @@ def assertion_factory(node):
             "_route": "pass" if all_passed else "fail",
             "output": {
                 "passed": all_passed,
-                "results": checks,
+                "results": results_list,
             },
         }
 

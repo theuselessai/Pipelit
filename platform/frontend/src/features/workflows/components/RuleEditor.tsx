@@ -54,7 +54,7 @@ const OPERATOR_OPTIONS = [
 const UNARY_OPERATORS = new Set(["exists", "does_not_exist", "is_empty", "is_not_empty", "is_true", "is_false"])
 
 export function generateRuleId(): string {
-  return "r_" + Math.random().toString(36).slice(2, 8)
+  return "r_" + Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
 }
 
 /** Parse a full field path like "node_outputs.cat_1.category" into { sourceNodeId, outputField }. */

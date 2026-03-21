@@ -267,6 +267,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "router": AIComponentConfig,
     "extractor": AIComponentConfig,
     "switch": OtherComponentConfig,
+    "assertion": _AssertionConfig,
     "code": CodeComponentConfig,
     "loop": CodeComponentConfig,
     "filter": CodeComponentConfig,
