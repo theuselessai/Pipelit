@@ -796,7 +796,7 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                     logger.exception("Failed to persist execution costs for %s", execution_id)
                 db.commit()
                 _clear_stale_checkpoints(execution_id, db)
-            except Exception:
+        except Exception:
             logger.exception(
                 "Failed to persist failure status for execution %s", execution_id
             )
@@ -1289,8 +1289,6 @@ def _finalize(execution_id: str, db: Session) -> None:
         execution.completed_at = datetime.now(timezone.utc)
         _persist_execution_costs(execution, state)
         db.commit()
-
-        _sync_task_costs(execution_id, db)
 
         logger.info("Execution %s completed", execution_id)
         slug = _get_workflow_slug(execution_id, db)

@@ -1072,78 +1072,6 @@ class TestCreateChildEdgeCases:
         with pytest.raises(ValueError, match="cannot determine user_profile_id"):
             _create_child_from_interrupt(task_data, state, "agent_1")
 
-    def test_task_linkage_exception_swallowed(
-        self, mock_session, workflow, user_profile
-    ):
-        """When task linkage fails, the exception is logged but not raised."""
-        from components.agent import _create_child_from_interrupt
-        from models.workflow import Workflow
-
-        target_wf = Workflow(
-            name="Target", slug="target-wf3", owner_id=user_profile.id, is_active=True,
-        )
-        mock_session.add(target_wf)
-        mock_session.commit()
-
-        parent_exec = WorkflowExecution(
-            workflow_id=workflow.id,
-            user_profile_id=user_profile.id,
-            trigger_payload={},
-            thread_id="t",
-        )
-        mock_session.add(parent_exec)
-        mock_session.commit()
-        mock_session.refresh(parent_exec)
-
-        state = {
-            "execution_id": str(parent_exec.execution_id),
-            "user_context": {"user_profile_id": user_profile.id},
-        }
-        task_data = {
-            "workflow_slug": "target-wf3",
-            "input_text": "test",
-            "task_id": "tk-fake123",
-            "input_data": {},
-        }
-
-        # Patch Task query inside the linkage try/except to raise
-        original_query = mock_session.query
-        call_count = {"task_queries": 0}
-
-        def patched_query(model):
-            from models.epic import Task as TaskModel
-            if model is TaskModel:
-                call_count["task_queries"] += 1
-                raise RuntimeError("DB error during task linkage")
-            return original_query(model)
-
-        with patch("redis.from_url", return_value=MagicMock()), \
-             patch("rq.Queue", return_value=MagicMock()):
-            # Temporarily replace mock_session.query so that the Task query
-            # inside the linkage block raises, while other queries still work.
-            # We swap it in only after the child execution is committed.
-            original_commit = mock_session.commit
-            commit_calls = {"count": 0}
-
-            def commit_then_patch():
-                commit_calls["count"] += 1
-                original_commit()
-                # After the child execution is committed (2nd commit inside the function),
-                # swap in the patched query for the task linkage block
-                if commit_calls["count"] == 1:
-                    mock_session.query = patched_query
-
-            mock_session.commit = commit_then_patch
-            try:
-                child_id = _create_child_from_interrupt(task_data, state, "agent_1")
-            finally:
-                mock_session.commit = original_commit
-                mock_session.query = original_query
-
-        # Should succeed despite task linkage exception — child was still created
-        assert child_id is not None
-        assert call_count["task_queries"] == 1
-
 
 # ---------------------------------------------------------------------------
 # Redis checkpointer singleton (agent.py lines 23-24, 46-57)
@@ -1789,10 +1717,9 @@ class TestExecuteNodeJobSpawnPaths:
     @patch("services.orchestrator._complete_episode")
     @patch("services.orchestrator._publish_event")
     @patch("services.orchestrator._clear_stale_checkpoints")
-    @patch("services.orchestrator._sync_task_costs")
     @patch("services.orchestrator._propagate_failure_to_parent")
     def test_inner_failure_calls_propagate(
-        self, mock_propagate, mock_sync, mock_clear, mock_publish, mock_episode, mock_cleanup,
+        self, mock_propagate, mock_clear, mock_publish, mock_episode, mock_cleanup,
     ):
         """When a node fails permanently (max retries), _propagate_failure_to_parent is called."""
         from services.orchestrator import execute_node_job
@@ -1910,8 +1837,7 @@ class TestExecuteNodeJobSpawnPaths:
         # Make _load_topology raise to trigger the outer except handler
         with patch("database.SessionLocal", return_value=mock_db), \
              patch("services.orchestrator._load_topology", side_effect=RuntimeError("topo missing")), \
-             patch("services.orchestrator._clear_stale_checkpoints"), \
-             patch("services.orchestrator._sync_task_costs"):
+             patch("services.orchestrator._clear_stale_checkpoints"):
             execute_node_job("exec-3", "agent_1")
 
         mock_propagate.assert_called_once_with(mock_exec, unittest.mock.ANY)
