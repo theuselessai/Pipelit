@@ -31,9 +31,6 @@ steps:
 
   - type: agent
     id: handle_error
-    tools:
-      - type: epic_tools
-      - type: task_tools
 
   - type: agent
     id: handle_unknown
