@@ -374,7 +374,6 @@ def _create_child_from_interrupt(
 
     workflow_slug = task_data.get("workflow_slug", "")
     input_text = task_data.get("input_text", "")
-    task_id = task_data.get("task_id")
     input_data = task_data.get("input_data", {})
 
     parent_execution_id = state.get("execution_id", "")
@@ -457,20 +456,6 @@ def _create_child_from_interrupt(
         db.refresh(child_execution)
 
         child_id = str(child_execution.execution_id)
-
-        # Link task if provided
-        if task_id:
-            try:
-                from models.epic import Task
-                task = db.query(Task).filter(Task.id == task_id).first()
-                if task:
-                    task.execution_id = child_id
-                    task.status = "running"
-                    db.commit()
-                    logger.info("spawn_and_await: linked task %s to child execution %s", task_id, child_id)
-            except Exception:
-                db.rollback()
-                logger.exception("spawn_and_await: failed to link task %s", task_id)
 
         # Enqueue child execution on RQ
         import redis

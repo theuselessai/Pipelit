@@ -164,14 +164,6 @@ class _WhoamiConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "whoami"}
 
 
-class _EpicToolsConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "epic_tools"}
-
-
-class _TaskToolsConfig(BaseComponentConfig):
-    __mapper_args__ = {"polymorphic_identity": "task_tools"}
-
-
 class _SpawnAndAwaitConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "spawn_and_await"}
 
@@ -280,8 +272,6 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "run_command": ToolComponentConfig,
     "platform_api": ToolComponentConfig,
     "whoami": ToolComponentConfig,
-    "epic_tools": _EpicToolsConfig,
-    "task_tools": _TaskToolsConfig,
     "spawn_and_await": _SpawnAndAwaitConfig,
     "workflow_create": _WorkflowCreateConfig,
     "workflow_discover": _WorkflowDiscoverConfig,

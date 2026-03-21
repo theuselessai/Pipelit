@@ -449,19 +449,6 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                 _cleanup_redis(execution_id)
                 return
 
-        # Budget enforcement: check epic budget before executing node
-        budget_error = _check_budget(execution_id, state, db)
-        if budget_error:
-            execution.status = "failed"
-            execution.error_message = budget_error[:2000]
-            execution.completed_at = datetime.now(timezone.utc)
-            _persist_execution_costs(execution, state)
-            db.commit()
-            _sync_task_costs(execution_id, db)
-            _publish_event(execution_id, "execution_failed", {"error": budget_error[:500]}, workflow_slug=slug)
-            _cleanup_redis(execution_id)
-            return
-
         _node_meta = _get_node_meta(node_info)
         _publish_event(execution_id, "node_status", {"node_id": node_id, "status": NodeStatus.RUNNING.value, **_node_meta}, workflow_slug=slug)
 
@@ -627,7 +614,6 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
             _persist_execution_costs(execution, load_state(execution_id))
             db.commit()
             _clear_stale_checkpoints(execution_id, db)
-            _sync_task_costs(execution_id, db)
             _publish_event(execution_id, "execution_failed", {"error": error_msg[:500]}, workflow_slug=slug)
             _complete_episode(
                 execution_id=execution_id,
@@ -810,7 +796,6 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                     logger.exception("Failed to persist execution costs for %s", execution_id)
                 db.commit()
                 _clear_stale_checkpoints(execution_id, db)
-                _sync_task_costs(execution_id, db)
         except Exception:
             logger.exception(
                 "Failed to persist failure status for execution %s", execution_id
@@ -1305,8 +1290,6 @@ def _finalize(execution_id: str, db: Session) -> None:
         _persist_execution_costs(execution, state)
         db.commit()
 
-        _sync_task_costs(execution_id, db)
-
         logger.info("Execution %s completed", execution_id)
         slug = _get_workflow_slug(execution_id, db)
 
@@ -1468,45 +1451,6 @@ def _persist_execution_costs(execution, state: dict) -> None:
     execution.llm_calls = exec_usage.get("llm_calls", 0)
 
 
-def _check_budget(execution_id: str, state: dict, db: Session) -> str | None:
-    """Check if the execution's epic budget has been exceeded.
-
-    Returns an error message string if budget is exceeded, None otherwise.
-    """
-    try:
-        from models.epic import Task
-
-        task = db.query(Task).filter(Task.execution_id == execution_id).first()
-        if not task or not task.epic:
-            return None
-
-        epic = task.epic
-        exec_usage = state.get("_execution_token_usage", {})
-        current_tokens = exec_usage.get("total_tokens", 0)
-        current_usd = exec_usage.get("cost_usd", 0.0)
-
-        if epic.budget_tokens is not None:
-            total_tokens = (epic.spent_tokens or 0) + current_tokens
-            if total_tokens > epic.budget_tokens:
-                return (
-                    f"Epic budget exceeded: {total_tokens} tokens used "
-                    f"(budget: {epic.budget_tokens} tokens)"
-                )
-
-        if epic.budget_usd is not None:
-            total_usd = float(epic.spent_usd or 0) + current_usd
-            if total_usd > float(epic.budget_usd):
-                return (
-                    f"Epic budget exceeded: ${total_usd:.4f} spent "
-                    f"(budget: ${float(epic.budget_usd):.4f})"
-                )
-
-    except Exception:
-        logger.exception("Budget check failed for execution %s", execution_id)
-
-    return None
-
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
@@ -1646,95 +1590,6 @@ def _get_workflow_slug(execution_id: str, db: Session | None = None) -> str | No
             if wf:
                 return wf.slug
     return None
-
-
-def _sync_task_costs(execution_id: str, db: Session) -> None:
-    """Sync Task status and duration from a completed/failed execution."""
-    try:
-        from models.epic import Task
-        from models.execution import WorkflowExecution
-        from api.epic_helpers import sync_epic_progress
-
-        task = db.query(Task).filter(Task.execution_id == execution_id).first()
-        if not task:
-            return
-
-        execution = (
-            db.query(WorkflowExecution)
-            .filter(WorkflowExecution.execution_id == execution_id)
-            .first()
-        )
-        if not execution:
-            return
-
-        if execution.status not in ("completed", "failed"):
-            return
-
-        if execution.status == "completed":
-            task.status = "completed"
-            if execution.final_output:
-                summary = str(execution.final_output)
-                task.result_summary = summary[:500]
-        elif execution.status == "failed":
-            task.status = "failed"
-            task.error_message = (execution.error_message or "")[:500]
-
-        if execution.started_at and execution.completed_at:
-            # Normalise both to naive UTC to avoid mixed-tz subtraction errors
-            sa = execution.started_at.replace(tzinfo=None) if execution.started_at.tzinfo else execution.started_at
-            ca = execution.completed_at.replace(tzinfo=None) if execution.completed_at.tzinfo else execution.completed_at
-            delta = ca - sa
-            task.duration_ms = int(delta.total_seconds() * 1000)
-
-        task.completed_at = execution.completed_at
-
-        # Sync cost fields from execution to task
-        task.actual_tokens = execution.total_tokens or 0
-        task.actual_usd = float(execution.total_cost_usd or 0)
-        task.llm_calls = execution.llm_calls or 0
-        # tool_invocations from accumulated state
-        try:
-            exec_state = load_state(execution_id)
-            exec_usage = exec_state.get("_execution_token_usage", {})
-            task.tool_invocations = exec_usage.get("tool_invocations", 0)
-        except Exception:
-            logger.exception("Failed to load tool_invocations for task %s", task.id)
-
-        db.commit()
-        logger.info("Synced task %s costs from execution %s (status=%s)", task.id, execution_id, task.status)
-
-        # Roll up costs to epic (recalculate from all tasks to avoid double-counting)
-        if task.epic:
-            epic = task.epic
-            from sqlalchemy import func as sa_func
-            from models.epic import Task as _Task
-            totals = db.query(
-                sa_func.coalesce(sa_func.sum(_Task.actual_tokens), 0),
-                sa_func.coalesce(sa_func.sum(_Task.actual_usd), 0),
-            ).filter(_Task.epic_id == epic.id).one()
-            epic.spent_tokens = int(totals[0])
-            epic.spent_usd = float(totals[1])
-            db.commit()
-
-        # Auto-unblock dependent tasks when this task is completed
-        if task.status == "completed":
-            try:
-                from api.epic_helpers import resolve_blocked_tasks
-                resolve_blocked_tasks(task.id, db)
-                db.commit()
-            except Exception:
-                logger.exception("Failed to resolve blocked tasks for task %s", task.id)
-
-        # Sync epic progress counters (best-effort — task status already committed)
-        if task.epic:
-            try:
-                sync_epic_progress(task.epic, db)
-                db.commit()
-            except Exception:
-                logger.exception("Failed to sync epic progress for task %s", task.id)
-
-    except Exception:
-        logger.exception("Failed to sync task costs for execution %s", execution_id)
 
 
 def _clear_stale_checkpoints(execution_id: str, db: Session) -> None:

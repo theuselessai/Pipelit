@@ -10,7 +10,7 @@ import {
   Repeat, Pause, Merge, Filter,
   Code, UserCheck, ShieldAlert, FileText, CheckSquare, FileCheck,
   Database, DatabaseZap, UserSearch, UserPlus, Plug, Fingerprint, KeyRound,
-  ClipboardList, ListChecks, Rocket, PencilRuler, CalendarClock, HeartPulse,
+  Rocket, PencilRuler, CalendarClock, HeartPulse,
   type LucideIcon,
 } from "lucide-react"
 
@@ -33,8 +33,6 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   get_totp_code: KeyRound,
   platform_api: Plug,
   whoami: Fingerprint,
-  epic_tools: ClipboardList,
-  task_tools: ListChecks,
   spawn_and_await: Rocket,
   workflow_create: PencilRuler,
   workflow_discover: Compass,
@@ -63,7 +61,7 @@ const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [
   { label: "AI", types: ["ai_model", "agent", "deep_agent", "skill"] },
   { label: "Routing", types: ["categorizer", "extractor"] },
   { label: "Memory", types: ["memory_read", "memory_write", "identify_user"] },
-  { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "epic_tools", "task_tools", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"] },
+  { label: "Agent", types: ["whoami", "create_agent_user", "get_totp_code", "platform_api", "scheduler_tools", "system_health", "spawn_and_await", "workflow_create"] },
   { label: "Tools", types: ["run_command", "workflow_discover", "validate_gherkin", "validate_topology"] },
   { label: "Logic", types: ["switch", "loop", "filter", "merge", "wait"] },
   { label: "Output", types: ["reply_chat"] },

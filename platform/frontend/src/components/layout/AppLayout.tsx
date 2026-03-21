@@ -11,7 +11,6 @@ import {
   FolderOpen,
   Activity,
   Brain,
-  ListTodo,
   LogOut,
   Workflow,
   ChevronLeft,
@@ -25,7 +24,6 @@ const navItems = [
   { to: "/credentials", icon: KeyRound, label: "Credentials" },
   { to: "/workspaces", icon: FolderOpen, label: "Workspaces" },
   { to: "/executions", icon: Activity, label: "Executions" },
-  { to: "/epics", icon: ListTodo, label: "Epics" },
   { to: "/memories", icon: Brain, label: "Memories" },
 ]
 

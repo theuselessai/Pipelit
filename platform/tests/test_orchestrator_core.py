@@ -826,9 +826,8 @@ class TestFinalize:
     @patch("services.orchestrator._get_workflow_slug", return_value="wf")
     @patch("services.orchestrator._publish_event")
     @patch("services.orchestrator.load_state")
-    @patch("services.orchestrator._sync_task_costs")
     def test_child_cost_rollup(
-        self, mock_sync, mock_load_state, mock_pub, mock_slug,
+        self, mock_load_state, mock_pub, mock_slug,
         mock_episode, mock_cleanup,
     ):
         from services.orchestrator import _finalize
@@ -907,9 +906,8 @@ class TestFinalize:
     @patch("services.orchestrator._get_workflow_slug", return_value="wf")
     @patch("services.orchestrator._publish_event")
     @patch("services.orchestrator.load_state")
-    @patch("services.orchestrator._sync_task_costs")
     def test_child_cost_rollup_exception_logged(
-        self, mock_sync, mock_load_state, mock_pub, mock_slug,
+        self, mock_load_state, mock_pub, mock_slug,
         mock_episode, mock_cleanup,
     ):
         from services.orchestrator import _finalize

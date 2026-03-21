@@ -17,8 +17,6 @@ ComponentTypeStr = Literal[
     "get_totp_code",
     "platform_api",
     "whoami",
-    "epic_tools",
-    "task_tools",
     "spawn_and_await",
     "workflow_create",
     "workflow_discover",

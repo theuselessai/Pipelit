@@ -252,8 +252,7 @@ class TestInflightDecrementOnException:
 
         with patch("database.SessionLocal", return_value=mock_db):
             with patch("components.get_component_factory", return_value=exploding_factory):
-                with patch("services.orchestrator._check_budget", return_value=None):
-                    execute_node_job("exec-1", "agent_1")
+                execute_node_job("exec-1", "agent_1")
 
         # MUST decrement inflight
         mock_r.decr.assert_called()
@@ -311,9 +310,8 @@ class TestInflightDecrementOnException:
 
         with patch("database.SessionLocal", return_value=mock_db):
             with patch("components.get_component_factory", return_value=exploding_factory):
-                with patch("services.orchestrator._check_budget", return_value=None):
-                    # Should not raise even though commit fails
-                    execute_node_job("exec-1", "agent_1")
+                # Should not raise even though commit fails
+                execute_node_job("exec-1", "agent_1")
 
         # Inflight should still be decremented
         mock_r.decr.assert_called()
@@ -592,8 +590,7 @@ class TestExecutionTimeout:
     @patch("services.orchestrator._load_topology")
     @patch("services.orchestrator.load_state")
     @patch("services.orchestrator.save_state")
-    @patch("services.orchestrator._check_budget", return_value=None)
-    def test_timeout_cached_in_state(self, mock_budget, mock_save, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub):
+    def test_timeout_cached_in_state(self, mock_save, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub):
         """When _max_execution_seconds is not in state, it's loaded from workflow and cached."""
         from services.orchestrator import execute_node_job
 
@@ -662,14 +659,13 @@ class TestExecutionTimeout:
 class TestInterruptResumePath:
     """Tests for the interrupt_before resume path when _resume_input is present."""
 
-    @patch("services.orchestrator._check_budget", return_value=None)
     @patch("services.orchestrator._publish_event")
     @patch("services.orchestrator._redis")
     @patch("services.orchestrator._load_topology")
     @patch("services.orchestrator.load_state")
     @patch("services.orchestrator.save_state")
     def test_interrupt_before_resumes_when_resume_input_present(
-        self, mock_save, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub, mock_budget
+        self, mock_save, mock_load_state, mock_load_topo, mock_redis_fn, mock_pub
     ):
         """When state has _resume_input, interrupt_before node should execute normally."""
         from services.orchestrator import execute_node_job

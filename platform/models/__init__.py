@@ -26,7 +26,6 @@ from models.tool import ToolDefinition, WorkflowTool, ToolCredentialMapping  # n
 from models.code import CodeBlock, CodeBlockVersion, CodeBlockTest, CodeBlockTestRun  # noqa: F401
 from models.git import GitRepository, GitCommit, GitSyncTask  # noqa: F401
 from models.conversation import Conversation  # noqa: F401
-from models.epic import Epic, Task  # noqa: F401
 from models.scheduled_job import ScheduledJob  # noqa: F401
 from models.memory import (  # noqa: F401
     MemoryEpisode,
