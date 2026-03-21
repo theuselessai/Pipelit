@@ -72,8 +72,6 @@ TOOL_TYPE_MAP: dict[str, str] = {
     "run_command": "run_command",
     "platform_api": "platform_api",
     "whoami": "whoami",
-    "epic_tools": "epic_tools",
-    "task_tools": "task_tools",
     "spawn_and_await": "spawn_and_await",
     "workflow_create": "workflow_create",
     "workflow_discover": "workflow_discover",

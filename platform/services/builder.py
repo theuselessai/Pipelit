@@ -14,7 +14,7 @@ from services.state import WorkflowState
 
 logger = logging.getLogger(__name__)
 
-SUB_COMPONENT_TYPES = {"ai_model", "run_command", "output_parser", "memory_read", "memory_write", "code_execute", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await", "workflow_create", "workflow_discover", "skill"}
+SUB_COMPONENT_TYPES = {"ai_model", "run_command", "output_parser", "memory_read", "memory_write", "code_execute", "platform_api", "whoami", "spawn_and_await", "workflow_create", "workflow_discover", "skill"}
 
 
 def _reachable_node_ids(

@@ -279,22 +279,6 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
-    component_type="epic_tools",
-    display_name="Epic Tools",
-    description="Create, query, update, and search epics for task delegation",
-    category="agent",
-    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON result from epic operations")],
-))
-
-register_node_type(NodeTypeSpec(
-    component_type="task_tools",
-    display_name="Task Tools",
-    description="Create, list, update, and cancel tasks within epics",
-    category="agent",
-    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON result from task operations")],
-))
-
-register_node_type(NodeTypeSpec(
     component_type="spawn_and_await",
     display_name="Spawn & Await",
     description="Spawn a child workflow and wait for its result inside an agent's reasoning loop",
