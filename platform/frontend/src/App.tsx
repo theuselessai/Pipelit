@@ -12,8 +12,6 @@ import ExecutionsPage from "@/features/executions/ExecutionsPage"
 import ExecutionDetailPage from "@/features/executions/ExecutionDetailPage"
 import SettingsPage from "@/features/settings/SettingsPage"
 import MemoriesPage from "@/features/memories/MemoriesPage"
-import EpicsPage from "@/features/epics/EpicsPage"
-import EpicDetailPage from "@/features/epics/EpicDetailPage"
 import WorkspacesPage from "@/features/workspaces/WorkspacesPage"
 import WorkspaceDetailPage from "@/features/workspaces/WorkspaceDetailPage"
 
@@ -37,8 +35,6 @@ export default function App() {
                 <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
                 <Route path="/executions" element={<ExecutionsPage />} />
                 <Route path="/executions/:id" element={<ExecutionDetailPage />} />
-                <Route path="/epics" element={<EpicsPage />} />
-                <Route path="/epics/:epicId" element={<EpicDetailPage />} />
                 <Route path="/memories" element={<MemoriesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>

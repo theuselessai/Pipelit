@@ -222,7 +222,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Compute all upstream ancestor nodes for switch/filter/loop (BFS backward through data edges)
   const upstreamNodes = useMemo(() => {
     if (!workflow) return []
-    const SUB_TYPES = new Set(["ai_model", "run_command", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "epic_tools", "task_tools", "spawn_and_await"])
+    const SUB_TYPES = new Set(["ai_model", "run_command", "output_parser", "memory_read", "memory_write", "create_agent_user", "platform_api", "whoami", "spawn_and_await"])
     const visited = new Set<string>()
     const queue = [node.node_id]
     while (queue.length > 0) {
