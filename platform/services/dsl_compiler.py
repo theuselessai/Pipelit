@@ -44,6 +44,7 @@ STEP_TYPE_MAP: dict[str, str] = {
     "agent": "agent",
     "deep_agent": "deep_agent",
     "switch": "switch",
+    "assertion": "assertion",
     "loop": "loop",
     "workflow": "workflow",
     "human": "human_confirmation",
@@ -571,6 +572,20 @@ def _build_step_config(
     elif step_type == "identify_user":
         config["extra_config"] = {
             "channel": step.get("channel", ""),
+        }
+
+    elif step_type == "assertion":
+        rules = []
+        for rule in step.get("rules", []):
+            rules.append({
+                "id": rule.get("id", ""),
+                "field": rule.get("field", ""),
+                "operator": rule.get("operator", "equals"),
+                "value": rule.get("value", ""),
+            })
+        config["extra_config"] = {
+            "rules": rules,
+            "pass_threshold": step.get("pass_threshold", 1.0),
         }
 
     elif step_type == "switch":

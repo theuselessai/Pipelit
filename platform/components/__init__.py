@@ -31,6 +31,7 @@ def get_component_factory(component_type: str):
 from components import (  # noqa: E402, F401
     agent,
     ai_model,
+    assertion,
     categorizer,
     code,
     control_flow,

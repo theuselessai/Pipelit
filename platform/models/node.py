@@ -125,6 +125,10 @@ class _SwitchConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "switch"}
 
 
+class _AssertionConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "assertion"}
+
+
 class CodeComponentConfig(BaseComponentConfig):
     """Config for code-type components."""
     __mapper_args__ = {"polymorphic_identity": "code"}
@@ -263,6 +267,7 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "router": AIComponentConfig,
     "extractor": AIComponentConfig,
     "switch": OtherComponentConfig,
+    "assertion": _AssertionConfig,
     "code": CodeComponentConfig,
     "loop": CodeComponentConfig,
     "filter": CodeComponentConfig,

@@ -459,6 +459,18 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="assertion",
+    display_name="Assertion",
+    description="Evaluates all rules against state and routes pass/fail",
+    category="logic",
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=True)],
+    outputs=[
+        PortDefinition(name="output", data_type=DataType.OBJECT, description="Results with passed flag and per-rule details"),
+        PortDefinition(name="route", data_type=DataType.STRING, description="'pass' or 'fail'"),
+    ],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="code",
     display_name="Code",
     category="logic",

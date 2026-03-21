@@ -101,3 +101,54 @@ def _resolve_field(path: str, state: dict):
         else:
             return None
     return current
+
+
+def evaluate_rules(
+    rules: list[dict],
+    state: dict,
+    mode: str = "first_match",
+) -> str | list[dict]:
+    """Evaluate a list of rules against workflow state.
+
+    Args:
+        rules: List of rule dicts with keys: id, field, operator, value.
+        state: The workflow state dict to evaluate against.
+        mode: "first_match" returns the first matching rule's id (str).
+              "all" evaluates every rule and returns a list of result dicts.
+
+    Returns:
+        mode="first_match": The matching rule's id (str), or "" if none match.
+        mode="all": List of {"rule_id": str, "passed": bool, "actual_value": any}.
+    """
+    if mode == "all":
+        results = []
+        for rule in rules:
+            field_path = rule.get("field", "")
+            operator = rule.get("operator", "equals")
+            value = rule.get("value", "")
+            rule_id = rule.get("id", "")
+
+            field_val = _resolve_field(field_path, state)
+            op_fn = OPERATORS.get(operator)
+            passed = bool(op_fn(field_val, value)) if op_fn else False
+
+            results.append({
+                "rule_id": rule_id,
+                "passed": passed,
+                "actual_value": field_val,
+            })
+        return results
+
+    # mode="first_match" (default)
+    for rule in rules:
+        field_path = rule.get("field", "")
+        operator = rule.get("operator", "equals")
+        value = rule.get("value", "")
+        rule_id = rule.get("id", "")
+
+        field_val = _resolve_field(field_path, state)
+        op_fn = OPERATORS.get(operator)
+        if op_fn and op_fn(field_val, value):
+            return rule_id
+
+    return ""
