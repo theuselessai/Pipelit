@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from config import settings
 from database import get_db
 from models.user import UserRole
 from models.credential import (
@@ -66,6 +67,7 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
         "created_at": cred.created_at,
         "updated_at": cred.updated_at,
         "detail": {},
+        "agentgateway_backend": None,
     }
     if cred.credential_type == "llm" and cred.llm_credential:
         llm = cred.llm_credential
@@ -195,6 +197,7 @@ def create_credential(
                 logger.warning("Failed to clean up gateway credential %s after DB error", payload.name)
         raise
     db.refresh(base)
+
     return _serialize_credential(base, db)
 
 
@@ -270,6 +273,7 @@ def update_credential(
 
     db.commit()
     db.refresh(cred)
+
     return _serialize_credential(cred, db)
 
 
@@ -285,6 +289,7 @@ def delete_credential(
     cred = query.first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
+
     if cred.gateway_credential:
         gw_cred = cred.gateway_credential
         try:
@@ -324,6 +329,7 @@ def batch_delete_credentials(
             status_code=502,
             detail=f"Failed to delete gateway credentials: {failed_gw}. Database unchanged.",
         )
+
     for cred in creds:
         db.delete(cred)
     db.commit()
@@ -400,6 +406,8 @@ def test_credential(
     if not cred.llm_credential:
         raise HTTPException(status_code=404, detail="LLM credential not found.")
     llm = cred.llm_credential
+
+    # Direct provider test
     is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url
     try:
         if llm.provider_type == "anthropic" and not is_custom_base:
@@ -461,6 +469,7 @@ def list_credential_models(
         raise HTTPException(status_code=404, detail="LLM credential not found.")
     llm = cred.llm_credential
 
+    # Direct provider call
     is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url
     if llm.provider_type == "anthropic" and not is_custom_base:
         try:

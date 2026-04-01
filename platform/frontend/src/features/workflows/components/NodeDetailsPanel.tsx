@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
+import { useAvailableModels } from "@/api/available_models"
 import { useWorkspaces } from "@/api/workspaces"
 
 import { useManualExecute } from "@/api/executions"
@@ -68,6 +69,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const deleteNode = useDeleteNode(slug)
   const { data: credentials } = useCredentials()
   const { data: workspacesData } = useWorkspaces()
+  const { data: gatewayModels = [] } = useAvailableModels()
   const allCredentials = credentials?.items ?? []
   const llmCredentials = allCredentials.filter((c) => c.credential_type === "llm")
 
@@ -81,6 +83,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [extraConfig, setExtraConfig] = useState(JSON.stringify(node.config.extra_config, null, 2))
   const [llmCredentialId, setLlmCredentialId] = useState<string>(node.config.llm_credential_id?.toString() ?? "")
   const [modelName, setModelName] = useState(node.config.model_name ?? "")
+  const [backendRoute, setBackendRoute] = useState<string>(node.config.backend_route ?? "")
   const [temperature, setTemperature] = useState<string>(node.config.temperature?.toString() ?? "")
   const [maxTokens, setMaxTokens] = useState<string>(node.config.max_tokens?.toString() ?? "")
   const [topP, setTopP] = useState<string>(node.config.top_p?.toString() ?? "")
@@ -244,7 +247,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const manualExecute = useManualExecute(slug, node.node_id)
 
   const credId = llmCredentialId ? Number(llmCredentialId) : undefined
-  const { data: availableModels } = useCredentialModels(credId)
+  const { data: credentialModels } = useCredentialModels(credId)
 
   const isLLMNode = node.component_type === "ai_model"
   const isAgentNode = node.component_type === "agent" || node.component_type === "deep_agent"
@@ -370,6 +373,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           extra_config: parsedExtra,
           llm_credential_id: llmCredentialId ? Number(llmCredentialId) : null,
           model_name: modelName,
+          backend_route: backendRoute || null,
           temperature: temperature ? Number(temperature) : null,
           max_tokens: maxTokens ? Number(maxTokens) : null,
           top_p: topP ? Number(topP) : null,
@@ -615,34 +619,59 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
       {isLLMNode && (
         <>
-          <div className="space-y-2">
-            <Label className="text-xs">LLM Credential</Label>
-            <Select value={llmCredentialId} onValueChange={setLlmCredentialId}>
-              <SelectTrigger><SelectValue placeholder="Select credential" /></SelectTrigger>
-              <SelectContent>
-                {llmCredentials.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs">Model</Label>
-            {availableModels && availableModels.length > 0 ? (
-              <Select value={modelName} onValueChange={setModelName}>
+          {gatewayModels.length > 0 ? (
+            <div className="space-y-2">
+              <Label className="text-xs">Model</Label>
+              <Select
+                value={backendRoute}
+                onValueChange={(route) => {
+                  const model = gatewayModels.find((m) => m.route === route)
+                  setBackendRoute(route)
+                  setModelName(model?.model_name ?? "")
+                }}
+              >
                 <SelectTrigger><SelectValue placeholder="Select model" /></SelectTrigger>
                 <SelectContent>
-                  {availableModels.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  {gatewayModels.map((m) => (
+                    <SelectItem key={m.route} value={m.route}>
+                      {m.provider} / {m.model_name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            ) : (
-              <Input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="e.g. gpt-4o" className="text-xs" />
-            )}
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs">LLM Credential</Label>
+                <Select value={llmCredentialId} onValueChange={setLlmCredentialId}>
+                  <SelectTrigger><SelectValue placeholder="Select credential" /></SelectTrigger>
+                  <SelectContent>
+                    {llmCredentials.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Model</Label>
+                {credentialModels && credentialModels.length > 0 ? (
+                  <Select value={modelName} onValueChange={setModelName}>
+                    <SelectTrigger><SelectValue placeholder="Select model" /></SelectTrigger>
+                    <SelectContent>
+                      {credentialModels.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="e.g. gpt-4o" className="text-xs" />
+                )}
+              </div>
+            </>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label className="text-xs">Temperature</Label>
