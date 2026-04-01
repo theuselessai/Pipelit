@@ -192,7 +192,8 @@ def update_node(
     if config_data:
         cc = node.component_config
         model_fields = (
-            "llm_credential_id", "model_name", "temperature", "max_tokens",
+            "llm_credential_id", "model_name", "backend_route",
+            "temperature", "max_tokens",
             "frequency_penalty", "presence_penalty", "top_p", "timeout",
             "max_retries", "response_format",
         )

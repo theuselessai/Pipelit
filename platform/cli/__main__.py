@@ -281,6 +281,331 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         db.close()
 
 
+def _resolve_provider_name(credential) -> str:
+    """Derive provider name from credential. Must NOT contain hyphens."""
+    if credential.provider_type in ("openai", "anthropic", "glm"):
+        return credential.provider_type
+    # openai_compatible: sanitize the credential name
+    base_name = credential.base_credentials.name or f"custom{credential.base_credentials_id}"
+    # Remove hyphens (breaks route parsing), lowercase, replace spaces/underscores
+    sanitized = base_name.lower().replace(" ", "_").replace("-", "_")
+    # Remove non-alphanumeric except underscores
+    sanitized = "".join(c for c in sanitized if c.isalnum() or c == "_")
+    return sanitized or f"custom{credential.base_credentials_id}"
+
+
+def _model_to_slug(model_name: str) -> str:
+    """Convert model name to a filesystem-safe slug."""
+    slug = model_name.lower().replace(" ", "-").replace("/", "-").replace(":", "-")
+    # Keep only alphanumeric, hyphens, dots
+    slug = "".join(c for c in slug if c.isalnum() or c in "-.")
+    return slug or "default"
+
+
+def _parse_base_url(base_url: str, provider_type: str = "") -> tuple[str, str]:
+    """Parse a base_url into (host:port, path) for agentgateway overrides.
+
+    Always includes the port (443 for HTTPS, 80 for HTTP) even when not
+    explicitly present in the URL.  Appends the appropriate endpoint suffix
+    based on provider_type.
+    """
+    from urllib.parse import urlparse
+
+    if not base_url or not base_url.strip():
+        return "", ""
+
+    parsed = urlparse(base_url.rstrip("/"))
+    host = parsed.hostname or ""
+    port = parsed.port
+    if host and not port:
+        port = 443 if parsed.scheme == "https" else 80
+    host_override = f"{host}:{port}" if host else ""
+    path_override = parsed.path or ""
+
+    # Append endpoint suffix
+    if provider_type in ("openai_compatible", "glm", "openai"):
+        if path_override and not path_override.endswith("/chat/completions"):
+            path_override = path_override.rstrip("/") + "/chat/completions"
+    elif provider_type == "anthropic":
+        if path_override and not path_override.endswith("/messages"):
+            path_override = path_override.rstrip("/") + "/messages"
+
+    return host_override, path_override
+
+
+def cmd_migrate_credentials(args: argparse.Namespace) -> None:
+    """Migrate existing LLM credentials from DB to agentgateway provider/model structure."""
+    from pathlib import Path
+
+    from database import SessionLocal
+    from models.credential import BaseCredential, LLMProviderCredential
+    from models.node import BaseComponentConfig
+    from services.agentgateway_config import (
+        add_model,
+        add_provider,
+        list_providers,
+        reassemble_config,
+        remove_provider_key,
+        write_provider_key,
+    )
+
+    if args.rollback:
+        _rollback_migration(args)
+        return
+
+    db = SessionLocal()
+    try:
+        # Query all LLM credentials with their base credential (for name)
+        credentials = (
+            db.query(LLMProviderCredential)
+            .join(BaseCredential, LLMProviderCredential.base_credentials_id == BaseCredential.id)
+            .all()
+        )
+
+        if not credentials:
+            print(json.dumps({"migrated": 0, "providers": 0, "models": 0, "message": "No LLM credentials found"}))
+            return
+
+        from config import settings
+
+        agw_dir = Path(settings.AGENTGATEWAY_DIR) if settings.AGENTGATEWAY_DIR else None
+        if not agw_dir and not args.dry_run:
+            print(json.dumps({"error": "AGENTGATEWAY_DIR is not set"}), file=sys.stderr)
+            sys.exit(1)
+
+        # Group credentials by provider
+        # Each provider gets one key + one _provider.yaml; each credential+model gets a model file
+        providers_seen: dict[str, list] = {}  # provider_name -> [credential, ...]
+        for cred in credentials:
+            provider_name = _resolve_provider_name(cred)
+            providers_seen.setdefault(provider_name, []).append(cred)
+
+        providers_created = 0
+        models_created = 0
+        skipped = 0
+
+        # Map base_credentials_id -> (provider_name, model_slug) for --populate-routes
+        route_map: dict[int, str] = {}
+
+        for provider_name, creds in providers_seen.items():
+            # Use the first credential for provider-level config (key, host, path)
+            first_cred = creds[0]
+
+            # Check for existing provider dir/key
+            if agw_dir and not args.dry_run:
+                provider_dir_exists = (agw_dir / "config.d" / "backends" / provider_name).exists()
+                key_exists = (agw_dir / "keys" / f"{provider_name}.key").exists()
+            else:
+                provider_dir_exists = False
+                key_exists = False
+
+            provider_already_exists = provider_dir_exists or key_exists
+
+            if provider_already_exists and not args.force:
+                skipped += len(creds)
+                for c in creds:
+                    print(
+                        f"SKIP: {c.base_credentials.name} -> provider={provider_name} "
+                        f"(already exists, use --force to overwrite)",
+                        file=sys.stderr,
+                    )
+                continue
+
+            # Parse base_url for host/path overrides
+            host_override, path_override = _parse_base_url(
+                first_cred.base_url or "", first_cred.provider_type
+            )
+
+            if args.dry_run:
+                print(
+                    f"DRY-RUN: provider={provider_name}, "
+                    f"type={first_cred.provider_type}, "
+                    f"host_override={host_override!r}, path_override={path_override!r}",
+                    file=sys.stderr,
+                )
+                providers_created += 1
+                for cred in creds:
+                    model_name = cred.base_credentials.name or "default"
+                    model_slug = _model_to_slug(model_name)
+                    print(
+                        f"DRY-RUN:   model={model_slug} (name={model_name})",
+                        file=sys.stderr,
+                    )
+                    models_created += 1
+                    route_map[cred.base_credentials_id] = f"{provider_name}-{model_slug}"
+                continue
+
+            # Write encrypted key file (one per provider, using first credential's key)
+            write_provider_key(provider_name, first_cred.api_key)
+
+            # Write _provider.yaml
+            add_provider(
+                provider=provider_name,
+                provider_type=first_cred.provider_type,
+                host_override=host_override,
+                path_override=path_override,
+            )
+            providers_created += 1
+
+            # Write model files for each credential
+            for cred in creds:
+                model_name = cred.base_credentials.name or "default"
+                model_slug = _model_to_slug(model_name)
+
+                # Check if model file exists
+                if agw_dir:
+                    model_file_exists = (
+                        agw_dir / "config.d" / "backends" / provider_name / f"{model_slug}.yaml"
+                    ).exists()
+                else:
+                    model_file_exists = False
+
+                if model_file_exists and not args.force:
+                    skipped += 1
+                    print(
+                        f"SKIP: model {model_slug} in {provider_name} (already exists)",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                add_model(
+                    provider=provider_name,
+                    model_slug=model_slug,
+                    model_name=model_name,
+                    reassemble=False,
+                )
+                models_created += 1
+                route_map[cred.base_credentials_id] = f"{provider_name}-{model_slug}"
+
+        # Single reassemble at the end
+        if not args.dry_run and (providers_created > 0 or models_created > 0):
+            reassemble_config()
+
+        # Optionally populate backend_route on component_configs
+        routes_updated = 0
+        if args.populate_routes and route_map and not args.dry_run:
+            configs = (
+                db.query(BaseComponentConfig)
+                .filter(BaseComponentConfig.llm_credential_id.isnot(None))
+                .all()
+            )
+            for cfg in configs:
+                route = route_map.get(cfg.llm_credential_id)
+                if route:
+                    cfg.backend_route = route
+                    routes_updated += 1
+            if routes_updated:
+                db.commit()
+
+        result = {
+            "providers": providers_created,
+            "models": models_created,
+            "skipped": skipped,
+            "routes_updated": routes_updated,
+        }
+        print(json.dumps(result))
+        summary_parts = [
+            f"{providers_created} providers created",
+            f"{models_created} models created",
+        ]
+        if skipped:
+            summary_parts.append(f"{skipped} skipped")
+        if routes_updated:
+            summary_parts.append(f"{routes_updated} routes updated")
+        print(", ".join(summary_parts), file=sys.stderr)
+    except Exception:
+        raise
+    finally:
+        db.close()
+
+
+def _rollback_migration(args: argparse.Namespace) -> None:
+    """Reverse a credential migration: delete provider dirs + keys, reassemble, disable."""
+    import shutil
+    from pathlib import Path
+
+    from config import settings
+    from database import SessionLocal
+    from models.node import BaseComponentConfig
+    from services.agentgateway_config import list_providers, reassemble_config, remove_provider_key
+
+    agw_dir = Path(settings.AGENTGATEWAY_DIR) if settings.AGENTGATEWAY_DIR else None
+    if not agw_dir:
+        print(json.dumps({"error": "AGENTGATEWAY_DIR is not set"}), file=sys.stderr)
+        sys.exit(1)
+
+    providers = list_providers()
+    if not providers:
+        print(json.dumps({"rolled_back": 0, "message": "No providers found"}))
+        return
+
+    removed = 0
+    for name in providers:
+        if args.dry_run:
+            print(f"DRY-RUN: would remove provider={name} (directory + key)", file=sys.stderr)
+            removed += 1
+            continue
+
+        provider_dir = agw_dir / "config.d" / "backends" / name
+        if provider_dir.exists():
+            shutil.rmtree(provider_dir)
+        remove_provider_key(name)
+        removed += 1
+
+    if not args.dry_run and removed > 0:
+        reassemble_config()
+
+        # Set AGENTGATEWAY_ENABLED=false in .env
+        env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+        _set_env_var(env_path, "AGENTGATEWAY_ENABLED", "false")
+
+    # Null out backend_route on all component_configs if --populate-routes was used
+    routes_cleared = 0
+    if args.populate_routes and not args.dry_run:
+        db = SessionLocal()
+        try:
+            configs = (
+                db.query(BaseComponentConfig)
+                .filter(BaseComponentConfig.backend_route.isnot(None))
+                .all()
+            )
+            for cfg in configs:
+                cfg.backend_route = None
+                routes_cleared += 1
+            if routes_cleared:
+                db.commit()
+        finally:
+            db.close()
+
+    result = {"rolled_back": removed, "routes_cleared": routes_cleared}
+    print(json.dumps(result))
+    print(f"{removed} providers removed", file=sys.stderr)
+    if routes_cleared:
+        print(f"{routes_cleared} backend_route values cleared", file=sys.stderr)
+    if not args.dry_run:
+        print("Set AGENTGATEWAY_ENABLED=false in .env", file=sys.stderr)
+        print("Please restart Pipelit to apply changes.", file=sys.stderr)
+
+
+def _set_env_var(env_path: Path, key: str, value: str) -> None:
+    """Set or update an environment variable in a .env file."""
+    from pathlib import Path
+
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}=") or line.startswith(f"{key} ="):
+                lines[i] = f"{key}={value}"
+                found = True
+                break
+        if not found:
+            lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(lines) + "\n")
+    else:
+        env_path.write_text(f"{key}={value}\n")
+
+
 def cmd_import_fixture(args: argparse.Namespace) -> None:
     """Import a workflow from a fixture JSON file."""
     from database import SessionLocal
@@ -465,6 +790,15 @@ def main() -> None:
     sp_import = sub.add_parser("import-fixture", help="Import a workflow from a fixture JSON file")
     sp_import.add_argument("file", help="Path to fixture JSON file")
 
+    sp_migrate = sub.add_parser(
+        "migrate-credentials",
+        help="Migrate LLM credentials from DB to agentgateway filesystem",
+    )
+    sp_migrate.add_argument("--rollback", action="store_true", help="Reverse the migration")
+    sp_migrate.add_argument("--force", action="store_true", help="Overwrite existing provider dirs and key files")
+    sp_migrate.add_argument("--dry-run", action="store_true", help="Print what would be done without writing files")
+    sp_migrate.add_argument("--populate-routes", action="store_true", help="Set backend_route on existing component_configs")
+
     args = parser.parse_args()
 
     if args.command == "setup" and not args.password:
@@ -479,6 +813,8 @@ def main() -> None:
             cmd_apply_fixture(args)
         elif args.command == "import-fixture":
             cmd_import_fixture(args)
+        elif args.command == "migrate-credentials":
+            cmd_migrate_credentials(args)
     except SystemExit:
         raise
     except Exception as exc:

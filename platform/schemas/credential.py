@@ -26,6 +26,7 @@ class CredentialOut(BaseModel):
     detail: str | dict | None = None
     created_at: datetime
     updated_at: datetime
+    agentgateway_backend: str | None = None
 
     model_config = {"from_attributes": True}
 

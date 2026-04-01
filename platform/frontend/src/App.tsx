@@ -14,6 +14,7 @@ import SettingsPage from "@/features/settings/SettingsPage"
 import MemoriesPage from "@/features/memories/MemoriesPage"
 import WorkspacesPage from "@/features/workspaces/WorkspacesPage"
 import WorkspaceDetailPage from "@/features/workspaces/WorkspaceDetailPage"
+import ProvidersPage from "@/features/providers/ProvidersPage"
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -36,6 +37,7 @@ export default function App() {
                 <Route path="/executions" element={<ExecutionsPage />} />
                 <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                 <Route path="/memories" element={<MemoriesPage />} />
+                <Route path="/providers" element={<ProvidersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Route>

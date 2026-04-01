@@ -36,6 +36,9 @@ class BaseComponentConfig(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
+    # agentgateway route name (e.g. "venice-glm-4.7"); None = use llm_credential_id
+    backend_route: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+
     # STI fields — ModelComponentConfig
     llm_credential_id: Mapped[int | None] = mapped_column(
         ForeignKey("credentials.id", ondelete="SET NULL"), nullable=True
