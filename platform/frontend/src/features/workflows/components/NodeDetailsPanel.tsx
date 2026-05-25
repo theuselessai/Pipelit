@@ -208,6 +208,16 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [loopField, setLoopField] = useState<string>((node.config.extra_config?.field as string) ?? "")
   const [loopOnError, setLoopOnError] = useState<string>((node.config.extra_config?.on_error as string) ?? "stop")
 
+  // Input template state (for agent/deep_agent)
+  const [inputTemplate, setInputTemplate] = useState<string>(
+    (node.config.extra_config?.input_template as string) ?? ""
+  );
+
+  // Reply chat message state
+  const [replyMessage, setReplyMessage] = useState<string>(
+    (node.config.extra_config?.message as string) ?? ""
+  );
+
   // Subworkflow state
   const [subworkflowTarget, setSubworkflowTarget] = useState<string>((node.config.extra_config?.target_workflow as string) ?? "")
   const [subworkflowTriggerMode, setSubworkflowTriggerMode] = useState<string>((node.config.extra_config?.trigger_mode as string) ?? "implicit")
@@ -387,7 +397,14 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     if (node.component_type === "workflow") {
       parsedExtra = { ...parsedExtra, target_workflow: subworkflowTarget || undefined, trigger_mode: subworkflowTriggerMode }
     }
-    if (node.component_type === "trigger_schedule") {
+    // input_template — for agent/deep_agent nodes
+    if (["agent", "deep_agent"].includes(node.component_type) && inputTemplate) {
+      parsedExtra.input_template = inputTemplate
+    }
+    // reply_chat message
+    if (node.component_type === "reply_chat") {
+      parsedExtra.message = replyMessage
+    }
       let parsedPayload = {}
       try { parsedPayload = JSON.parse(schedPayload) } catch { /* keep empty */ }
       parsedExtra = {
@@ -510,20 +527,32 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               <div className="flex items-center justify-between">
                 <Label className="text-xs">Active</Label>
                 <Switch checked={triggerIsActive} onCheckedChange={setTriggerIsActive} />
-              </div>
-            </>
-          )}
+          </div>
+        )}
 
-          {node.component_type === "trigger_schedule" && (
-            <>
-              <Separator />
-              <div className="space-y-3">
-                <Label className="text-xs font-semibold">Schedule Configuration</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Interval (seconds)</Label>
-                    <Input type="number" min="1" value={schedInterval} onChange={(e) => setSchedInterval(e.target.value)} className="text-xs h-7" />
-                  </div>
+      )}
+
+      {isAgentNode && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Input Template</label>
+          <p className="text-xs text-muted-foreground">
+            Override the agent&apos;s input messages with a template. Supports{" "}
+            <code className="text-xs">{"{{ node_id.output }}"}</code> expressions.
+          </p>
+          <Textarea
+            value={inputTemplate}
+            onChange={(e) => setInputTemplate(e.target.value)}
+            placeholder={"{{ scribe.output }}"}
+            className="font-mono text-sm min-h-[80px]"
+          />
+        </div>
+      )}
+
+      {isDeepAgent && (
+        <>
+        <Separator />
+        <div className="space-y-3">
+          <Label className="text-xs font-semibold">Deep Agent Features</Label>
                   <div className="space-y-1">
                     <Label className="text-[10px]">Total Repeats</Label>
                     <Input type="number" min="0" value={schedRepeats} onChange={(e) => setSchedRepeats(e.target.value)} className="text-xs h-7" />
@@ -1386,29 +1415,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                     className="text-xs h-7"
                     placeholder="e.g. Good"
                   />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Source Node</Label>
-                  {upstreamNodes.length > 0 ? (
-                    <Select
-                      value={parseFieldPath(rule.field).sourceNodeId || (upstreamNodes.length === 1 ? upstreamNodes[0] : "")}
-                      onValueChange={(v) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(v, parseFieldPath(r.field).outputField) } : r))}
-                    >
-                      <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
-                      <SelectContent>
-                        {upstreamNodes.map((nid) => (
-                          <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      value={parseFieldPath(rule.field).sourceNodeId}
-                      onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: buildFieldPath(e.target.value, parseFieldPath(r.field).outputField) } : r))}
-                      className="text-xs h-7 font-mono"
-                      placeholder="node_id"
-                    />
-                  )}
+          </div>
+        )}
+      )}
+
+      {node.component_type === "workflow" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Subworkflow Configuration</Label>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[10px]">Output Field</Label>
@@ -1433,231 +1448,8 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                           {group.options.map((op) => (
                             <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>
                           ))}
-                        </div>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {!UNARY_OPERATORS.has(rule.operator) && (
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Value</Label>
-                    <Input
-                      value={rule.value}
-                      onChange={(e) => setSwitchRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, value: e.target.value } : r))}
-                      className="text-xs h-7"
-                      placeholder="comparison value"
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-            <div className="flex items-center justify-between pt-1">
-              <div>
-                <Label className="text-xs">Fallback Route</Label>
-                <p className="text-[10px] text-muted-foreground">Route to "other" when no rules match</p>
-              </div>
-              <Switch checked={enableFallback} onCheckedChange={setEnableFallback} />
-            </div>
           </div>
-        </>
-      )}
-
-      {node.component_type === "wait" && (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <Label className="text-xs font-semibold">Wait Duration</Label>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                min="0"
-                step="1"
-                value={waitDuration}
-                onChange={(e) => setWaitDuration(e.target.value)}
-                className="text-xs h-7 flex-1"
-                placeholder="0"
-              />
-              <Select value={waitUnit} onValueChange={setWaitUnit}>
-                <SelectTrigger className="text-xs h-7 w-28"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="seconds">Seconds</SelectItem>
-                  <SelectItem value="minutes">Minutes</SelectItem>
-                  <SelectItem value="hours">Hours</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </>
-      )}
-
-      {node.component_type === "filter" && (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <Label className="text-xs font-semibold">Filter Configuration</Label>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Source Node</Label>
-              {upstreamNodes.length > 0 ? (
-                <Select value={filterSourceNode} onValueChange={setFilterSourceNode}>
-                  <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
-                  <SelectContent>
-                    {upstreamNodes.map((nid) => (
-                      <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input value={filterSourceNode} onChange={(e) => setFilterSourceNode(e.target.value)} className="text-xs h-7 font-mono" placeholder="source_node_id" />
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Source Field (optional)</Label>
-              <Input value={filterField} onChange={(e) => setFilterField(e.target.value)} className="text-xs h-7 font-mono" placeholder="e.g. items" />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold">Rules</Label>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => setFilterRules((prev) => [...prev, { id: generateRuleId(), field: "", operator: "equals", value: "" }])}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Add Rule
-              </Button>
-            </div>
-            {filterRules.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-2">No rules defined. All items will pass through.</p>
-            )}
-            {filterRules.map((rule, idx) => (
-              <div key={rule.id} className="border rounded-md p-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">Rule {idx + 1}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0"
-                    onClick={() => setFilterRules((prev) => prev.filter((r) => r.id !== rule.id))}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Field</Label>
-                  <Input
-                    value={rule.field}
-                    onChange={(e) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, field: e.target.value } : r))}
-                    className="text-xs h-7 font-mono"
-                    placeholder="e.g. name, status"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px]">Operator</Label>
-                  <Select
-                    value={rule.operator}
-                    onValueChange={(v) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, operator: v } : r))}
-                  >
-                    <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {OPERATOR_OPTIONS.map((group) => (
-                        <div key={group.group}>
-                          <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground">{group.group}</div>
-                          {group.options.map((op) => (
-                            <SelectItem key={op.value} value={op.value} className="text-xs">{op.label}</SelectItem>
-                          ))}
-                        </div>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {!UNARY_OPERATORS.has(rule.operator) && (
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Value</Label>
-                    <Input
-                      value={rule.value}
-                      onChange={(e) => setFilterRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, value: e.target.value } : r))}
-                      className="text-xs h-7"
-                      placeholder="comparison value"
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {node.component_type === "merge" && (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <Label className="text-xs font-semibold">Merge Mode</Label>
-            <Select value={mergeMode} onValueChange={setMergeMode}>
-              <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="append">Append (flat array)</SelectItem>
-                <SelectItem value="combine">Combine (merged object)</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground">
-              {mergeMode === "append"
-                ? "Concatenate all upstream outputs into a single array"
-                : "Merge all upstream outputs into a single object"}
-            </p>
-          </div>
-        </>
-      )}
-
-      {node.component_type === "loop" && (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <Label className="text-xs font-semibold">Loop Configuration</Label>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Source Node</Label>
-              {upstreamNodes.length > 0 ? (
-                <Select value={loopSourceNode} onValueChange={setLoopSourceNode}>
-                  <SelectTrigger className="text-xs h-7 font-mono"><SelectValue placeholder="Select source node" /></SelectTrigger>
-                  <SelectContent>
-                    {upstreamNodes.map((nid) => (
-                      <SelectItem key={nid} value={nid} className="text-xs font-mono">{nid}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input value={loopSourceNode} onChange={(e) => setLoopSourceNode(e.target.value)} className="text-xs h-7 font-mono" placeholder="source_node_id" />
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Array Field (optional)</Label>
-              <Input value={loopField} onChange={(e) => setLoopField(e.target.value)} className="text-xs h-7 font-mono" placeholder="e.g. items, results" />
-              <p className="text-[10px] text-muted-foreground">Field from source output that contains the array to iterate. Leave empty if source output is the array.</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">On Error</Label>
-              <Select value={loopOnError} onValueChange={setLoopOnError}>
-                <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="stop">Stop (fail execution)</SelectItem>
-                  <SelectItem value="continue">Continue (skip to next item)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground">
-                {loopOnError === "continue"
-                  ? "When a body node fails, record the error and continue to the next item"
-                  : "When a body node fails, stop the entire execution"}
-              </p>
-            </div>
-            <div className="border rounded-md p-2 space-y-1 bg-muted/50">
-              <p className="text-[10px] font-medium">Loop handles</p>
-              <p className="text-[10px] text-muted-foreground"><span className="text-amber-500 font-medium">Each Item</span> — connect to the first body node(s)</p>
-              <p className="text-[10px] text-muted-foreground"><span className="text-amber-500 font-medium">Return</span> — connect from the last body node back to loop</p>
-              <p className="text-[10px] text-muted-foreground"><span className="text-emerald-500 font-medium">Done</span> — connect to nodes that run after all items</p>
-              <p className="text-[10px] text-muted-foreground mt-1">Access current item: <code className="bg-muted px-1 rounded">{"{{ loop.item }}"}</code></p>
-              <p className="text-[10px] text-muted-foreground">Access index: <code className="bg-muted px-1 rounded">{"{{ loop.index }}"}</code></p>
-            </div>
-          </div>
-        </>
+        )}
       )}
 
       {node.component_type === "workflow" && (
@@ -1665,181 +1457,4 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           <Separator />
           <div className="space-y-3">
             <Label className="text-xs font-semibold">Subworkflow Configuration</Label>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Target Workflow</Label>
-              <Select value={subworkflowTarget} onValueChange={setSubworkflowTarget}>
-                <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Select a workflow" /></SelectTrigger>
-                <SelectContent>
-                  {(workflowList?.items ?? [])
-                    .filter((w: { slug: string }) => w.slug !== workflow?.slug)
-                    .map((w: { slug: string; name: string }) => (
-                      <SelectItem key={w.slug} value={w.slug} className="text-xs">{w.name} <span className="text-muted-foreground font-mono">({w.slug})</span></SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground">The workflow to execute as a child</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Trigger Mode</Label>
-              <Select value={subworkflowTriggerMode} onValueChange={setSubworkflowTriggerMode}>
-                <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="implicit">Implicit (direct call)</SelectItem>
-                  <SelectItem value="explicit">Explicit (via trigger resolver)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground">
-                {subworkflowTriggerMode === "implicit"
-                  ? "Call the target workflow directly — no trigger node needed on the child"
-                  : "Fire a workflow event through the trigger resolver — child must have a Workflow Trigger node"}
-              </p>
-            </div>
-            <div className="border rounded-md p-2 space-y-1 bg-muted/50">
-              <p className="text-[10px] font-medium">How it works</p>
-              <p className="text-[10px] text-muted-foreground">Parent state data is passed as the child&apos;s trigger payload. The parent waits for the child to complete, then receives its output.</p>
-              <p className="text-[10px] text-muted-foreground">Use <span className="font-medium">Input Mapping</span> in Extra Config to control what data flows to the child.</p>
-            </div>
-          </div>
-        </>
-      )}
-
-      {!isTriggerNode && (
-        <>
-        <Separator />
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">Extra Config (JSON)</Label>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2"
-                onClick={() => { setExtraConfigDraft(extraConfig); setExtraConfigModalOpen(true) }}
-              >
-                <Expand className="h-3 w-3 mr-1" />
-                <span className="text-xs">Expand</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                title="Pop out to window"
-                onClick={() => {
-                  const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
-                  if (!popup) return
-                  setExtraConfigDraft(extraConfig)
-                  setExtraConfigPopoutWindow(popup)
-                  setExtraConfigModalOpen(false)
-                }}
-              >
-                <ExternalLink className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-          {workflow ? (
-            <ExpressionTextarea slug={slug} nodeId={node.node_id} workflow={workflow} value={extraConfig} onChange={setExtraConfig} className="text-xs font-mono" />
-          ) : (
-            <Textarea value={extraConfig} onChange={(e) => setExtraConfig(e.target.value)} rows={4} className="text-xs font-mono" />
-          )}
-
-          <Dialog open={extraConfigModalOpen} onOpenChange={setExtraConfigModalOpen}>
-            <DialogContent className="max-w-[90vw] w-[1000px] h-[80vh] p-0 overflow-hidden" showCloseButton={false}>
-              <div className="absolute inset-0 flex flex-col p-6 gap-4">
-                <DialogHeader>
-                  <div className="flex items-center justify-between">
-                    <DialogTitle>Edit Extra Config (JSON)</DialogTitle>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        title="Pop out to window"
-                        onClick={() => {
-                          const popup = window.open("", "", "width=1000,height=700,left=200,top=100")
-                          if (!popup) return
-                          setExtraConfigPopoutWindow(popup)
-                          setExtraConfigModalOpen(false)
-                        }}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </Button>
-                      <DialogClose asChild>
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </DialogClose>
-                    </div>
-                  </div>
-                </DialogHeader>
-                <div className="flex-1 min-h-0 flex flex-col">
-                  {workflow ? (
-                    <CodeMirrorExpressionEditor
-                      value={extraConfigDraft}
-                      onChange={setExtraConfigDraft}
-                      slug={slug}
-                      nodeId={node.node_id}
-                      workflow={workflow}
-                      language="json"
-                      placeholder='{ "key": "value" }'
-                    />
-                  ) : (
-                    <Textarea
-                      className="flex-1 min-h-0 font-mono text-sm resize-none"
-                      value={extraConfigDraft}
-                      onChange={(e) => setExtraConfigDraft(e.target.value)}
-                      placeholder='{ "key": "value" }'
-                    />
-                  )}
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setExtraConfigModalOpen(false)}>Cancel</Button>
-                  <Button onClick={() => { setExtraConfig(extraConfigDraft); saveOnNextRender.current = true; setExtraConfigModalOpen(false) }}>Save</Button>
-                </DialogFooter>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {extraConfigPopoutWindow && (
-            <PopoutWindow popupWindow={extraConfigPopoutWindow} title="Edit Extra Config (JSON)" onClose={() => setExtraConfigPopoutWindow(null)}>
-              <div className="flex flex-col h-screen p-4 gap-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Edit Extra Config (JSON)</h2>
-                </div>
-                <div className="flex-1 min-h-0 flex flex-col">
-                  {workflow ? (
-                    <CodeMirrorExpressionEditor
-                      value={extraConfigDraft}
-                      onChange={setExtraConfigDraft}
-                      slug={slug}
-                      nodeId={node.node_id}
-                      workflow={workflow}
-                      language="json"
-                      placeholder='{ "key": "value" }'
-                    />
-                  ) : (
-                    <Textarea
-                      className="h-full font-mono text-sm resize-none"
-                      value={extraConfigDraft}
-                      onChange={(e) => setExtraConfigDraft(e.target.value)}
-                      placeholder='{ "key": "value" }'
-                    />
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => closePopout(extraConfigPopoutWindow, setExtraConfigPopoutWindow)}>Cancel</Button>
-                  <Button onClick={() => { setExtraConfig(extraConfigDraft); saveOnNextRender.current = true; closePopout(extraConfigPopoutWindow, setExtraConfigPopoutWindow) }}>Save</Button>
-                </div>
-              </div>
-            </PopoutWindow>
-          )}
-        </div>
-        </>
-      )}
-
-      <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={updateNode.isPending} className="flex-1">Save</Button>
-        <Button size="sm" variant="destructive" onClick={handleDelete}><Trash2 className="h-4 w-4" /></Button>
-      </div>
-    </div>
-  )
 }
