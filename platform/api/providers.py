@@ -83,15 +83,19 @@ def _require_agentgateway():
 # ---------------------------------------------------------------------------
 
 
-def _parse_base_url(base_url: str, provider_type: str) -> tuple[str, str]:
-    """Parse base_url into (host_override, path_override) for _provider.yaml.
+def _parse_base_url(base_url: str, provider_type: str) -> tuple[str, str, bool]:
+    """Parse base_url into (host_override, path_override, use_tls) for _provider.yaml.
 
-    Returns (host_override, path_override) with appropriate endpoint suffix.
+    Returns (host_override, path_override, use_tls) with appropriate endpoint
+    suffix.  ``use_tls`` is False only for explicit ``http://`` upstreams
+    (e.g. a LAN Qwen box or local Ollama); anything else — https or no
+    base_url at all (provider default hosts are https) — keeps TLS on.
     """
     if not base_url:
-        return "", ""
+        return "", "", True
 
     parsed = urlparse(base_url.rstrip("/"))
+    use_tls = parsed.scheme != "http"
     host = parsed.hostname or ""
     port = parsed.port
     if host and not port:
@@ -107,7 +111,7 @@ def _parse_base_url(base_url: str, provider_type: str) -> tuple[str, str]:
         if path_override and not path_override.endswith("/messages"):
             path_override = path_override.rstrip("/") + "/messages"
 
-    return host_override, path_override
+    return host_override, path_override, use_tls
 
 
 ANTHROPIC_MODELS = [
@@ -185,7 +189,9 @@ def create_provider(
         write_provider_key,
     )
 
-    host_override, path_override = _parse_base_url(payload.base_url, payload.provider_type)
+    host_override, path_override, use_tls = _parse_base_url(
+        payload.base_url, payload.provider_type
+    )
 
     try:
         write_provider_key(payload.provider, payload.api_key)
@@ -194,6 +200,7 @@ def create_provider(
             provider_type=payload.provider_type,
             host_override=host_override,
             path_override=path_override,
+            use_tls=use_tls,
         )
         reassemble_config()
         restart_agentgateway()  # New key requires restart to load env var

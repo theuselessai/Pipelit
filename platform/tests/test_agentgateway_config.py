@@ -159,6 +159,57 @@ class TestAddProvider:
         assert parsed["hostOverride"] == "api.venice.ai:443"
         assert parsed["pathOverride"] == "/api/v1/chat/completions"
 
+    def test_http_upstream_omits_backend_tls(self, agw_dir):
+        """Plain-http upstreams (use_tls=False) must NOT get a backendTLS key.
+
+        agentgateway treats the mere presence of backendTLS (even {}) as
+        "speak TLS to the upstream", which breaks http backends like a LAN
+        Qwen box with a TLS InvalidContentType error.
+        """
+        from services.agentgateway_config import add_provider
+
+        add_provider(
+            provider="qwen",
+            provider_type="openai_compatible",
+            host_override="192.168.0.73:8080",
+            path_override="/v1/chat/completions",
+            use_tls=False,
+        )
+
+        parsed = yaml.safe_load(
+            (agw_dir / "config.d" / "backends" / "qwen" / "_provider.yaml").read_text()
+        )
+        assert "backendTLS" not in parsed
+        assert parsed["hostOverride"] == "192.168.0.73:8080"
+
+    def test_https_upstream_includes_backend_tls(self, agw_dir):
+        """https upstreams (use_tls=True) DO get backendTLS: {}."""
+        from services.agentgateway_config import add_provider
+
+        add_provider(
+            provider="openai",
+            provider_type="openai",
+            host_override="api.openai.com:443",
+            path_override="/v1/chat/completions",
+            use_tls=True,
+        )
+
+        parsed = yaml.safe_load(
+            (agw_dir / "config.d" / "backends" / "openai" / "_provider.yaml").read_text()
+        )
+        assert parsed["backendTLS"] == {}
+
+    def test_use_tls_defaults_to_true(self, agw_dir):
+        """Callers that don't pass use_tls keep the safe https behavior."""
+        from services.agentgateway_config import add_provider
+
+        add_provider(provider="venice", provider_type="openai_compatible")
+
+        parsed = yaml.safe_load(
+            (agw_dir / "config.d" / "backends" / "venice" / "_provider.yaml").read_text()
+        )
+        assert parsed["backendTLS"] == {}
+
     def test_anthropic_provider(self, agw_dir):
         from services.agentgateway_config import add_provider
 

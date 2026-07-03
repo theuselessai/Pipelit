@@ -114,11 +114,19 @@ def add_provider(
     provider_type: str,
     host_override: str = "",
     path_override: str = "",
+    use_tls: bool = True,
 ) -> None:
     """Write _provider.yaml to config.d/backends/<provider>/.
 
     Creates the provider directory if needed.
     Does NOT trigger reassembly (caller should add models first, then reassemble).
+
+    ``use_tls`` controls the ``backendTLS`` policy.  agentgateway treats the
+    mere PRESENCE of ``backendTLS`` (even ``{}``) as "speak TLS to the
+    upstream", so for plain-http upstreams (``use_tls=False``, e.g. a LAN
+    Qwen box or local Ollama) the key must be omitted entirely or requests
+    fail with a TLS InvalidContentType error.  Defaults to True (https),
+    the correct setting for hosted providers.
     """
     provider_dir = _agw_dir() / "config.d" / "backends" / provider
     provider_dir.mkdir(parents=True, exist_ok=True)
@@ -128,8 +136,9 @@ def add_provider(
     fragment: dict = {
         "provider": _build_provider_type(provider_type),
         "backendAuth": {"key": env_var_ref},
-        "backendTLS": {},
     }
+    if use_tls:
+        fragment["backendTLS"] = {}
 
     if host_override:
         fragment["hostOverride"] = host_override
@@ -180,18 +189,34 @@ def get_provider_config(provider: str) -> dict:
 def add_model(
     provider: str,
     model_slug: str,
-    model_name: str,
+    model_name: str | None = None,
     reassemble: bool = True,
 ) -> None:
     """Write model file to config.d/backends/<provider>/<model_slug>.yaml.
 
-    Content is just: model: <model_name>
+    ``model_name`` must be a REAL upstream model id (e.g. ``gpt-4o``):
+    agentgateway treats it as a hard outbound override, rewriting every
+    proxied request's model to it verbatim.  Omit it (the default) to leave
+    the override unset so the caller's own model name passes through.
+
+    NEVER put a friendly/display label (e.g. a credential name like
+    "OpenAI (default)") here: if a client-facing alias is ever wanted, it
+    belongs in agentgateway's ``policies.ai.modelAliases`` (client-model ->
+    real-model rewrite), never in ``provider.<x>.model``.
+
+    Content is ``model: <model_name>``, or a pass-through marker when omitted.
     Optionally triggers reassembly (set reassemble=False for batch adds).
     """
     provider_dir = _agw_dir() / "config.d" / "backends" / provider
     provider_dir.mkdir(parents=True, exist_ok=True)
 
-    content = yaml.dump({"model": model_name}, default_flow_style=False)
+    if model_name:
+        content = yaml.dump({"model": model_name}, default_flow_style=False)
+    else:
+        # No model: key -> no override. assemble-config.sh folds the missing
+        # key into the literal string "null"; reassemble_config() strips that
+        # sentinel from the assembled config to restore pass-through.
+        content = "# pass-through: no model override\n"
 
     tmp_path = provider_dir / f"{model_slug}.yaml.tmp"
     final_path = provider_dir / f"{model_slug}.yaml"
@@ -332,6 +357,43 @@ def update_rules(role: str, rules: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _strip_null_model_overrides(config_path: Path) -> None:
+    """Remove sentinel model overrides from the assembled config.yaml.
+
+    assemble-config.sh unconditionally sets ``provider.<type>.model`` from
+    each model file; files without a ``model:`` key (pass-through models)
+    make yq emit the literal string "null".  agentgateway treats ANY present
+    model value as a hard outbound override, so drop those sentinels to let
+    the caller's own model name pass through.
+    """
+    if not config_path.exists():
+        return
+
+    data = yaml.safe_load(config_path.read_text())
+    if not data:
+        return
+
+    changed = False
+    for bind in data.get("binds") or []:
+        for listener in bind.get("listeners") or []:
+            for route in listener.get("routes") or []:
+                for backend in route.get("backends") or []:
+                    provider = (backend.get("ai") or {}).get("provider") or {}
+                    for pconf in provider.values():
+                        if (
+                            isinstance(pconf, dict)
+                            and "model" in pconf
+                            and pconf["model"] in ("null", "", None)
+                        ):
+                            del pconf["model"]
+                            changed = True
+
+    if changed:
+        tmp_path = config_path.with_name(config_path.name + ".tmp")
+        tmp_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+        os.rename(tmp_path, config_path)
+
+
 def reassemble_config() -> None:
     """Call assemble-config.sh to regenerate config.yaml from fragments.
 
@@ -353,6 +415,7 @@ def reassemble_config() -> None:
             )
             if result.returncode != 0:
                 raise RuntimeError(f"Config assembly failed: {result.stderr}")
+            _strip_null_model_overrides(agw_dir / "config.yaml")
         finally:
             fcntl.flock(lockfile, fcntl.LOCK_UN)
 

@@ -193,11 +193,12 @@ class TestAdminOnly:
 
 
 class TestCreateProvider:
+    @patch(f"{_AGW}.restart_agentgateway")
     @patch(f"{_AGW}.reassemble_config")
     @patch(f"{_AGW}.add_provider")
     @patch(f"{_AGW}.write_provider_key")
     def test_create_provider_calls_services(
-        self, mock_write_key, mock_add_provider, mock_reassemble,
+        self, mock_write_key, mock_add_provider, mock_reassemble, mock_restart,
         auth_client, mock_agw_enabled,
     ):
         resp = auth_client.post("/api/v1/providers/", json={
@@ -218,11 +219,12 @@ class TestCreateProvider:
         assert call_kwargs[1]["provider"] == "venice" or call_kwargs[0][0] == "venice"
         mock_reassemble.assert_called_once()
 
+    @patch(f"{_AGW}.restart_agentgateway")
     @patch(f"{_AGW}.reassemble_config")
     @patch(f"{_AGW}.add_provider")
     @patch(f"{_AGW}.write_provider_key")
     def test_create_provider_url_parsing(
-        self, mock_write_key, mock_add_provider, mock_reassemble,
+        self, mock_write_key, mock_add_provider, mock_reassemble, mock_restart,
         auth_client, mock_agw_enabled,
     ):
         resp = auth_client.post("/api/v1/providers/", json={
@@ -236,12 +238,35 @@ class TestCreateProvider:
         call_kwargs = mock_add_provider.call_args[1]
         assert call_kwargs["host_override"] == "api.example.com:8443"
         assert "/chat/completions" in call_kwargs["path_override"]
+        assert call_kwargs["use_tls"] is True
 
+    @patch(f"{_AGW}.restart_agentgateway")
+    @patch(f"{_AGW}.reassemble_config")
+    @patch(f"{_AGW}.add_provider")
+    @patch(f"{_AGW}.write_provider_key")
+    def test_create_provider_http_upstream_disables_tls(
+        self, mock_write_key, mock_add_provider, mock_reassemble, mock_restart,
+        auth_client, mock_agw_enabled,
+    ):
+        """http:// base_url (e.g. LAN Qwen) must thread use_tls=False through."""
+        resp = auth_client.post("/api/v1/providers/", json={
+            "provider": "qwen",
+            "provider_type": "openai_compatible",
+            "api_key": "sk-qwen",
+            "base_url": "http://192.168.0.73:8080/v1",
+        })
+        assert resp.status_code == 201
+
+        call_kwargs = mock_add_provider.call_args[1]
+        assert call_kwargs["host_override"] == "192.168.0.73:8080"
+        assert call_kwargs["use_tls"] is False
+
+    @patch(f"{_AGW}.restart_agentgateway")
     @patch(f"{_AGW}.reassemble_config")
     @patch(f"{_AGW}.add_provider")
     @patch(f"{_AGW}.write_provider_key")
     def test_create_anthropic_provider_path_suffix(
-        self, mock_write_key, mock_add_provider, mock_reassemble,
+        self, mock_write_key, mock_add_provider, mock_reassemble, mock_restart,
         auth_client, mock_agw_enabled,
     ):
         resp = auth_client.post("/api/v1/providers/", json={
@@ -255,11 +280,12 @@ class TestCreateProvider:
         call_kwargs = mock_add_provider.call_args[1]
         assert call_kwargs["path_override"].endswith("/messages")
 
+    @patch(f"{_AGW}.restart_agentgateway")
     @patch(f"{_AGW}.reassemble_config")
     @patch(f"{_AGW}.add_provider")
     @patch(f"{_AGW}.write_provider_key")
     def test_create_provider_no_base_url(
-        self, mock_write_key, mock_add_provider, mock_reassemble,
+        self, mock_write_key, mock_add_provider, mock_reassemble, mock_restart,
         auth_client, mock_agw_enabled,
     ):
         resp = auth_client.post("/api/v1/providers/", json={
@@ -272,6 +298,8 @@ class TestCreateProvider:
         call_kwargs = mock_add_provider.call_args[1]
         assert call_kwargs["host_override"] == ""
         assert call_kwargs["path_override"] == ""
+        # Provider default hosts are https — TLS stays on
+        assert call_kwargs["use_tls"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +341,10 @@ class TestListProviders:
 
 
 class TestDeleteProvider:
+    @patch(f"{_AGW}.restart_agentgateway")
     @patch(f"{_AGW}.remove_provider")
     def test_delete_provider_calls_service(
-        self, mock_remove, auth_client, mock_agw_enabled,
+        self, mock_remove, mock_restart, auth_client, mock_agw_enabled,
     ):
         resp = auth_client.delete("/api/v1/providers/venice/")
         assert resp.status_code == 204
@@ -430,42 +459,65 @@ class TestParseBaseUrl:
     def test_empty_url(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("", "openai")
+        host, path, use_tls = _parse_base_url("", "openai")
         assert host == ""
         assert path == ""
+        # No base_url means the provider's default (https) host — keep TLS
+        assert use_tls is True
 
     def test_openai_standard(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("https://api.openai.com/v1", "openai")
+        host, path, use_tls = _parse_base_url("https://api.openai.com/v1", "openai")
         assert host == "api.openai.com:443"
         assert path == "/v1/chat/completions"
+        assert use_tls is True
 
     def test_anthropic_standard(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("https://api.anthropic.com/v1", "anthropic")
+        host, path, use_tls = _parse_base_url("https://api.anthropic.com/v1", "anthropic")
         assert host == "api.anthropic.com:443"
         assert path == "/v1/messages"
 
     def test_custom_port(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("https://api.example.com:8443/v1", "openai_compatible")
+        host, path, use_tls = _parse_base_url("https://api.example.com:8443/v1", "openai_compatible")
         assert host == "api.example.com:8443"
         assert path == "/v1/chat/completions"
 
     def test_http_default_port(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("http://localhost/v1", "openai_compatible")
+        host, path, use_tls = _parse_base_url("http://localhost/v1", "openai_compatible")
         assert host == "localhost:80"
         assert path == "/v1/chat/completions"
+        assert use_tls is False
+
+    def test_http_upstream_disables_tls(self):
+        """http:// upstreams (e.g. a LAN Qwen box) must report use_tls=False."""
+        from api.providers import _parse_base_url
+
+        host, path, use_tls = _parse_base_url(
+            "http://192.168.0.73:8080/v1", "openai_compatible",
+        )
+        assert host == "192.168.0.73:8080"
+        assert path == "/v1/chat/completions"
+        assert use_tls is False
+
+    def test_https_upstream_enables_tls(self):
+        from api.providers import _parse_base_url
+
+        host, path, use_tls = _parse_base_url(
+            "https://api.example.com:8443/v1", "openai_compatible",
+        )
+        assert use_tls is True
 
     def test_already_has_suffix_openai(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url(
+        host, path, use_tls = _parse_base_url(
             "https://api.example.com/v1/chat/completions", "openai_compatible",
         )
         assert path == "/v1/chat/completions"
@@ -473,7 +525,7 @@ class TestParseBaseUrl:
     def test_already_has_suffix_anthropic(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url(
+        host, path, use_tls = _parse_base_url(
             "https://api.anthropic.com/v1/messages", "anthropic",
         )
         assert path == "/v1/messages"
@@ -481,11 +533,11 @@ class TestParseBaseUrl:
     def test_glm_gets_chat_completions(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("https://api.z.ai/api/paas/v4", "glm")
+        host, path, use_tls = _parse_base_url("https://api.z.ai/api/paas/v4", "glm")
         assert path == "/api/paas/v4/chat/completions"
 
     def test_trailing_slash_stripped(self):
         from api.providers import _parse_base_url
 
-        host, path = _parse_base_url("https://api.openai.com/v1/", "openai")
+        host, path, use_tls = _parse_base_url("https://api.openai.com/v1/", "openai")
         assert path == "/v1/chat/completions"
