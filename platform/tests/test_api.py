@@ -599,53 +599,28 @@ class TestCredentialModelsAnthropic:
         llm = LLMProviderCredential(
             base_credentials_id=base.id,
             provider_type="anthropic",
-            api_key="sk-ant-test",
         )
         db.add(llm)
         db.commit()
         db.refresh(base)
         return base
 
-    def test_anthropic_models_live_api_success(self, auth_client, llm_credential):
+    def test_anthropic_models_endpoint_rejected(self, auth_client, llm_credential):
+        """Credential-derived model listing is removed — pipelit holds no
+        provider keys; models come from agentgateway (available_models API).
+        The Anthropic SDK must never be constructed."""
         from unittest.mock import patch, MagicMock
 
-        mock_model1 = MagicMock()
-        mock_model1.id = "claude-opus-4-0-20250514"
-        mock_model2 = MagicMock()
-        mock_model2.id = "claude-sonnet-4-20250514"
-
-        mock_page = MagicMock()
-        mock_page.data = [mock_model2, mock_model1]  # unsorted
-
-        mock_client = MagicMock()
-        mock_client.models.list.return_value = mock_page
-
-        mock_anthropic_cls = MagicMock(return_value=mock_client)
-
-        # Anthropic is imported locally inside the endpoint, so patch at the module level
-        with patch.dict("sys.modules", {"anthropic": MagicMock(Anthropic=mock_anthropic_cls)}):
-            resp = auth_client.get(f"/api/v1/credentials/{llm_credential.id}/models/")
-
-        assert resp.status_code == 200
-        models = resp.json()
-        # Should be sorted by id
-        assert models[0]["id"] == "claude-opus-4-0-20250514"
-        assert models[1]["id"] == "claude-sonnet-4-20250514"
-
-    def test_anthropic_models_api_failure_falls_back(self, auth_client, llm_credential):
-        from unittest.mock import patch, MagicMock
-
-        mock_anthropic_cls = MagicMock(side_effect=RuntimeError("network error"))
+        mock_anthropic_cls = MagicMock(
+            side_effect=AssertionError("Anthropic client must not be built")
+        )
 
         with patch.dict("sys.modules", {"anthropic": MagicMock(Anthropic=mock_anthropic_cls)}):
             resp = auth_client.get(f"/api/v1/credentials/{llm_credential.id}/models/")
 
-        assert resp.status_code == 200
-        models = resp.json()
-        # Should return fallback ANTHROPIC_MODELS list
-        assert len(models) >= 1
-        model_ids = [m["id"] for m in models]
-        assert "claude-sonnet-4-20250514" in model_ids
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
+        mock_anthropic_cls.assert_not_called()
 
 
 # ── Checkpoint metadata parsing ──────────────────────────────────────────────

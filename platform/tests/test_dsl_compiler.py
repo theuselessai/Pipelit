@@ -1153,19 +1153,49 @@ steps:
 
 # ── Discover model tests ─────────────────────────────────────────────────────
 
+# Model discovery now sources models from the agentgateway config
+# (list_all_available_models) instead of a raw-API-key /models fetch.
+_GATEWAY_ANTHROPIC_MODELS = [
+    {
+        "route": "anthropic-claude-sonnet-4",
+        "provider": "anthropic",
+        "model_slug": "claude-sonnet-4",
+        "model_name": "claude-sonnet-4-20250514",
+    },
+    {
+        "route": "anthropic-claude-opus-4",
+        "provider": "anthropic",
+        "model_slug": "claude-opus-4",
+        "model_name": "claude-opus-4-0-20250514",
+    },
+    {
+        "route": "anthropic-claude-haiku-3-5",
+        "provider": "anthropic",
+        "model_slug": "claude-haiku-3-5",
+        "model_name": "claude-haiku-3-5-20241022",
+    },
+]
+
+
+def _patch_gateway_models(models=_GATEWAY_ANTHROPIC_MODELS):
+    return patch(
+        "services.agentgateway_config.list_all_available_models",
+        return_value=models,
+    )
+
 
 class TestDiscoverModel:
     def test_cheapest_preference(self):
         mock_cred = SimpleNamespace(
             base_credentials_id=1,
             provider_type="anthropic",
-            api_key="test",
             base_url=None,
         )
         mock_db = MagicMock()
         mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
 
-        cred_id, model_name, temp = _discover_model("cheapest", 0.5, mock_db)
+        with _patch_gateway_models():
+            cred_id, model_name, temp = _discover_model("cheapest", 0.5, mock_db)
         assert cred_id == 1
         assert model_name is not None
         assert temp == 0.5
@@ -1176,13 +1206,13 @@ class TestDiscoverModel:
         mock_cred = SimpleNamespace(
             base_credentials_id=1,
             provider_type="anthropic",
-            api_key="test",
             base_url=None,
         )
         mock_db = MagicMock()
         mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
 
-        cred_id, model_name, temp = _discover_model("most_capable", None, mock_db)
+        with _patch_gateway_models():
+            cred_id, model_name, temp = _discover_model("most_capable", None, mock_db)
         assert cred_id == 1
         # Most capable anthropic model should be opus
         assert "opus" in model_name.lower()
@@ -1191,16 +1221,53 @@ class TestDiscoverModel:
         mock_cred = SimpleNamespace(
             base_credentials_id=1,
             provider_type="anthropic",
-            api_key="test",
             base_url=None,
         )
         mock_db = MagicMock()
         mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
 
-        cred_id, model_name, temp = _discover_model("fastest", None, mock_db)
+        with _patch_gateway_models():
+            cred_id, model_name, temp = _discover_model("fastest", None, mock_db)
         assert cred_id == 1
         # Fastest anthropic model should be haiku
         assert "haiku" in model_name.lower()
+
+    def test_provider_mismatch_yields_no_models(self):
+        """A credential whose provider has no gateway models scores nothing."""
+        mock_cred = SimpleNamespace(
+            base_credentials_id=1,
+            provider_type="openai",
+            base_url=None,
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
+
+        with _patch_gateway_models():  # gateway only has anthropic models
+            with pytest.raises(ValueError, match="No scoreable models"):
+                _discover_model("cheapest", None, mock_db)
+
+    def test_pass_through_model_falls_back_to_slug(self):
+        """Gateway pass-through entries (empty model_name) score by slug."""
+        mock_cred = SimpleNamespace(
+            base_credentials_id=1,
+            provider_type="anthropic",
+            base_url=None,
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
+
+        pass_through = [
+            {
+                "route": "anthropic-claude-haiku-3-5",
+                "provider": "anthropic",
+                "model_slug": "claude-haiku-3-5",
+                "model_name": "",
+            },
+        ]
+        with _patch_gateway_models(pass_through):
+            cred_id, model_name, temp = _discover_model("cheapest", None, mock_db)
+        assert cred_id == 1
+        assert model_name == "claude-haiku-3-5"
 
     def test_no_credentials_raises(self):
         mock_db = MagicMock()
@@ -1227,13 +1294,13 @@ class TestDiscoverModel:
         mock_cred = SimpleNamespace(
             base_credentials_id=1,
             provider_type="anthropic",
-            api_key="test",
             base_url=None,
         )
         mock_db = MagicMock()
         mock_db.query.return_value.join.return_value.all.return_value = [mock_cred]
 
-        result = _resolve_model({"discover": True, "preference": "cheapest"}, None, mock_db)
+        with _patch_gateway_models():
+            result = _resolve_model({"discover": True, "preference": "cheapest"}, None, mock_db)
         assert result[0] == 1
         assert result[1] is not None
 

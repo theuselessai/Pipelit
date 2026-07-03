@@ -19,6 +19,13 @@ if not os.environ.get("FIELD_ENCRYPTION_KEY"):
     from cryptography.fernet import Fernet
     os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
+# Tests don't have a live agentgateway; default it disabled so the hard
+# startup dependency (main.py lifespan) doesn't fail app boot in the test
+# suite. Individual tests that exercise the agentgateway-enabled path patch
+# `config.settings.AGENTGATEWAY_ENABLED` explicitly at runtime.
+if not os.environ.get("AGENTGATEWAY_ENABLED"):
+    os.environ["AGENTGATEWAY_ENABLED"] = "false"
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

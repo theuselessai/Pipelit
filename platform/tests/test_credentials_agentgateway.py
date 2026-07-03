@@ -1,7 +1,8 @@
-"""Tests verifying agentgateway dual-write logic has been removed from credentials.py.
+"""Tests verifying LLM credential management is fully removed from credentials.py.
 
-After T6a, LLM credential CRUD is DB-only. These tests confirm:
-- No agentgateway writes happen on create/delete
+Phase 1(b) hard cutover:
+- Creating/updating/testing llm-typed credentials returns 410 Gone
+- Leftover llm rows (metadata only, no api_key) remain listable/deletable
 - The agentgateway_backend field exists in the schema but is always None
 - Removed functions are no longer importable
 """
@@ -72,7 +73,7 @@ def admin_headers(admin_key):
 
 @pytest.fixture
 def llm_credential(db, admin_user):
-    """Create an LLM credential directly in DB for update/delete tests."""
+    """A leftover llm-typed credential row (metadata only — no api_key)."""
     base = BaseCredential(
         user_profile_id=admin_user.id,
         name="Test OpenAI",
@@ -83,7 +84,6 @@ def llm_credential(db, admin_user):
     llm = LLMProviderCredential(
         base_credentials_id=base.id,
         provider_type="openai",
-        api_key="sk-test-key-1234567890",
         base_url="",
         organization_id="",
         custom_headers={},
@@ -94,14 +94,13 @@ def llm_credential(db, admin_user):
     return base
 
 
-# -- No agentgateway writes on create ----------------------------------------
+# -- LLM credential creation is rejected --------------------------------------
 
 
-class TestCreateLLMCredentialNoAgentgatewayWrites:
-    """Verify that creating an LLM credential does NOT write to agentgateway."""
+class TestCreateLLMCredentialRejected:
+    """Creating an llm-typed credential is gone — 410, and nothing is stored."""
 
-    def test_create_llm_credential_no_agentgateway_writes(self, client, admin_headers):
-        """Creating an LLM credential should succeed with DB-only, no agentgateway imports."""
+    def test_create_llm_credential_rejected(self, client, admin_headers, db):
         resp = client.post(
             "/api/v1/credentials/",
             json={
@@ -114,17 +113,20 @@ class TestCreateLLMCredentialNoAgentgatewayWrites:
             },
             headers=admin_headers,
         )
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["credential_type"] == "llm"
-        assert data["detail"]["provider_type"] == "anthropic"
-        # agentgateway_backend is always None now
-        assert data["agentgateway_backend"] is None
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
+        # No row was created
+        assert (
+            db.query(BaseCredential)
+            .filter(BaseCredential.name == "Test Anthropic")
+            .count()
+            == 0
+        )
 
-    def test_create_llm_credential_with_agentgateway_enabled_still_no_writes(
+    def test_create_llm_credential_rejected_even_with_agentgateway_enabled(
         self, client, admin_headers
     ):
-        """Even with AGENTGATEWAY_ENABLED=True, no agentgateway writes should happen."""
+        """The rejection does not depend on the AGENTGATEWAY_ENABLED flag."""
         with patch("api.credentials.settings") as mock_settings:
             from config import settings as real_settings
             for attr in dir(real_settings):
@@ -144,9 +146,22 @@ class TestCreateLLMCredentialNoAgentgatewayWrites:
                 },
                 headers=admin_headers,
             )
-            assert resp.status_code == 201
-            data = resp.json()
-            assert data["agentgateway_backend"] is None
+            assert resp.status_code == 410
+
+    def test_update_llm_credential_rejected(self, client, admin_headers, llm_credential):
+        resp = client.patch(
+            f"/api/v1/credentials/{llm_credential.id}/",
+            json={"name": "Renamed"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 410
+
+    def test_test_llm_credential_rejected(self, client, admin_headers, llm_credential):
+        resp = client.post(
+            f"/api/v1/credentials/{llm_credential.id}/test/",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 410
 
 
 # -- No agentgateway writes on delete ----------------------------------------
@@ -192,14 +207,17 @@ class TestAgentgatewayBackendFieldIsNone:
     def test_agentgateway_backend_field_is_none_on_create(
         self, client, admin_headers
     ):
+        # llm creation is rejected now — use a git credential to exercise
+        # serialization of a freshly created credential.
         resp = client.post(
             "/api/v1/credentials/",
             json={
                 "name": "Field Test",
-                "credential_type": "llm",
+                "credential_type": "git",
                 "detail": {
-                    "provider_type": "openai",
-                    "api_key": "sk-field-test-12345678",
+                    "provider": "github",
+                    "credential_type": "token",
+                    "access_token": "ghp_field_test_12345678",
                 },
             },
             headers=admin_headers,

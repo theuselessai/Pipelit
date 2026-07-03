@@ -34,7 +34,6 @@ def llm_credential(db, user_profile):
     llm = LLMProviderCredential(
         base_credentials_id=base.id,
         provider_type="openai_compatible",
-        api_key="sk-test-key",
         base_url="https://api.openai.com/v1",
     )
     db.add(llm)

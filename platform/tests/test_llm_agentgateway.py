@@ -13,10 +13,9 @@ import pytest
 
 
 def _make_credential(provider_type: str, base_credentials_id: int = 42):
-    """Build a mock LLMProviderCredential."""
+    """Build a mock LLMProviderCredential (no api_key — the column is gone)."""
     cred = MagicMock()
     cred.provider_type = provider_type
-    cred.api_key = "sk-test-key"
     cred.base_url = ""
     cred.base_credentials_id = base_credentials_id
     cred.base_credentials = None  # No eager-loaded base credential
@@ -286,49 +285,43 @@ class TestCreateLlmFromDbAgentgateway:
 
 
 # ---------------------------------------------------------------------------
-# create_llm_from_db — agentgateway disabled (direct provider path)
+# create_llm_from_db — agentgateway disabled (defensive raise, no direct path)
 # ---------------------------------------------------------------------------
 
 
 class TestCreateLlmFromDbDirect:
-    """When AGENTGATEWAY_ENABLED=False, the direct provider path is used."""
+    """When AGENTGATEWAY_ENABLED=False there is NO fallback — the direct
+    provider path was removed; resolution raises loudly instead."""
 
     @patch("services.llm._make_sanitized_chat_openai")
-    def test_openai_direct_when_disabled(self, mock_make_sanitized):
+    def test_raises_when_disabled(self, mock_make_sanitized):
         from services.llm import create_llm_from_db
-
-        mock_cls = MagicMock()
-        mock_make_sanitized.return_value = mock_cls
 
         cred = _make_credential("openai")
         with patch("config.settings") as mock_settings:
             mock_settings.AGENTGATEWAY_ENABLED = False
             mock_settings.AGENTGATEWAY_URL = ""
-            create_llm_from_db(cred, "gpt-4o", temperature=0.7)
+            with pytest.raises(RuntimeError, match="requires agentgateway"):
+                create_llm_from_db(cred, "gpt-4o", temperature=0.7)
 
-        mock_cls.assert_called_once()
-        call_args = mock_cls.call_args
-        assert call_args.kwargs["api_key"] == "sk-test-key"
-        assert call_args.kwargs["model"] == "gpt-4o"
+        # The removed direct provider client must never be constructed.
+        mock_make_sanitized.assert_not_called()
 
     @patch("services.llm._make_sanitized_chat_openai")
-    def test_new_params_ignored_when_disabled(self, mock_make_sanitized):
-        """user_profile_id and user_role are accepted but unused in direct path."""
+    def test_raises_even_with_user_context(self, mock_make_sanitized):
+        """user_profile_id/user_role do not unlock any direct path."""
         from services.llm import create_llm_from_db
-
-        mock_cls = MagicMock()
-        mock_make_sanitized.return_value = mock_cls
 
         cred = _make_credential("openai")
         with patch("config.settings") as mock_settings:
             mock_settings.AGENTGATEWAY_ENABLED = False
             mock_settings.AGENTGATEWAY_URL = ""
-            # Should not raise
-            create_llm_from_db(
-                cred, "gpt-4o", user_profile_id=5, user_role="admin"
-            )
+            with pytest.raises(RuntimeError, match="requires agentgateway"):
+                create_llm_from_db(
+                    cred, "gpt-4o", user_profile_id=5, user_role="admin"
+                )
 
-        mock_cls.assert_called_once()
+        mock_make_sanitized.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

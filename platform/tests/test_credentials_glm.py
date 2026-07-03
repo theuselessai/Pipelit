@@ -1,8 +1,11 @@
-"""Tests for credentials API — GLM provider coverage."""
+"""Tests for credentials API — GLM (LLM-typed) credentials are rejected.
+
+Phase 1(b) hard cutover: pipelit no longer stores or tests LLM provider
+keys — agentgateway is the sole holder. Direct-provider test/models calls
+for GLM (and every other LLM provider) return 410 Gone.
+"""
 
 from __future__ import annotations
-
-from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,6 +41,7 @@ def auth_client(client, api_key):
 
 @pytest.fixture
 def glm_credential(db, user_profile):
+    """A leftover GLM llm-typed credential row (metadata only, no api_key)."""
     from models.credential import BaseCredential, LLMProviderCredential
 
     base = BaseCredential(
@@ -50,7 +54,6 @@ def glm_credential(db, user_profile):
     llm = LLMProviderCredential(
         base_credentials_id=base.id,
         provider_type="glm",
-        api_key="test-glm-key",
     )
     db.add(llm)
     db.commit()
@@ -58,76 +61,39 @@ def glm_credential(db, user_profile):
     return base
 
 
-@pytest.fixture
-def glm_credential_custom_url(db, user_profile):
-    from models.credential import BaseCredential, LLMProviderCredential
+class TestGLMCredentialRejected:
+    """LLM credential management (create/test/models) is gone — 410."""
 
-    base = BaseCredential(
-        user_profile_id=user_profile.id,
-        name="GLM Custom URL",
-        credential_type="llm",
-    )
-    db.add(base)
-    db.flush()
-    llm = LLMProviderCredential(
-        base_credentials_id=base.id,
-        provider_type="glm",
-        api_key="test-glm-key",
-        base_url="https://custom.glm.api/v4",
-    )
-    db.add(llm)
-    db.commit()
-    db.refresh(base)
-    return base
+    def test_glm_create_rejected(self, auth_client):
+        resp = auth_client.post(
+            "/api/v1/credentials/",
+            json={
+                "name": "GLM Key",
+                "credential_type": "llm",
+                "detail": {"provider_type": "glm", "api_key": "test-glm-key"},
+            },
+        )
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
 
-
-class TestGLMCredential:
-    """Test GLM provider in credentials API."""
-
-    @patch("api.credentials.httpx.get")
-    def test_glm_test_credential_success(self, mock_get, auth_client, glm_credential):
-        """Test GLM credential test with valid API key returns success."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"data": [{"id": "glm-4"}]}
-        mock_get.return_value = mock_response
-
+    def test_glm_test_credential_rejected(self, auth_client, glm_credential):
         resp = auth_client.post(f"/api/v1/credentials/{glm_credential.id}/test/")
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
 
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is True
-
-    @patch("api.credentials.httpx.get")
-    def test_glm_test_credential_with_custom_url(self, mock_get, auth_client, glm_credential_custom_url):
-        """Test GLM credential test with custom base URL."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_get.return_value = mock_response
-
-        resp = auth_client.post(f"/api/v1/credentials/{glm_credential_custom_url.id}/test/")
-
-        assert resp.status_code == 200
-        # Verify custom URL was used
-        call_url = mock_get.call_args[0][0]
-        assert "custom.glm.api" in call_url
-
-    @patch("api.credentials.httpx.get")
-    def test_glm_list_models(self, mock_get, auth_client, glm_credential):
-        """Test listing GLM models."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [
-                {"id": "glm-4", "object": "model"},
-                {"id": "glm-4-plus", "object": "model"},
-            ]
-        }
-        mock_get.return_value = mock_response
-
+    def test_glm_list_models_rejected(self, auth_client, glm_credential):
         resp = auth_client.get(f"/api/v1/credentials/{glm_credential.id}/models/")
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
 
-        assert resp.status_code == 200
-        models = resp.json()
-        ids = [m["id"] for m in models]
-        assert "glm-4" in ids
-        assert "glm-4-plus" in ids
+    def test_glm_update_rejected(self, auth_client, glm_credential):
+        resp = auth_client.patch(
+            f"/api/v1/credentials/{glm_credential.id}/",
+            json={"detail": {"api_key": "new-key"}},
+        )
+        assert resp.status_code == 410
+
+    def test_glm_leftover_row_still_deletable(self, auth_client, glm_credential):
+        """Cleanup of legacy llm rows keeps working."""
+        resp = auth_client.delete(f"/api/v1/credentials/{glm_credential.id}/")
+        assert resp.status_code == 204

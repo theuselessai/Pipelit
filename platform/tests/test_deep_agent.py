@@ -54,20 +54,20 @@ def _make_deep_agent_node(system_prompt="", extra_config=None):
 
 
 class TestResolveCredentialField:
-    def test_llm_api_key(self, db, user_profile):
+    def test_llm_api_key_not_resolvable(self, db, user_profile):
+        """LLM api_key is intentionally NOT resolvable — raw LLM keys live in
+        agentgateway, never in pipelit (the DB column was dropped)."""
         cred = BaseCredential(
             user_profile_id=user_profile.id, name="llm", credential_type="llm"
         )
         db.add(cred)
         db.flush()
-        llm = LLMProviderCredential(
-            base_credentials_id=cred.id, api_key="sk-test-123"
-        )
+        llm = LLMProviderCredential(base_credentials_id=cred.id)
         db.add(llm)
         db.commit()
         db.refresh(cred)
 
-        assert _resolve_credential_field(cred, "api_key") == "sk-test-123"
+        assert _resolve_credential_field(cred, "api_key") is None
 
     def test_llm_base_url(self, db, user_profile):
         cred = BaseCredential(
@@ -77,7 +77,6 @@ class TestResolveCredentialField:
         db.flush()
         llm = LLMProviderCredential(
             base_credentials_id=cred.id,
-            api_key="sk-x",
             base_url="https://api.example.com",
         )
         db.add(llm)
@@ -94,7 +93,6 @@ class TestResolveCredentialField:
         db.flush()
         llm = LLMProviderCredential(
             base_credentials_id=cred.id,
-            api_key="sk-x",
             organization_id="org-abc",
         )
         db.add(llm)
@@ -180,9 +178,7 @@ class TestResolveCredentialField:
         )
         db.add(cred)
         db.flush()
-        llm = LLMProviderCredential(
-            base_credentials_id=cred.id, api_key="sk-x"
-        )
+        llm = LLMProviderCredential(base_credentials_id=cred.id)
         db.add(llm)
         db.commit()
         db.refresh(cred)
@@ -234,7 +230,9 @@ class TestBuildBackend:
         assert backend._custom_env == {"FOO": "bar"}
 
     def test_with_workspace_credential_env(self, db, user_profile, tmp_path):
-        """workspace with credential-sourced env vars resolves the credential field."""
+        """Credential-sourced env vars resolve non-secret LLM fields, but the
+        LLM api_key is intentionally NOT injectable any more — raw keys live
+        in agentgateway, so an api_key-sourced env var is silently skipped."""
         ws_path = str(tmp_path / "workspace")
         cred = BaseCredential(
             user_profile_id=user_profile.id, name="llm-cred", credential_type="llm"
@@ -242,7 +240,7 @@ class TestBuildBackend:
         db.add(cred)
         db.flush()
         llm = LLMProviderCredential(
-            base_credentials_id=cred.id, api_key="sk-secret-key"
+            base_credentials_id=cred.id, base_url="https://api.example.com"
         )
         db.add(llm)
         db.flush()
@@ -258,6 +256,12 @@ class TestBuildBackend:
                     "credential_id": cred.id,
                     "credential_field": "api_key",
                 },
+                {
+                    "key": "OPENAI_BASE_URL",
+                    "source": "credential",
+                    "credential_id": cred.id,
+                    "credential_field": "base_url",
+                },
                 {"key": "RAW_VAR", "value": "raw_value", "source": "raw"},
             ],
         )
@@ -272,7 +276,10 @@ class TestBuildBackend:
             from components._agent_shared import _build_backend
             backend = _build_backend({"workspace_id": ws.id})
 
-        assert backend._custom_env["OPENAI_API_KEY"] == "sk-secret-key"
+        # api_key is no longer resolvable/injectable
+        assert "OPENAI_API_KEY" not in backend._custom_env
+        # Non-secret LLM fields still resolve
+        assert backend._custom_env["OPENAI_BASE_URL"] == "https://api.example.com"
         assert backend._custom_env["RAW_VAR"] == "raw_value"
 
     def test_without_workspace_id(self, tmp_path):

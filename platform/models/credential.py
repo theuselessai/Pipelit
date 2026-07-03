@@ -68,6 +68,14 @@ class GitCredential(Base):
 
 
 class LLMProviderCredential(Base):
+    """LLM provider metadata — holds NO secret material.
+
+    The encrypted ``api_key`` column was dropped (hard cutover): raw LLM
+    provider keys live exclusively in agentgateway's encrypted key store.
+    ``provider_type``/``base_url`` are kept for routing / provider
+    inference on legacy ``llm_credential_id`` references.
+    """
+
     __tablename__ = "llm_credentials"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -75,7 +83,6 @@ class LLMProviderCredential(Base):
         ForeignKey("credentials.id", ondelete="CASCADE"), unique=True
     )
     provider_type: Mapped[str] = mapped_column(String(30), default="openai_compatible")
-    api_key: Mapped[str] = mapped_column(EncryptedString(500))
     base_url: Mapped[str] = mapped_column(String(500), default="")
     organization_id: Mapped[str] = mapped_column(String(255), default="")
     custom_headers: Mapped[dict] = mapped_column(JSON, default=dict)

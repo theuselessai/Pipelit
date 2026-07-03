@@ -434,6 +434,7 @@ class TestLLMCredentialNullChecks:
         mock_config.component_type = "ai_model"
         mock_config.model_name = "gpt-4"
         mock_config.llm_credential_id = 999
+        mock_config.backend_route = None  # force the credential path
 
         mock_node = MagicMock()
         mock_node.node_id = "model_1"
@@ -455,6 +456,7 @@ class TestLLMCredentialNullChecks:
         mock_config.component_type = "ai_model"
         mock_config.model_name = "gpt-4"
         mock_config.llm_credential_id = 1
+        mock_config.backend_route = None  # force the credential path
 
         mock_node = MagicMock()
         mock_node.node_id = "model_1"
@@ -474,6 +476,7 @@ class TestLLMCredentialNullChecks:
         mock_ai_config.component_type = "ai_model"
         mock_ai_config.model_name = "gpt-4"
         mock_ai_config.llm_credential_id = 999
+        mock_ai_config.backend_route = None  # force the credential path
         mock_db.get.return_value = mock_ai_config
 
         # Credential query returns None
@@ -483,6 +486,7 @@ class TestLLMCredentialNullChecks:
         mock_config.component_type = "agent"
         mock_config.llm_model_config_id = 5
         mock_config.llm_credential_id = None
+        mock_config.backend_route = None
 
         mock_node = MagicMock()
         mock_node.node_id = "agent_1"

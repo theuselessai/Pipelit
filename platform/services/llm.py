@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from langchain_core.language_models import BaseChatModel
 from sqlalchemy.orm import Session
@@ -84,22 +85,28 @@ def _route_provider_to_type(provider: str) -> str:
     return _map.get(provider, "openai_compatible")
 
 
-def _fake_credential_from_route(backend_route: str):
-    """Return a minimal credential-like object inferred from a backend route string.
+@dataclass(frozen=True)
+class RouteProviderInfo:
+    """Provider info inferred from a backend route string.
 
-    Used by ``resolve_credential_for_node()`` when only ``backend_route`` is
-    configured (no DB credential).  Callers that inspect ``.provider_type``
-    (e.g. web-search provider detection) will get a sensible value.
+    Carries the provider type and a (non-secret) ``base_url`` — deliberately
+    no ``api_key`` (raw LLM keys live in agentgateway, never in pipelit).
+    Returned by ``resolve_credential_for_node()`` when a node is configured
+    with a ``backend_route`` instead of a DB credential.  Callers that inspect
+    ``.provider_type`` / ``.base_url`` (e.g. web-search provider detection via
+    ``is_anthropic_native``) get sensible values.  ``base_url`` defaults to ""
+    (empty == provider's native endpoint), matching the legacy route-credential
+    contract so anthropic-native web search still resolves.
     """
-    from collections import namedtuple
 
-    FakeCredential = namedtuple("FakeCredential", ["provider_type", "base_url", "api_key"])
+    provider_type: str
+    base_url: str = ""
+
+
+def _provider_info_from_route(backend_route: str) -> RouteProviderInfo:
+    """Infer a :class:`RouteProviderInfo` from a backend route string."""
     prefix = backend_route.split("-", 1)[0] if "-" in backend_route else backend_route
-    return FakeCredential(
-        provider_type=_route_provider_to_type(prefix),
-        base_url="",
-        api_key="",
-    )
+    return RouteProviderInfo(provider_type=_route_provider_to_type(prefix))
 
 
 def _resolve_backend_name(credential=None, backend_route: str | None = None) -> str:
@@ -143,77 +150,35 @@ def create_llm_from_db(
 ) -> BaseChatModel:
     from config import settings
 
-    # -- agentgateway proxy path --
-    if settings.AGENTGATEWAY_ENABLED and settings.AGENTGATEWAY_URL:
-        resolved_route = _resolve_backend_name(credential, backend_route)
-        return _create_llm_via_agentgateway(
-            credential,
-            model_name,
-            backend_route=resolved_route,
-            user_profile_id=user_profile_id,
-            user_role=user_role,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            frequency_penalty=frequency_penalty,
-            presence_penalty=presence_penalty,
-            top_p=top_p,
-            timeout=timeout,
-            max_retries=max_retries,
-            response_format=response_format,
+    # agentgateway is the ONLY way pipelit reaches an LLM. The direct
+    # provider path (raw api_key clients) was removed — raw LLM keys live
+    # in agentgateway, never in pipelit.
+    if not (settings.AGENTGATEWAY_ENABLED and settings.AGENTGATEWAY_URL):
+        # Defensive: startup enforces AGENTGATEWAY_ENABLED + gateway health,
+        # so reaching this means misconfiguration — fail loudly rather than
+        # silently building a direct provider client.
+        raise RuntimeError(
+            "LLM resolution requires agentgateway: the direct provider path "
+            "has been removed. Set AGENTGATEWAY_ENABLED=true and "
+            "AGENTGATEWAY_URL (e.g. http://localhost:4000)."
         )
 
-    # -- direct provider path (unchanged) --
-    provider_type = credential.provider_type
-    api_key = credential.api_key
-
-    kwargs: dict = {"model": model_name}
-    if temperature is not None:
-        kwargs["temperature"] = temperature
-    if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
-    if top_p is not None:
-        kwargs["top_p"] = top_p
-    if timeout is not None:
-        kwargs["timeout"] = timeout
-    if max_retries is not None:
-        kwargs["max_retries"] = max_retries
-
-    if provider_type == "openai":
-        SanitizedChatOpenAI = _make_sanitized_chat_openai()
-        if frequency_penalty is not None:
-            kwargs["frequency_penalty"] = frequency_penalty
-        if presence_penalty is not None:
-            kwargs["presence_penalty"] = presence_penalty
-        if response_format is not None:
-            kwargs["model_kwargs"] = {"response_format": response_format}
-        return SanitizedChatOpenAI(api_key=api_key, **kwargs)
-
-    if provider_type == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        if credential.base_url:
-            kwargs["base_url"] = credential.base_url
-        return ChatAnthropic(api_key=api_key, **kwargs)
-
-    if provider_type == "glm":
-        SanitizedChatOpenAI = _make_sanitized_chat_openai()
-        base = credential.base_url or "https://api.z.ai/api/paas/v4/"
-        kwargs["base_url"] = base
-        kwargs["use_responses_api"] = False
-        return SanitizedChatOpenAI(api_key=api_key, **kwargs)
-
-    if provider_type == "openai_compatible":
-        SanitizedChatOpenAI = _make_sanitized_chat_openai()
-        if frequency_penalty is not None:
-            kwargs["frequency_penalty"] = frequency_penalty
-        if presence_penalty is not None:
-            kwargs["presence_penalty"] = presence_penalty
-        if response_format is not None:
-            kwargs["model_kwargs"] = {"response_format": response_format}
-        if credential.base_url:
-            kwargs["base_url"] = credential.base_url
-        return SanitizedChatOpenAI(api_key=api_key, **kwargs)
-
-    raise ValueError(f"Unsupported provider type: {provider_type}")
+    resolved_route = _resolve_backend_name(credential, backend_route)
+    return _create_llm_via_agentgateway(
+        credential,
+        model_name,
+        backend_route=resolved_route,
+        user_profile_id=user_profile_id,
+        user_role=user_role,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        frequency_penalty=frequency_penalty,
+        presence_penalty=presence_penalty,
+        top_p=top_p,
+        timeout=timeout,
+        max_retries=max_retries,
+        response_format=response_format,
+    )
 
 
 def _create_llm_via_agentgateway(
@@ -463,10 +428,12 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
 
 
 def resolve_credential_for_node(node, db: Session | None = None):
-    """Resolve the LLMProviderCredential for a node (agent or ai_model).
+    """Resolve provider info for a node (agent or ai_model).
 
-    Same traversal as resolve_llm_for_node but returns the credential
-    instead of the LLM instance. Used for provider detection (e.g. web search).
+    Same traversal as resolve_llm_for_node but returns the DB credential
+    (legacy) or a :class:`RouteProviderInfo` (backend_route nodes) instead
+    of the LLM instance. Used for provider detection (e.g. web search) —
+    callers should only rely on ``.provider_type``.
     """
     from database import SessionLocal
     from models.credential import BaseCredential
@@ -482,7 +449,7 @@ def resolve_credential_for_node(node, db: Session | None = None):
         if cc.component_type == "ai_model":
             # backend_route path: infer provider from route string
             if backend_route and not cc.llm_credential_id:
-                return _fake_credential_from_route(backend_route)
+                return _provider_info_from_route(backend_route)
 
             if not cc.llm_credential_id:
                 raise ValueError(f"Node '{node.node_id}' (ai_model) has no credential.")
@@ -497,7 +464,7 @@ def resolve_credential_for_node(node, db: Session | None = None):
             if tc and tc.component_type == "ai_model":
                 tc_backend_route = getattr(tc, "backend_route", None)
                 if tc_backend_route and not tc.llm_credential_id:
-                    return _fake_credential_from_route(tc_backend_route)
+                    return _provider_info_from_route(tc_backend_route)
                 if tc.llm_credential_id:
                     base_cred = db.query(BaseCredential).filter(BaseCredential.id == tc.llm_credential_id).first()
                     if not base_cred or not base_cred.llm_credential:

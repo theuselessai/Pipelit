@@ -11,122 +11,148 @@ from services.llm import _make_sanitized_chat_openai, _sanitize_message_content,
 
 
 # ── create_llm_from_db ────────────────────────────────────────────────────────
+#
+# agentgateway is the ONLY LLM path. The direct provider client construction
+# (ChatOpenAI/ChatAnthropic built from a raw cred.api_key) was removed —
+# credentials carry no api_key any more. Disabled gateway → defensive raise.
+
+def _gw_disabled_settings():
+    return patch("config.settings", **{
+        "AGENTGATEWAY_ENABLED": False,
+        "AGENTGATEWAY_URL": "",
+    })
+
+
+def _gw_enabled_mocks():
+    """Patches for the agentgateway path (health/mint/proxy mocked at source)."""
+    from unittest.mock import AsyncMock
+    return (
+        patch("config.settings", **{
+            "AGENTGATEWAY_ENABLED": True,
+            "AGENTGATEWAY_URL": "http://localhost:4000",
+        }),
+        patch(
+            "services.agentgateway_client.check_agentgateway_health",
+            new_callable=AsyncMock,
+            return_value=(True, "ok"),
+        ),
+        patch("services.jwt_issuer.mint_llm_token", return_value="jwt-test-token"),
+        patch(
+            "services.agentgateway_client.create_proxied_llm",
+            return_value=MagicMock(name="proxied_llm"),
+        ),
+    )
+
 
 class TestCreateLlmFromDb:
-    @patch("services.llm._make_sanitized_chat_openai")
-    def test_openai_provider(self, mock_factory):
-        mock_instance = MagicMock()
-        mock_factory.return_value = mock_instance
-        cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
-        create_llm_from_db(cred, "gpt-4")
-        mock_instance.assert_called_once_with(api_key="sk-test", model="gpt-4")
+    """create_llm_from_db routes exclusively through agentgateway."""
+
+    def test_raises_when_agentgateway_disabled(self):
+        cred = SimpleNamespace(provider_type="openai", base_credentials_id=1, base_credentials=None)
+        with _gw_disabled_settings():
+            with pytest.raises(RuntimeError, match="requires agentgateway"):
+                create_llm_from_db(cred, "gpt-4")
+
+    def test_raises_when_agentgateway_url_missing(self):
+        """Enabled flag alone is not enough — a gateway URL is required."""
+        cred = SimpleNamespace(provider_type="openai", base_credentials_id=1, base_credentials=None)
+        with patch("config.settings", **{"AGENTGATEWAY_ENABLED": True, "AGENTGATEWAY_URL": ""}):
+            with pytest.raises(RuntimeError, match="requires agentgateway"):
+                create_llm_from_db(cred, "gpt-4")
 
     @patch("services.llm._make_sanitized_chat_openai")
-    def test_openai_with_all_params(self, mock_factory):
-        mock_instance = MagicMock()
-        mock_factory.return_value = mock_instance
-        cred = SimpleNamespace(provider_type="openai", api_key="sk-test")
-        create_llm_from_db(
-            cred, "gpt-4",
-            temperature=0.7,
-            max_tokens=100,
-            frequency_penalty=0.5,
-            presence_penalty=0.3,
-            top_p=0.9,
-            timeout=30,
-            max_retries=2,
-            response_format={"type": "json_object"},
-        )
-        call_kwargs = mock_instance.call_args[1]
-        assert call_kwargs["temperature"] == 0.7
-        assert call_kwargs["max_tokens"] == 100
-        assert call_kwargs["frequency_penalty"] == 0.5
-        assert call_kwargs["presence_penalty"] == 0.3
-        assert call_kwargs["top_p"] == 0.9
-        assert call_kwargs["timeout"] == 30
-        assert call_kwargs["max_retries"] == 2
-        assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json_object"}}
+    def test_no_direct_client_construction_when_disabled(self, mock_factory):
+        """The removed direct-provider path must never be reached."""
+        cred = SimpleNamespace(provider_type="openai", base_credentials_id=1, base_credentials=None)
+        with _gw_disabled_settings():
+            with pytest.raises(RuntimeError):
+                create_llm_from_db(cred, "gpt-4")
+        mock_factory.assert_not_called()
 
-    @patch("services.llm.ChatAnthropic", create=True)
-    def test_anthropic_provider(self, mock_cls):
-        with patch.dict("sys.modules", {"langchain_anthropic": MagicMock(ChatAnthropic=mock_cls)}):
-            cred = SimpleNamespace(provider_type="anthropic", api_key="sk-ant-test", base_url="")
-            create_llm_from_db(cred, "claude-3-opus-20240229")
-            mock_cls.assert_called_once_with(api_key="sk-ant-test", model="claude-3-opus-20240229")
+    def test_openai_credential_routes_via_agentgateway(self):
+        settings_p, health_p, mint_p, proxy_p = _gw_enabled_mocks()
+        cred = SimpleNamespace(provider_type="openai", base_credentials_id=42, base_credentials=None)
+        with settings_p, health_p, mint_p, proxy_p as mock_proxy:
+            create_llm_from_db(cred, "gpt-4", user_profile_id=7, user_role="normal")
+        kw = mock_proxy.call_args.kwargs
+        assert kw["provider_type"] == "openai"
+        assert kw["backend_name"] == "openai"
+        assert kw["model"] == "gpt-4"
+        assert kw["jwt_token"] == "jwt-test-token"
 
-    @patch("services.llm.ChatAnthropic", create=True)
-    def test_anthropic_with_custom_base_url(self, mock_cls):
-        with patch.dict("sys.modules", {"langchain_anthropic": MagicMock(ChatAnthropic=mock_cls)}):
-            cred = SimpleNamespace(provider_type="anthropic", api_key="sk-mm", base_url="https://api.minimax.io/anthropic")
-            create_llm_from_db(cred, "MiniMax-M2.5")
-            mock_cls.assert_called_once_with(api_key="sk-mm", base_url="https://api.minimax.io/anthropic", model="MiniMax-M2.5")
+    def test_anthropic_credential_routes_via_agentgateway(self):
+        settings_p, health_p, mint_p, proxy_p = _gw_enabled_mocks()
+        cred = SimpleNamespace(provider_type="anthropic", base_credentials_id=42, base_credentials=None)
+        with settings_p, health_p, mint_p, proxy_p as mock_proxy:
+            create_llm_from_db(cred, "claude-sonnet-4-6")
+        kw = mock_proxy.call_args.kwargs
+        assert kw["provider_type"] == "anthropic"
+        assert kw["backend_name"] == "anthropic"
 
-    @patch("services.llm._make_sanitized_chat_openai")
-    def test_glm_provider(self, mock_factory):
-        mock_instance = MagicMock()
-        mock_factory.return_value = mock_instance
-        cred = SimpleNamespace(provider_type="glm", api_key="glm-key", base_url="")
-        create_llm_from_db(cred, "glm-4-plus")
-        mock_instance.assert_called_once_with(
-            api_key="glm-key",
-            base_url="https://api.z.ai/api/paas/v4/",
-            model="glm-4-plus",
-            use_responses_api=False,
-        )
+    def test_glm_credential_routes_via_agentgateway(self):
+        settings_p, health_p, mint_p, proxy_p = _gw_enabled_mocks()
+        cred = SimpleNamespace(provider_type="glm", base_credentials_id=42, base_credentials=None)
+        with settings_p, health_p, mint_p, proxy_p as mock_proxy:
+            create_llm_from_db(cred, "glm-4-plus")
+        kw = mock_proxy.call_args.kwargs
+        assert kw["provider_type"] == "glm"
+        assert kw["backend_name"] == "glm"
 
-    @patch("services.llm._make_sanitized_chat_openai")
-    def test_glm_provider_custom_base_url(self, mock_factory):
-        mock_instance = MagicMock()
-        mock_factory.return_value = mock_instance
-        cred = SimpleNamespace(provider_type="glm", api_key="glm-key", base_url="https://custom.z.ai/v4/")
-        create_llm_from_db(cred, "glm-4")
-        mock_instance.assert_called_once_with(
-            api_key="glm-key",
-            base_url="https://custom.z.ai/v4/",
-            model="glm-4",
-            use_responses_api=False,
-        )
-
-    @patch("services.llm._make_sanitized_chat_openai")
-    def test_openai_compatible_provider(self, mock_factory):
-        mock_instance = MagicMock()
-        mock_factory.return_value = mock_instance
+    def test_openai_compatible_credential_routes_via_agentgateway(self):
+        settings_p, health_p, mint_p, proxy_p = _gw_enabled_mocks()
         cred = SimpleNamespace(
             provider_type="openai_compatible",
-            api_key="custom-key",
-            base_url="http://localhost:11434/v1",
+            base_credentials_id=99,
+            base_credentials=None,
         )
-        create_llm_from_db(cred, "llama2")
-        mock_instance.assert_called_once_with(
-            api_key="custom-key",
-            base_url="http://localhost:11434/v1",
-            model="llama2",
-        )
+        with settings_p, health_p, mint_p, proxy_p as mock_proxy:
+            create_llm_from_db(cred, "llama2")
+        kw = mock_proxy.call_args.kwargs
+        assert kw["provider_type"] == "openai_compatible"
+        assert kw["backend_name"] == "custom-99"
 
-    @patch("services.llm._make_sanitized_chat_openai")
-    def test_openai_compatible_with_params(self, mock_factory):
-        mock_instance = MagicMock()
-        mock_factory.return_value = mock_instance
-        cred = SimpleNamespace(
-            provider_type="openai_compatible",
-            api_key="key",
-            base_url="http://test/v1",
-        )
-        create_llm_from_db(
-            cred, "model",
-            frequency_penalty=0.1,
-            presence_penalty=0.2,
-            response_format={"type": "json"},
-        )
-        call_kwargs = mock_instance.call_args[1]
-        assert call_kwargs["frequency_penalty"] == 0.1
-        assert call_kwargs["presence_penalty"] == 0.2
-        assert call_kwargs["model_kwargs"] == {"response_format": {"type": "json"}}
+    def test_all_params_forwarded_to_proxied_llm(self):
+        settings_p, health_p, mint_p, proxy_p = _gw_enabled_mocks()
+        cred = SimpleNamespace(provider_type="openai", base_credentials_id=42, base_credentials=None)
+        with settings_p, health_p, mint_p, proxy_p as mock_proxy:
+            create_llm_from_db(
+                cred, "gpt-4",
+                temperature=0.7,
+                max_tokens=100,
+                frequency_penalty=0.5,
+                presence_penalty=0.3,
+                top_p=0.9,
+                timeout=30,
+                max_retries=2,
+                response_format={"type": "json_object"},
+            )
+        kw = mock_proxy.call_args.kwargs
+        assert kw["temperature"] == 0.7
+        assert kw["max_tokens"] == 100
+        assert kw["frequency_penalty"] == 0.5
+        assert kw["presence_penalty"] == 0.3
+        assert kw["top_p"] == 0.9
+        assert kw["timeout"] == 30
+        assert kw["max_retries"] == 2
+        assert kw["response_format"] == {"type": "json_object"}
 
-    def test_unsupported_provider(self):
-        cred = SimpleNamespace(provider_type="unknown_provider", api_key="key")
-        with pytest.raises(ValueError, match="Unsupported provider"):
-            create_llm_from_db(cred, "model")
+    def test_credential_without_api_key_attribute_is_fine(self):
+        """Credentials no longer carry api_key — resolution must not touch it."""
+        settings_p, health_p, mint_p, proxy_p = _gw_enabled_mocks()
+
+        class KeylessCred:
+            provider_type = "openai"
+            base_credentials_id = 42
+            base_credentials = None
+
+            def __getattr__(self, name):
+                if name == "api_key":
+                    raise AssertionError("api_key must never be read")
+                raise AttributeError(name)
+
+        with settings_p, health_p, mint_p, proxy_p as mock_proxy:
+            create_llm_from_db(KeylessCred(), "gpt-4")
+        assert mock_proxy.call_args.kwargs["backend_name"] == "openai"
 
 
 # ── resolve_llm_for_node ──────────────────────────────────────────────────────
