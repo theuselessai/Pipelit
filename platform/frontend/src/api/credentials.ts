@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "./client"
-import type { Credential, CredentialCreate, CredentialUpdate, CredentialTestResult, CredentialModel, PaginatedResponse } from "@/types/models"
+import type { Credential, CredentialCreate, CredentialUpdate, PaginatedResponse } from "@/types/models"
 
 export function useCredentials(params?: { limit?: number; offset?: number }) {
   const qs = new URLSearchParams()
@@ -23,18 +23,6 @@ export function useUpdateCredential() {
 export function useDeleteCredential() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (id: number) => apiFetch<void>(`/credentials/${id}/`, { method: "DELETE" }), onSuccess: () => qc.invalidateQueries({ queryKey: ["credentials"] }) })
-}
-
-export function useTestCredential() {
-  return useMutation({ mutationFn: (id: number) => apiFetch<CredentialTestResult>(`/credentials/${id}/test/`, { method: "POST" }) })
-}
-
-export function useCredentialModels(credentialId: number | undefined) {
-  return useQuery({
-    queryKey: ["credential-models", credentialId],
-    queryFn: () => apiFetch<CredentialModel[]>(`/credentials/${credentialId}/models/`),
-    enabled: !!credentialId,
-  })
 }
 
 export function useBatchDeleteCredentials() {
