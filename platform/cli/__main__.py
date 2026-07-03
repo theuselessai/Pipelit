@@ -156,6 +156,8 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
             component_type="ai_model",
             llm_credential_id=base_cred.id,
             model_name=args.model,
+            # Route pipelit's agentgateway calls to the route plit init created.
+            backend_route=getattr(args, "backend_route", None) or None,
         )
         db.add(model_cfg)
         db.flush()
@@ -485,6 +487,14 @@ def main() -> None:
         "don't break)",
     )
     sp_fixture.add_argument("--base-url", default=None, help="LLM provider base URL")
+    sp_fixture.add_argument(
+        "--backend-route",
+        default=None,
+        help="agentgateway route name for the model node (must match the route "
+        "plit init creates, i.e. '<provider>-<model_slug>'). Stored on the "
+        "ai_model node's backend_route so pipelit's proxied LLM calls hit the "
+        "right gateway route.",
+    )
 
     sp_import = sub.add_parser("import-fixture", help="Import a workflow from a fixture JSON file")
     sp_import.add_argument("file", help="Path to fixture JSON file")
