@@ -167,9 +167,10 @@ class TestCreateLlmFromDbAgentgateway:
     def test_openai_routes_through_proxy(self):
         result, mock_mint, mock_proxy, _ = self._call("openai", temperature=0.5)
 
+        # DB role "normal" maps to the gateway's least-privilege "user" role.
         mock_mint.assert_called_once_with(
             user_profile_id=7,
-            role="normal",
+            role="user",
             credential_id=42,
         )
         mock_proxy.assert_called_once()
@@ -202,17 +203,30 @@ class TestCreateLlmFromDbAgentgateway:
         assert kw["provider_type"] == "openai_compatible"
         assert kw["backend_name"] == "custom-42"
 
-    def test_user_context_defaults_when_not_provided(self):
+    def test_user_context_defaults_to_least_privilege(self):
+        """A missing role must NEVER mint an admin token (least privilege)."""
         _, mock_mint, _, _ = self._call(
             "openai", user_profile_id=None, user_role=None
         )
 
-        # Should default to user_profile_id=0, role="admin"
+        # Defaults to user_profile_id=0 and least-privilege role="user".
         mock_mint.assert_called_once_with(
             user_profile_id=0,
-            role="admin",
+            role="user",
             credential_id=42,
         )
+
+    def test_admin_role_only_when_explicit(self):
+        """Admin tokens require the role to be explicitly 'admin'."""
+        _, mock_mint, _, _ = self._call("openai", user_role="admin")
+
+        assert mock_mint.call_args.kwargs["role"] == "admin"
+
+    def test_unknown_role_maps_to_least_privilege_user(self):
+        """Unrecognised role strings map to 'user', never 'admin'."""
+        _, mock_mint, _, _ = self._call("openai", user_role="something-weird")
+
+        assert mock_mint.call_args.kwargs["role"] == "user"
 
     def test_all_kwargs_forwarded(self):
         _, _, mock_proxy, _ = self._call(
@@ -257,7 +271,7 @@ class TestCreateLlmFromDbAgentgateway:
 
         mock_mint.assert_called_once_with(
             user_profile_id=5,
-            role="normal",
+            role="user",
             credential_id=0,
         )
 
@@ -412,7 +426,47 @@ class TestResolveLlmForNodeUserContext:
         mock_create.assert_called_once()
         call_kwargs = mock_create.call_args
         assert call_kwargs.kwargs["user_profile_id"] == 42
+        # Owner lookup on a MagicMock db returns a mock whose .role is not a
+        # str — role stays None (mapped downstream to least-privilege "user").
         assert call_kwargs.kwargs["user_role"] is None
+
+    @patch("services.llm.create_llm_from_db")
+    def test_threads_owner_role_when_resolvable(self, mock_create):
+        """The workflow owner's DB role is threaded through as user_role."""
+        from services.llm import resolve_llm_for_node
+
+        mock_create.return_value = MagicMock(name="llm_instance")
+
+        node = MagicMock()
+        node.node_id = "agent_abc"
+        node.workflow.owner_id = 42
+        node.component_config.component_type = "ai_model"
+        node.component_config.model_name = "gpt-4o"
+        node.component_config.llm_credential_id = 10
+        node.component_config.backend_route = None
+        node.component_config.temperature = None
+        node.component_config.max_tokens = None
+        node.component_config.frequency_penalty = None
+        node.component_config.presence_penalty = None
+        node.component_config.top_p = None
+        node.component_config.timeout = None
+        node.component_config.max_retries = None
+        node.component_config.response_format = None
+
+        mock_db = MagicMock()
+        mock_owner = MagicMock()
+        mock_owner.role = "normal"
+        mock_db.get.return_value = mock_owner
+        mock_base_cred = MagicMock()
+        mock_base_cred.llm_credential = _make_credential("openai")
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_base_cred
+
+        resolve_llm_for_node(node, db=mock_db)
+
+        mock_create.assert_called_once()
+        call_kwargs = mock_create.call_args
+        assert call_kwargs.kwargs["user_profile_id"] == 42
+        assert call_kwargs.kwargs["user_role"] == "normal"
 
     @patch("services.llm.create_llm_from_db")
     def test_defaults_when_workflow_not_loaded(self, mock_create):
@@ -492,6 +546,44 @@ class TestResolveLlmForNodeUserContext:
         call_kwargs = mock_create.call_args
         assert call_kwargs.kwargs["user_profile_id"] == 99
         assert call_kwargs.kwargs["user_role"] is None
+
+
+# ---------------------------------------------------------------------------
+# _jwt_role_for_gateway
+# ---------------------------------------------------------------------------
+
+
+class TestJwtRoleForGateway:
+    """The role mapping must never escalate a missing role to admin."""
+
+    def test_admin_maps_to_admin(self):
+        from services.llm import _jwt_role_for_gateway
+
+        assert _jwt_role_for_gateway("admin") == "admin"
+
+    def test_normal_maps_to_user(self):
+        from services.llm import _jwt_role_for_gateway
+
+        assert _jwt_role_for_gateway("normal") == "user"
+
+    def test_none_maps_to_user_never_admin(self):
+        from services.llm import _jwt_role_for_gateway
+
+        assert _jwt_role_for_gateway(None) == "user"
+
+    def test_empty_and_unknown_map_to_user(self):
+        from services.llm import _jwt_role_for_gateway
+
+        assert _jwt_role_for_gateway("") == "user"
+        assert _jwt_role_for_gateway("superuser") == "user"
+
+    def test_enum_admin_maps_to_admin(self):
+        """UserRole is a str enum — enum instances must map correctly too."""
+        from models.user import UserRole
+        from services.llm import _jwt_role_for_gateway
+
+        assert _jwt_role_for_gateway(UserRole.ADMIN) == "admin"
+        assert _jwt_role_for_gateway(UserRole.NORMAL) == "user"
 
 
 # ---------------------------------------------------------------------------

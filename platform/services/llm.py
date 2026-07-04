@@ -76,6 +76,23 @@ def _make_sanitized_chat_openai():
     return SanitizedChatOpenAI
 
 
+def _jwt_role_for_gateway(user_role: str | None) -> str:
+    """Map a pipelit user role to the JWT ``role`` claim for agentgateway.
+
+    agentgateway's CEL authorization rules (``config.d/rules/``, written by
+    ``plit init``) recognise exactly two roles: ``"admin"`` and ``"user"``.
+    Pipelit's DB roles are ``"admin"`` / ``"normal"`` (``models.user.UserRole``),
+    so ``"normal"`` maps to the gateway's ``"user"`` role.
+
+    Security invariant: a missing or unrecognised role must NEVER escalate
+    to admin — it always maps to the least-privilege ``"user"`` role. Admin
+    tokens are minted only when the resolved role is explicitly ``"admin"``.
+    """
+    if user_role == "admin":
+        return "admin"
+    return "user"
+
+
 def _route_provider_to_type(provider: str) -> str:
     """Map a route prefix to a provider_type string.
 
@@ -246,9 +263,11 @@ def _create_llm_via_agentgateway(
     else:
         provider_type = "openai_compatible"
 
+    # SECURITY: never default to admin. An unresolvable role mints a
+    # least-privilege "user" token; admin requires an explicit role.
     jwt_token = mint_llm_token(
         user_profile_id=user_profile_id or 0,
-        role=user_role or "admin",
+        role=_jwt_role_for_gateway(user_role),
         credential_id=credential_id,
     )
 
@@ -290,7 +309,9 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
         db = SessionLocal()
 
     # Derive user context from the workflow owner for JWT minting.
-    # Falls back to safe defaults when the relationship is not loaded.
+    # When the owner (or their role) cannot be resolved, user_role stays
+    # None which downstream maps to the least-privilege "user" JWT role —
+    # NEVER admin (see _jwt_role_for_gateway).
     user_profile_id: int | None = None
     user_role: str | None = None
     try:
@@ -299,6 +320,17 @@ def resolve_llm_for_node(node, db: Session | None = None) -> BaseChatModel:
             user_profile_id = getattr(workflow, "owner_id", None)
     except Exception:
         pass  # Relationship not loaded — defaults will be used.
+
+    if user_profile_id is not None:
+        try:
+            from models.user import UserProfile
+
+            owner = db.get(UserProfile, user_profile_id)
+            role_value = getattr(owner, "role", None)
+            if isinstance(role_value, str):
+                user_role = role_value
+        except Exception:
+            pass  # Role unresolvable — least-privilege "user" token is minted.
 
     try:
         cc = node.component_config

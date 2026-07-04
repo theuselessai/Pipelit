@@ -30,7 +30,9 @@ def mint_llm_token(
     user_profile_id:
         ``UserProfile.id`` — becomes the ``sub`` claim (as string per JWT convention).
     role:
-        User role, e.g. ``"admin"`` or ``"normal"``.
+        JWT role claim checked by agentgateway's CEL rules — ``"admin"`` or
+        ``"user"`` (pipelit's DB role ``"normal"`` is mapped to ``"user"``
+        by the caller; see ``services.llm._jwt_role_for_gateway``).
     credential_id:
         ``BaseCredential.id`` of the credential used for this request.
     allowed_credentials:
