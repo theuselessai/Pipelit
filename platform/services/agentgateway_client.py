@@ -102,11 +102,14 @@ def create_proxied_llm(
 
 
 async def check_agentgateway_health(agentgateway_url: str) -> tuple[bool, str]:
-    """Check whether agentgateway is reachable.
+    """Check whether agentgateway is reachable and healthy.
 
-    Returns ``(ok, message)`` where *ok* is ``True`` when the service
-    responds (even with 401/403 — that means JWT auth is enforced, which
-    is the expected healthy state).
+    Returns ``(ok, message)``. *ok* is ``True`` only when the service
+    responds with a success status (2xx) or the expected auth-probe
+    statuses 401/403 — the probe is unauthenticated, so a 401/403 means
+    agentgateway is up and enforcing JWT auth, which is the expected
+    healthy state. Any other status (5xx, unexpected 4xx) is treated as
+    UNHEALTHY, as are connection errors and timeouts.
     """
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -114,7 +117,15 @@ async def check_agentgateway_health(agentgateway_url: str) -> tuple[bool, str]:
             # 401/403 means agentgateway is up and enforcing JWT auth — healthy.
             if resp.status_code in (401, 403):
                 return True, "agentgateway is running (JWT auth enforced)"
-            return True, f"agentgateway responded with {resp.status_code}"
+            if 200 <= resp.status_code < 300:
+                return True, f"agentgateway responded with {resp.status_code}"
+            # Anything else (5xx, unexpected 4xx) is NOT healthy — a 500 must
+            # not pass the hard-boot health guard.
+            return (
+                False,
+                f"agentgateway at {agentgateway_url} returned unexpected "
+                f"status {resp.status_code} — treating as unhealthy.",
+            )
     except httpx.ConnectError:
         return (
             False,

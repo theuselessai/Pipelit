@@ -321,6 +321,60 @@ class TestCheckAgentgatewayHealth:
         assert "200" in msg
 
     @pytest.mark.asyncio
+    async def test_unhealthy_500_response(self) -> None:
+        """5xx means agentgateway is broken — must NOT pass the health guard."""
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 500
+
+        with patch("services.agentgateway_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_resp
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = mock_client
+
+            ok, msg = await check_agentgateway_health(AGENTGATEWAY_URL)
+
+        assert ok is False
+        assert "500" in msg
+
+    @pytest.mark.asyncio
+    async def test_unhealthy_503_response(self) -> None:
+        """503 (service unavailable) is unhealthy."""
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 503
+
+        with patch("services.agentgateway_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_resp
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = mock_client
+
+            ok, msg = await check_agentgateway_health(AGENTGATEWAY_URL)
+
+        assert ok is False
+        assert "503" in msg
+
+    @pytest.mark.asyncio
+    async def test_unhealthy_unexpected_4xx_response(self) -> None:
+        """Unexpected 4xx (not the 401/403 auth probe) is unhealthy."""
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 404
+
+        with patch("services.agentgateway_client.httpx.AsyncClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_resp
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = mock_client
+
+            ok, msg = await check_agentgateway_health(AGENTGATEWAY_URL)
+
+        assert ok is False
+        assert "404" in msg
+
+    @pytest.mark.asyncio
     async def test_connection_error(self) -> None:
         """ConnectError means agentgateway is unreachable."""
         with patch("services.agentgateway_client.httpx.AsyncClient") as MockClient:
