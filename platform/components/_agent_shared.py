@@ -758,51 +758,51 @@ class SandboxedSkillAwareBackend(SkillAwareBackend):
 # We do this via class registration rather than direct inheritance to avoid
 # importing the protocol at class-definition time.
 try:
+    from deepagents.backends.protocol import BackendProtocol as _BP
     from deepagents.backends.protocol import SandboxBackendProtocol as _SBP
     SandboxBackendProtocol = _SBP  # re-export for test convenience
 
     # ABC.register() makes isinstance/issubclass checks pass without requiring
     # the class to actually inherit (virtual subclass).
     _SBP.register(SandboxedSkillAwareBackend)
+    # Register the plain wrapper too: deepagents 0.7 gates on
+    # isinstance(backend, BackendProtocol) when deciding whether a callable is a
+    # legal backend, and a wrapper that only duck-types would sit one refactor
+    # away from being rejected.  SandboxedSkillAwareBackend inherits this via
+    # SkillAwareBackend and is additionally registered as a sandbox backend above.
+    _BP.register(SkillAwareBackend)
 except ImportError:
     SandboxBackendProtocol = None  # type: ignore[assignment,misc]
 
 
 def _make_skill_aware_backend(
-    default_backend_or_factory,
+    default_backend,
     skill_paths: list[str],
     sandbox_to_host: dict[str, str] | None = None,
 ):
-    """Create a backend factory that wraps the default backend with skill-aware routing.
+    """Wrap *default_backend* with skill-aware routing, returning the instance.
 
-    The returned factory is compatible with ``create_deep_agent(backend=...)`` and
-    ``SkillsMiddleware(backend=...)`` — both accept a callable that takes a
-    ``ToolRuntime`` and returns a ``BackendProtocol``.
+    This returns an initialized backend, NOT a factory.  deepagents 0.7 removed
+    backend factories: ``FilesystemMiddleware`` requires a ``BackendProtocol``
+    instance and rejects any callable that is not one, so a factory closure here
+    made every ``deep_agent`` node with skill edges fail at construction with
+    ``TypeError: backend must be an initialized backend instance``.
 
-    When the resolved default backend is a ``SandboxBackendProtocol`` (i.e.
-    supports ``execute()``), returns a ``SandboxedSkillAwareBackend`` so that
-    the execute tool remains available.
+    The pre-0.7 factory also accepted a backend *class* or *factory function* and
+    called it with a ``ToolRuntime``.  Neither exists in 0.7 — ``StateBackend()``
+    now takes no arguments and callers pass instances — so those branches are
+    gone with the closure.
 
-    When *sandbox_to_host* is provided, ``SkillAwareBackend`` translates
-    sandbox paths (``/.skill_providers/X/...``) to host paths before reading.
+    When the wrapped backend is a ``SandboxBackendProtocol`` (i.e. supports
+    ``execute()``), returns a ``SandboxedSkillAwareBackend`` so the execute tool
+    remains available to the agent.
+
+    When *sandbox_to_host* is provided, ``SkillAwareBackend`` translates sandbox
+    paths (``/.skill_providers/X/...``) to host paths before reading.
     """
-
-    def factory(tool_runtime):
-        # Classes (like StateBackend) and factory functions need to be called
-        # with tool_runtime.  Already-instantiated backends (e.g. a
-        # FilesystemBackend instance) should be used directly.
-        if isinstance(default_backend_or_factory, type):
-            default = default_backend_or_factory(tool_runtime)
-        elif callable(default_backend_or_factory) and not hasattr(default_backend_or_factory, "ls"):
-            default = default_backend_or_factory(tool_runtime)
-        else:
-            default = default_backend_or_factory
-
-        if SandboxBackendProtocol is not None and isinstance(default, SandboxBackendProtocol):
-            return SandboxedSkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host)
-        return SkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host)
-
-    return factory
+    if SandboxBackendProtocol is not None and isinstance(default_backend, SandboxBackendProtocol):
+        return SandboxedSkillAwareBackend(default_backend, skill_paths, sandbox_to_host=sandbox_to_host)
+    return SkillAwareBackend(default_backend, skill_paths, sandbox_to_host=sandbox_to_host)
 
 
 def _publish_tool_status(
