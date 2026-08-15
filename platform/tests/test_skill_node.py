@@ -443,19 +443,19 @@ class TestSkillAwareBackend:
         backend, _ = self._make_backend(["/home/user/skills"])
         assert backend._is_skill_path("/home/user/skills-extra") is False
 
-    def test_ls_info_routes_skill_path_to_filesystem(self):
+    def test_ls_routes_skill_path_to_filesystem(self):
         backend, default = self._make_backend(["/home/user/skills"])
-        with patch.object(backend._fs, "ls_info", return_value=[{"path": "/home/user/skills/web"}]) as fs_ls:
-            result = backend.ls_info("/home/user/skills")
+        with patch.object(backend._fs, "ls", return_value=[{"path": "/home/user/skills/web"}]) as fs_ls:
+            result = backend.ls("/home/user/skills")
             fs_ls.assert_called_once_with("/home/user/skills")
-            default.ls_info.assert_not_called()
+            default.ls.assert_not_called()
             assert result == [{"path": "/home/user/skills/web"}]
 
-    def test_ls_info_routes_non_skill_to_default(self):
+    def test_ls_routes_non_skill_to_default(self):
         backend, default = self._make_backend(["/home/user/skills"])
-        default.ls_info.return_value = [{"path": "/workspace/src"}]
-        result = backend.ls_info("/workspace")
-        default.ls_info.assert_called_once_with("/workspace")
+        default.ls.return_value = [{"path": "/workspace/src"}]
+        result = backend.ls("/workspace")
+        default.ls.assert_called_once_with("/workspace")
         assert result == [{"path": "/workspace/src"}]
 
     def test_read_routes_skill_path_to_filesystem(self):
@@ -612,10 +612,10 @@ class TestMakeSkillAwareBackend:
         """Factory wraps an existing backend instance directly."""
         from components._agent_shared import _make_skill_aware_backend, SkillAwareBackend
 
-        # Use a plain object with ls_info to simulate a backend instance
+        # Use a plain object with ls to simulate a backend instance
         # (MagicMock is always callable, so it would be treated as a factory)
         class FakeBackend:
-            def ls_info(self, path):
+            def ls(self, path):
                 return []
 
         existing_backend = FakeBackend()
@@ -643,7 +643,7 @@ class TestMakeSkillAwareBackend:
 
         # SandboxedShellBackend inherits from LocalShellBackend which is a SandboxBackendProtocol
         sandbox_backend = MagicMock(spec=SandboxedShellBackend)
-        sandbox_backend.ls_info = MagicMock()  # has ls_info → treated as instance
+        sandbox_backend.ls = MagicMock()  # has ls → treated as instance
 
         factory = _make_skill_aware_backend(sandbox_backend, ["/skills"])
         result = factory(MagicMock())
@@ -738,23 +738,23 @@ class TestSkillAwareBackendAsync:
         return backend, default
 
     @pytest.mark.asyncio
-    async def test_als_info_routes_skill_path(self):
+    async def test_als_routes_skill_path(self):
         backend, default = self._make_backend(["/home/user/skills"])
         with patch.object(
-            backend._fs, "als_info", new_callable=AsyncMock,
+            backend._fs, "als", new_callable=AsyncMock,
             return_value=[{"path": "/home/user/skills/web"}],
         ) as fs_als:
-            result = await backend.als_info("/home/user/skills")
+            result = await backend.als("/home/user/skills")
             fs_als.assert_called_once_with("/home/user/skills")
-            default.als_info.assert_not_called()
+            default.als.assert_not_called()
             assert result == [{"path": "/home/user/skills/web"}]
 
     @pytest.mark.asyncio
-    async def test_als_info_routes_non_skill(self):
+    async def test_als_routes_non_skill(self):
         backend, default = self._make_backend(["/home/user/skills"])
-        default.als_info = AsyncMock(return_value=[{"path": "/workspace/src"}])
-        result = await backend.als_info("/workspace")
-        default.als_info.assert_called_once_with("/workspace")
+        default.als = AsyncMock(return_value=[{"path": "/workspace/src"}])
+        result = await backend.als("/workspace")
+        default.als.assert_called_once_with("/workspace")
         assert result == [{"path": "/workspace/src"}]
 
     @pytest.mark.asyncio
@@ -1046,11 +1046,11 @@ class TestSkillAwareBackendTranslation:
             fs_read.assert_called_once_with("/home/user/skills/web/SKILL.md", 0, 2000)
             assert result == "# SKILL.md"
 
-    def test_ls_info_translates_sandbox_path(self):
+    def test_ls_translates_sandbox_path(self):
         backend, default = self._make_backend(
             ["/.skill_providers/code"],
             {"/.skill_providers/code": "/opt/skills/code"},
         )
-        with patch.object(backend._fs, "ls_info", return_value=[]) as fs_ls:
-            backend.ls_info("/.skill_providers/code")
+        with patch.object(backend._fs, "ls", return_value=[]) as fs_ls:
+            backend.ls("/.skill_providers/code")
             fs_ls.assert_called_once_with("/opt/skills/code")
