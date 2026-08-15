@@ -28,9 +28,14 @@ class TestAppSetup:
     @patch("main.engine")
     def test_routers_registered(self, mock_engine):
         from main import app
-        # Check some expected routes exist
-        route_paths = [r.path for r in app.routes if hasattr(r, "path")]
-        assert any("/api/" in p for p in route_paths)
+        # FastAPI >=0.139 / Starlette >=1.3 include routers lazily: the
+        # entries in app.routes are unmaterialised _IncludedRouter stubs
+        # (no .path) until the route table is finalised on first request.
+        # Inspecting app.routes directly therefore misses every /api/ route.
+        # app.openapi() forces materialisation and reflects the real route
+        # table — which is what this test actually means to assert.
+        api_paths = list(app.openapi().get("paths", {}).keys())
+        assert any("/api/" in p for p in api_paths)
 
 
 class TestLifespanSkillsDir:

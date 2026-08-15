@@ -659,15 +659,15 @@ class SkillAwareBackend:
 
     # -- Routed methods (skill paths → filesystem, others → default) --------
 
-    def ls_info(self, path):
+    def ls(self, path):
         if self._is_skill_path(path):
-            return self._fs.ls_info(self._translate_to_host_path(path))
-        return self._default.ls_info(path)
+            return self._fs.ls(self._translate_to_host_path(path))
+        return self._default.ls(path)
 
-    async def als_info(self, path):
+    async def als(self, path):
         if self._is_skill_path(path):
-            return await self._fs.als_info(self._translate_to_host_path(path))
-        return await self._default.als_info(path)
+            return await self._fs.als(self._translate_to_host_path(path))
+        return await self._default.als(path)
 
     def read(self, file_path, offset=0, limit=2000):
         if self._is_skill_path(file_path):
@@ -793,7 +793,7 @@ def _make_skill_aware_backend(
         # FilesystemBackend instance) should be used directly.
         if isinstance(default_backend_or_factory, type):
             default = default_backend_or_factory(tool_runtime)
-        elif callable(default_backend_or_factory) and not hasattr(default_backend_or_factory, "ls_info"):
+        elif callable(default_backend_or_factory) and not hasattr(default_backend_or_factory, "ls"):
             default = default_backend_or_factory(tool_runtime)
         else:
             default = default_backend_or_factory

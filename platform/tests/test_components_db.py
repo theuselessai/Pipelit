@@ -229,11 +229,29 @@ class TestIdentifyUser:
         assert result["user_id"] == "manual_user"
 
     def test_unknown_channel_no_id(self):
+        """An unrecognised channel with no user id falls back to 'unknown'.
+
+        Mocks the DB the same way the sibling channel tests do: without the
+        patch this hits the real SessionLocal, so the result depends on
+        whatever platform/db.sqlite3 happens to contain.
+        """
         fn = self._factory()
         state = {"trigger": {}, "node_outputs": {}}
-        result = fn(state)
-        # No channel_id → returns is_new
-        assert result["user_id"] is None
+        with patch("components.identify_user.SessionLocal") as mock_cls:
+            mock_cls.return_value = MagicMock()
+
+            mock_user = SimpleNamespace(canonical_id="unknown:unknown", total_conversations=0)
+            mock_memory = MagicMock()
+            mock_memory.get_or_create_user.return_value = mock_user
+            mock_memory.get_user_context.return_value = {}
+
+            with patch("components.identify_user.MemoryService", return_value=mock_memory):
+                result = fn(state)
+
+        mock_memory.get_or_create_user.assert_called_once_with(
+            channel="unknown", channel_id="unknown", display_name=None,
+        )
+        assert result["user_id"] == "unknown:unknown"
         assert result["is_new_user"] is True
 
     def test_node_outputs_override(self):
