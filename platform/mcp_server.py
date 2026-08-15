@@ -11,12 +11,12 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 CONFIG_PATH = Path.home() / ".config" / "aichat-platform" / "config.json"
 BASE_URL = os.environ.get("PLATFORM_BASE_URL", "http://localhost:8000")
 
-mcp = FastMCP("aichat-platform")
+mcp = MCPServer("aichat-platform")
 
 
 # ── Platform HTTP client ─────────────────────────────────────────────────────
