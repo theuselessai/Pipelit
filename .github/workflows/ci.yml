@@ -61,6 +61,13 @@ jobs:
         working-directory: platform/frontend
         run: npm run build
 
+  e2e-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: e2e harness reports failures as failures
+        run: ./e2e/test_cleanup_exit_codes.sh
+
   version-check:
     runs-on: ubuntu-latest
     steps:

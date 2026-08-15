@@ -35,13 +35,35 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 cleanup() {
+    # Capture the status that triggered this trap BEFORE running anything else.
+    # Under `set -e` the script aborts on the first failing command — a container
+    # that never boots, a missing docker, a failed migration — and lands here
+    # with no assertion having run. Reporting that as success (which this trap
+    # used to do, because FAIL was still 0) hid a permanently broken e2e-smoke
+    # job behind a green check.
+    local rc=$?
+
     echo ""
     echo "═══ Cleanup ═══"
     [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null && echo "  Stopped mock LLM server"
-    docker rm -f "$CONTAINER_NAME" 2>/dev/null && echo "  Removed container $CONTAINER_NAME"
+    if [ -n "$(docker ps -aq --filter "name=$CONTAINER_NAME" 2>/dev/null)" ]; then
+        echo "═══ Container logs (last 100 lines) ═══"
+        docker logs "$CONTAINER_NAME" 2>&1 | tail -100
+        docker rm -f "$CONTAINER_NAME" > /dev/null 2>&1 && echo "  Removed container $CONTAINER_NAME"
+    fi
     echo ""
     echo "═══ Results: $PASS passed, $FAIL failed ═══"
+
+    if [ "$rc" -ne 0 ]; then
+        echo "  ABORTED early (exit status $rc) — the suite did not run to completion"
+        exit "$rc"
+    fi
     [ "$FAIL" -gt 0 ] && exit 1
+    # A run that asserted nothing is not a pass.
+    if [ "$PASS" -eq 0 ]; then
+        echo "  NO ASSERTIONS RAN — failing rather than reporting a vacuous pass"
+        exit 1
+    fi
     exit 0
 }
 trap cleanup EXIT
