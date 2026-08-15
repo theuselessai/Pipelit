@@ -282,3 +282,41 @@ class TestCLIApplyFixture:
         )
         cfg = cli_db.query(BaseComponentConfig).get(agent_node.component_config_id)
         assert cfg.extra_config.get("conversation_memory") is True
+
+    def test_apply_fixture_backend_route(self, cli_db, user_profile):
+        _run_cli([
+            "apply-fixture", "default-agent",
+            "--provider", "openai-compatible", "--model", "Qwen-AgentWorld-35B-A3B-bf16",
+            "--base-url", "http://192.168.0.73:8080/v1",
+            "--backend-route", "p_192_168_0_73-Qwen-AgentWorld-35B-A3B-bf16",
+        ])
+
+        from models.node import BaseComponentConfig, WorkflowNode
+        from models.workflow import Workflow
+        wf = cli_db.query(Workflow).filter(Workflow.slug == "default-agent").first()
+        model_node = (
+            cli_db.query(WorkflowNode)
+            .filter(WorkflowNode.workflow_id == wf.id, WorkflowNode.node_id == "ai_model_1")
+            .first()
+        )
+        cfg = cli_db.query(BaseComponentConfig).get(model_node.component_config_id)
+        # pipelit calls agentgateway at /{backend_route}/... — this must match the
+        # route plit init created, or the proxied LLM call 404s ("route not found").
+        assert cfg.backend_route == "p_192_168_0_73-Qwen-AgentWorld-35B-A3B-bf16"
+
+    def test_apply_fixture_backend_route_defaults_none(self, cli_db, user_profile):
+        _run_cli([
+            "apply-fixture", "default-agent",
+            "--provider", "openai", "--model", "gpt-4o",
+        ])
+
+        from models.node import BaseComponentConfig, WorkflowNode
+        from models.workflow import Workflow
+        wf = cli_db.query(Workflow).filter(Workflow.slug == "default-agent").first()
+        model_node = (
+            cli_db.query(WorkflowNode)
+            .filter(WorkflowNode.workflow_id == wf.id, WorkflowNode.node_id == "ai_model_1")
+            .first()
+        )
+        cfg = cli_db.query(BaseComponentConfig).get(model_node.component_config_id)
+        assert cfg.backend_route is None

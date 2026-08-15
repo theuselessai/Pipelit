@@ -66,7 +66,8 @@ class TestCredentialsAPI:
         assert data["items"] == []
         assert data["total"] == 0
 
-    def test_create_llm_credential(self, auth_client):
+    def test_create_llm_credential_rejected(self, auth_client):
+        """LLM credentials are managed by agentgateway — creation is 410 Gone."""
         resp = auth_client.post("/api/v1/credentials/", json={
             "name": "My OpenAI",
             "credential_type": "llm",
@@ -76,10 +77,8 @@ class TestCredentialsAPI:
                 "base_url": "",
             },
         })
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["name"] == "My OpenAI"
-        assert data["credential_type"] == "llm"
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
 
     def test_create_gateway_credential(self, auth_client):
         mock_client = MagicMock()
@@ -107,13 +106,13 @@ class TestCredentialsAPI:
         assert resp.status_code == 201
 
     def test_list_credentials(self, auth_client, db, user_profile):
+        """Leftover llm rows still list, but expose no detail (no secrets)."""
         cred = BaseCredential(user_profile_id=user_profile.id, name="Test", credential_type="llm")
         db.add(cred)
         db.flush()
         llm = LLMProviderCredential(
             base_credentials_id=cred.id,
             provider_type="openai",
-            api_key="sk-1234567890abcdef",
         )
         db.add(llm)
         db.commit()
@@ -123,8 +122,9 @@ class TestCredentialsAPI:
         data = resp.json()
         assert data["total"] >= 1
         item = data["items"][0]
-        assert item["detail"]["provider_type"] == "openai"
-        assert "****" in item["detail"]["api_key"]
+        assert item["credential_type"] == "llm"
+        # LLM detail is no longer serialized — no provider secrets in pipelit
+        assert item["detail"] == {}
 
     def test_get_credential(self, auth_client, db, user_profile):
         cred = BaseCredential(user_profile_id=user_profile.id, name="Test", credential_type="llm")
@@ -133,7 +133,6 @@ class TestCredentialsAPI:
         llm = LLMProviderCredential(
             base_credentials_id=cred.id,
             provider_type="openai",
-            api_key="sk-1234567890abcdef",
         )
         db.add(llm)
         db.commit()
@@ -147,15 +146,18 @@ class TestCredentialsAPI:
         assert resp.status_code == 404
 
     def test_update_credential(self, auth_client, db, user_profile):
-        cred = BaseCredential(user_profile_id=user_profile.id, name="Old Name", credential_type="llm")
+        """Renaming still works for non-LLM credentials (tool shown here)."""
+        from models.credential import ToolCredential
+
+        cred = BaseCredential(user_profile_id=user_profile.id, name="Old Name", credential_type="tool")
         db.add(cred)
         db.flush()
-        llm = LLMProviderCredential(
+        tool = ToolCredential(
             base_credentials_id=cred.id,
-            provider_type="openai",
-            api_key="sk-old",
+            tool_type="searxng",
+            config={"url": "http://searx.local"},
         )
-        db.add(llm)
+        db.add(tool)
         db.commit()
 
         resp = auth_client.patch(f"/api/v1/credentials/{cred.id}/", json={
@@ -163,6 +165,23 @@ class TestCredentialsAPI:
         })
         assert resp.status_code == 200
         assert resp.json()["name"] == "New Name"
+
+    def test_update_llm_credential_rejected(self, auth_client, db, user_profile):
+        """Any PATCH against an llm-typed credential is 410 Gone."""
+        cred = BaseCredential(user_profile_id=user_profile.id, name="Old Name", credential_type="llm")
+        db.add(cred)
+        db.flush()
+        llm = LLMProviderCredential(
+            base_credentials_id=cred.id,
+            provider_type="openai",
+        )
+        db.add(llm)
+        db.commit()
+
+        resp = auth_client.patch(f"/api/v1/credentials/{cred.id}/", json={
+            "name": "New Name",
+        })
+        assert resp.status_code == 410
 
     def test_delete_credential(self, auth_client, db, user_profile):
         cred = BaseCredential(user_profile_id=user_profile.id, name="To Delete", credential_type="llm")
@@ -189,14 +208,13 @@ class TestCredentialsAPI:
         assert _mask("short") == "****"
         assert _mask("abcdefghijklmnop") == "abcd****mnop"
 
-    def _make_llm_cred(self, db, user_profile, provider_type="openai", base_url="", api_key="sk-test"):
+    def _make_llm_cred(self, db, user_profile, provider_type="openai", base_url=""):
         cred = BaseCredential(user_profile_id=user_profile.id, name="Test LLM", credential_type="llm")
         db.add(cred)
         db.flush()
         llm = LLMProviderCredential(
             base_credentials_id=cred.id,
             provider_type=provider_type,
-            api_key=api_key,
             base_url=base_url,
         )
         db.add(llm)
@@ -204,100 +222,27 @@ class TestCredentialsAPI:
         db.refresh(cred)
         return cred
 
-    def test_list_models_openai_dict_response(self, auth_client, db, user_profile):
-        """OpenAI-compatible /models returns dict with 'data' key — lines 345-346."""
+    def test_list_models_rejected(self, auth_client, db, user_profile):
+        """Credential-derived model listing is removed -- models come from
+        agentgateway (api/available_models.py). The endpoint is 410 Gone and
+        must not make any upstream provider call."""
         cred = self._make_llm_cred(db, user_profile, provider_type="openai")
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.return_value = None
-        mock_resp.json.return_value = {
-            "data": [{"id": "gpt-4"}, {"id": "gpt-3.5-turbo"}]
-        }
-
-        with patch("api.credentials.httpx.get", return_value=mock_resp):
+        with patch("httpx.get", side_effect=AssertionError("no upstream call")):
             resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
 
-        assert resp.status_code == 200
-        data = resp.json()
-        ids = [m["id"] for m in data]
-        assert "gpt-4" in ids
-        assert "gpt-3.5-turbo" in ids
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
 
-    def test_list_models_openai_list_response(self, auth_client, db, user_profile):
-        """OpenAI-compatible /models returns a list directly — lines 347-348."""
-        cred = self._make_llm_cred(db, user_profile, provider_type="openai",
-                                   base_url="https://custom.openai.com/v1")
-
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.return_value = None
-        mock_resp.json.return_value = [{"id": "custom-model-1"}, {"id": "custom-model-2"}]
-
-        with patch("api.credentials.httpx.get", return_value=mock_resp):
-            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
-
-        assert resp.status_code == 200
-        data = resp.json()
-        ids = [m["id"] for m in data]
-        assert "custom-model-1" in ids
-
-    def test_list_models_unexpected_format_returns_empty(self, auth_client, db, user_profile):
-        """Unexpected /models response format (not dict, not list) — lines 349-351."""
+    def test_test_llm_credential_rejected(self, auth_client, db, user_profile):
+        """Direct-provider credential testing is removed -- 410 Gone."""
         cred = self._make_llm_cred(db, user_profile, provider_type="openai")
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.return_value = None
-        mock_resp.json.return_value = "unexpected string response"
+        with patch("httpx.post", side_effect=AssertionError("no upstream call")):
+            resp = auth_client.post(f"/api/v1/credentials/{cred.id}/test/")
 
-        with patch("api.credentials.httpx.get", return_value=mock_resp):
-            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
-
-        assert resp.status_code == 200
-        assert resp.json() == []
-
-    def test_list_models_openai_default_url_on_exception(self, auth_client, db, user_profile):
-        """Non-MiniMax exception returns [] — line 357."""
-        cred = self._make_llm_cred(db, user_profile, provider_type="openai", base_url="")
-
-        with patch("api.credentials.httpx.get", side_effect=Exception("connection error")):
-            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
-
-        assert resp.status_code == 200
-        assert resp.json() == []
-
-    def test_list_models_minimax_fallback_on_exception(self, auth_client, db, user_profile):
-        """MiniMax base_url exception returns MINIMAX_MODELS — lines 355-356."""
-        from api.credentials import MINIMAX_MODELS
-        cred = self._make_llm_cred(
-            db, user_profile, provider_type="openai",
-            base_url="https://api.minimax.io/v1",
-        )
-
-        with patch("api.credentials.httpx.get", side_effect=Exception("timeout")):
-            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
-
-        assert resp.status_code == 200
-        data = resp.json()
-        returned_ids = [m["id"] for m in data]
-        assert returned_ids == MINIMAX_MODELS
-
-    def test_list_models_no_base_url_uses_openai_default(self, auth_client, db, user_profile):
-        """No base_url defaults to https://api.openai.com/v1 — line 336."""
-        cred = self._make_llm_cred(db, user_profile, provider_type="openai", base_url="")
-
-        captured_url = []
-
-        def mock_get(url, **kwargs):
-            captured_url.append(url)
-            resp = MagicMock()
-            resp.raise_for_status.return_value = None
-            resp.json.return_value = {"data": [{"id": "gpt-4"}]}
-            return resp
-
-        with patch("api.credentials.httpx.get", side_effect=mock_get):
-            resp = auth_client.get(f"/api/v1/credentials/{cred.id}/models/")
-
-        assert resp.status_code == 200
-        assert captured_url[0] == "https://api.openai.com/v1/models"
+        assert resp.status_code == 410
+        assert "agentgateway" in resp.json()["detail"]
 
 
 # ── Executions ───────────────────────────────────────────────────────────────
@@ -646,7 +591,9 @@ class TestCredentialSerialization:
         data = resp.json()
         assert data["detail"]["gateway_credential_id"] == "tg_mybot"
 
-    def test_update_credential_detail(self, auth_client, db, user_profile):
+    def test_update_credential_detail_llm_rejected(self, auth_client, db, user_profile):
+        """Patching an api_key into an llm credential is impossible — 410 Gone
+        (pipelit no longer stores LLM keys; agentgateway holds them)."""
         cred = BaseCredential(
             user_profile_id=user_profile.id, name="LLM Cred",
             credential_type="llm",
@@ -656,7 +603,6 @@ class TestCredentialSerialization:
         llm = LLMProviderCredential(
             base_credentials_id=cred.id,
             provider_type="openai",
-            api_key="sk-old1234567890",
         )
         db.add(llm)
         db.commit()
@@ -664,7 +610,7 @@ class TestCredentialSerialization:
         resp = auth_client.patch(f"/api/v1/credentials/{cred.id}/", json={
             "detail": {"api_key": "sk-new1234567890"},
         })
-        assert resp.status_code == 200
+        assert resp.status_code == 410
 
     def test_create_git_credential(self, auth_client):
         resp = auth_client.post("/api/v1/credentials/", json={

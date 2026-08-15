@@ -17,11 +17,13 @@ import {
   ChevronRight,
   User,
   Settings,
+  Server,
 } from "lucide-react"
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Workflows" },
   { to: "/credentials", icon: KeyRound, label: "Credentials" },
+  { to: "/providers", icon: Server, label: "Providers" },
   { to: "/workspaces", icon: FolderOpen, label: "Workspaces" },
   { to: "/executions", icon: Activity, label: "Executions" },
   { to: "/memories", icon: Brain, label: "Memories" },

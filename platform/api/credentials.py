@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import logging
 
-import httpx
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from config import settings
 from database import get_db
 from models.user import UserRole
 from models.credential import (
     BaseCredential,
     GatewayCredential,
     GitCredential,
-    LLMProviderCredential,
     ToolCredential,
 )
 from models.user import UserProfile
@@ -34,22 +32,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-ANTHROPIC_MODELS = [
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-0-20250514",
-    "claude-haiku-4-5-20251001",
-    "claude-3-5-sonnet-20241022",
-]
+# LLM credentials are no longer created, updated, or stored by pipelit.
+# Raw provider API keys live exclusively in agentgateway (managed via the
+# admin providers API / agentgateway config.d). Any attempt to manage an
+# ``llm``-typed credential through this router is rejected with 410 Gone.
+LLM_CREDENTIALS_GONE_DETAIL = (
+    "LLM credentials are now managed by agentgateway. Creating, updating, "
+    "or testing 'llm' credentials in pipelit has been removed — configure "
+    "providers and API keys through the agentgateway admin providers API."
+)
 
-MINIMAX_MODELS = [
-    "MiniMax-M2.5",
-    "MiniMax-M2.5-highspeed",
-    "MiniMax-M2.1",
-    "MiniMax-M2.1-highspeed",
-    "MiniMax-M2",
-]
+
+def _reject_llm_credential() -> None:
+    raise HTTPException(status_code=410, detail=LLM_CREDENTIALS_GONE_DETAIL)
 
 
 def _mask(value: str) -> str:
@@ -66,17 +61,12 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
         "created_at": cred.created_at,
         "updated_at": cred.updated_at,
         "detail": {},
+        "agentgateway_backend": None,
     }
-    if cred.credential_type == "llm" and cred.llm_credential:
-        llm = cred.llm_credential
-        data["detail"] = {
-            "provider_type": llm.provider_type,
-            "api_key": _mask(llm.api_key),
-            "base_url": llm.base_url,
-            "organization_id": llm.organization_id,
-            "custom_headers": llm.custom_headers,
-        }
-    elif cred.credential_type == "gateway" and cred.gateway_credential:
+    # NOTE: no ``llm`` branch — LLM keys live in agentgateway, and pipelit
+    # never serializes LLM provider secrets. Leftover llm-typed rows (kept
+    # for legacy llm_credential_id routing) serialize with an empty detail.
+    if cred.credential_type == "gateway" and cred.gateway_credential:
         gw = cred.gateway_credential
         data["detail"] = {
             "gateway_credential_id": gw.gateway_credential_id,
@@ -122,6 +112,9 @@ def create_credential(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
+    if payload.credential_type == "llm":
+        _reject_llm_credential()
+
     base = BaseCredential(
         user_profile_id=profile.id,
         name=payload.name,
@@ -131,17 +124,7 @@ def create_credential(
     db.flush()
 
     detail = payload.detail or {}
-    if payload.credential_type == "llm":
-        sub = LLMProviderCredential(
-            base_credentials_id=base.id,
-            provider_type=detail.get("provider_type", "openai_compatible"),
-            api_key=detail.get("api_key", ""),
-            base_url=detail.get("base_url", ""),
-            organization_id=detail.get("organization_id", ""),
-            custom_headers=detail.get("custom_headers", {}),
-        )
-        db.add(sub)
-    elif payload.credential_type == "gateway":
+    if payload.credential_type == "gateway":
         adapter_type = detail.get("adapter_type", "")
         token = detail.get("token", "")
         config = detail.get("config")
@@ -195,6 +178,7 @@ def create_credential(
                 logger.warning("Failed to clean up gateway credential %s after DB error", payload.name)
         raise
     db.refresh(base)
+
     return _serialize_credential(base, db)
 
 
@@ -227,17 +211,15 @@ def update_credential(
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
 
+    if cred.credential_type == "llm":
+        _reject_llm_credential()
+
     if payload.name is not None:
         cred.name = payload.name
 
     detail = payload.detail
     if detail:
-        if cred.credential_type == "llm" and cred.llm_credential:
-            llm = cred.llm_credential
-            for field in ("provider_type", "api_key", "base_url", "organization_id", "custom_headers"):
-                if field in detail:
-                    setattr(llm, field, detail[field])
-        elif cred.credential_type == "gateway" and cred.gateway_credential:
+        if cred.credential_type == "gateway" and cred.gateway_credential:
             gw = cred.gateway_credential
             gw_update_kwargs: dict = {}
             new_adapter_type = None
@@ -270,6 +252,7 @@ def update_credential(
 
     db.commit()
     db.refresh(cred)
+
     return _serialize_credential(cred, db)
 
 
@@ -285,6 +268,7 @@ def delete_credential(
     cred = query.first()
     if not cred:
         raise HTTPException(status_code=404, detail="Credential not found.")
+
     if cred.gateway_credential:
         gw_cred = cred.gateway_credential
         try:
@@ -324,6 +308,7 @@ def batch_delete_credentials(
             status_code=502,
             detail=f"Failed to delete gateway credentials: {failed_gw}. Database unchanged.",
         )
+
     for cred in creds:
         db.delete(cred)
     db.commit()
@@ -397,54 +382,15 @@ def test_credential(
             return {"ok": False, "detail": "not found in gateway"}
         return {"ok": True, "detail": health_info}
 
-    if not cred.llm_credential:
-        raise HTTPException(status_code=404, detail="LLM credential not found.")
-    llm = cred.llm_credential
-    is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url
-    try:
-        if llm.provider_type == "anthropic" and not is_custom_base:
-            resp = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": llm.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-                timeout=15,
-            )
-            if resp.status_code >= 400:
-                return {"ok": False, "error": resp.text[:500]}
-        elif llm.provider_type == "glm":
-            base = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
-            resp = httpx.get(
-                f"{base}/models",
-                headers={"Authorization": f"Bearer {llm.api_key}"},
-                timeout=15,
-            )
-            if resp.status_code in (401, 403):
-                return {"ok": False, "error": "Authentication failed - invalid API key"}
-            if resp.status_code >= 400:
-                return {"ok": False, "error": resp.text[:500]}
-        else:
-            # Test auth by listing models — no valid model name needed
-            base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
-            resp = httpx.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {llm.api_key}"},
-                timeout=15,
-            )
-            if resp.status_code in (401, 403):
-                return {"ok": False, "error": "Authentication failed - invalid API key"}
-            if resp.status_code >= 400:
-                return {"ok": False, "error": resp.text[:500]}
-        return {"ok": True}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:500]}
+    # LLM credentials: direct-provider testing removed — keys live in
+    # agentgateway, pipelit has nothing to test them with.
+    if cred.credential_type == "llm":
+        _reject_llm_credential()
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Credential type '{cred.credential_type}' does not support testing.",
+    )
 
 
 @router.get("/{credential_id}/models/", response_model=list[CredentialModelOut])
@@ -453,48 +399,9 @@ def list_credential_models(
     db: Session = Depends(get_db),
     profile: UserProfile = Depends(get_current_user),
 ):
-    query = db.query(BaseCredential).filter(BaseCredential.id == credential_id, BaseCredential.credential_type == "llm")
-    if profile.role != UserRole.ADMIN:
-        query = query.filter(BaseCredential.user_profile_id == profile.id)
-    cred = query.first()
-    if not cred or not cred.llm_credential:
-        raise HTTPException(status_code=404, detail="LLM credential not found.")
-    llm = cred.llm_credential
+    """Removed: credential-derived model listing is gone.
 
-    is_custom_base = llm.base_url and "anthropic.com" not in llm.base_url
-    if llm.provider_type == "anthropic" and not is_custom_base:
-        try:
-            from anthropic import Anthropic
-            client = Anthropic(api_key=llm.api_key)
-            page = client.models.list(limit=100)
-            models = sorted(page.data, key=lambda m: m.id)
-            return [{"id": m.id, "name": m.id} for m in models]
-        except Exception:
-            logger.debug("Anthropic models API failed, using fallback list", exc_info=True)
-            return [{"id": m, "name": m} for m in ANTHROPIC_MODELS]
-
-    if llm.provider_type == "glm":
-        base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
-    else:
-        base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
-    try:
-        resp = httpx.get(
-            f"{base_url}/models",
-            headers={"Authorization": f"Bearer {llm.api_key}"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        if isinstance(body, dict):
-            data = body.get("data", [])
-        elif isinstance(body, list):
-            data = body
-        else:
-            logger.warning("Unexpected /models response format: %s", type(body).__name__)
-            data = []
-        models = sorted(data, key=lambda m: m.get("id", "") if isinstance(m, dict) else "")
-        return [{"id": m["id"], "name": m["id"]} for m in models if isinstance(m, dict) and "id" in m]
-    except Exception:
-        if "minimax" in base_url.lower():
-            return [{"id": m, "name": m} for m in MINIMAX_MODELS]
-        return []
+    Models are listed from agentgateway (see api/available_models.py) —
+    pipelit no longer holds provider API keys to query upstream /models.
+    """
+    _reject_llm_credential()

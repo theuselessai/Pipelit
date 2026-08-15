@@ -57,6 +57,7 @@ class ComponentConfigData(BaseModel):
     extra_config: dict = {}
     llm_credential_id: int | None = None
     model_name: str = ""
+    backend_route: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
     frequency_penalty: float | None = None

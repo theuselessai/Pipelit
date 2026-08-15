@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { useCredentials, useCreateCredential, useUpdateCredential, useDeleteCredential, useTestCredential, useBatchDeleteCredentials, useActivateCredential, useDeactivateCredential } from "@/api/credentials"
+import { Link } from "react-router-dom"
+import { useCredentials, useCreateCredential, useUpdateCredential, useDeleteCredential, useBatchDeleteCredentials, useActivateCredential, useDeactivateCredential } from "@/api/credentials"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -10,38 +11,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { PaginationControls } from "@/components/ui/pagination-controls"
-import { Plus, Trash2, CheckCircle, XCircle, Loader2, Star, Power, PowerOff } from "lucide-react"
+import { Plus, Trash2, Star, Power, PowerOff, Info } from "lucide-react"
 import { format } from "date-fns"
 import type { CredentialType } from "@/types/models"
 
 const PAGE_SIZE = 50
-const CREDENTIAL_TYPES: CredentialType[] = ["llm", "gateway", "git", "tool"]
-const PROVIDER_TYPES = [
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "glm", label: "GLM (Z.AI)" },
-  { value: "openai_compatible", label: "OpenAI Compatible" },
-]
+const ALL_CREDENTIAL_TYPES: CredentialType[] = ["gateway", "git", "tool"]
 
 export default function CredentialsPage() {
   const [page, setPage] = useState(1)
   const { data, isLoading } = useCredentials({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+  const credentialTypes = ALL_CREDENTIAL_TYPES
   const credentials = data?.items
   const total = data?.total ?? 0
   const createCredential = useCreateCredential()
   const updateCredential = useUpdateCredential()
   const deleteCredential = useDeleteCredential()
-  const testCredential = useTestCredential()
   const batchDelete = useBatchDeleteCredentials()
   const activateCredential = useActivateCredential()
   const deactivateCredential = useDeactivateCredential()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
-  const [credType, setCredType] = useState<CredentialType>("llm")
-  const [providerType, setProviderType] = useState("openai_compatible")
-  const [apiKey, setApiKey] = useState("")
-  const [baseUrl, setBaseUrl] = useState("")
-  const [organizationId, setOrganizationId] = useState("")
+  const [credType, setCredType] = useState<CredentialType>("gateway")
   const [toolType, setToolType] = useState("searxng")
   const [toolUrl, setToolUrl] = useState("")
   const [toolPreferred, setToolPreferred] = useState(false)
@@ -49,7 +40,6 @@ export default function CredentialsPage() {
   const [gatewayToken, setGatewayToken] = useState("")
   const [gatewayConfig, setGatewayConfig] = useState("")
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [testResults, setTestResults] = useState<Record<number, { ok: boolean; error: string } | "loading">>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false)
 
@@ -59,8 +49,7 @@ export default function CredentialsPage() {
       return // URL is required
     }
     let detail: Record<string, unknown> = {}
-    if (credType === "llm") detail = { provider_type: providerType, api_key: apiKey, base_url: baseUrl, organization_id: organizationId }
-    else if (credType === "gateway") {
+    if (credType === "gateway") {
       detail = { adapter_type: gatewayAdapterType, token: gatewayToken }
       if (gatewayConfig.trim()) {
         try {
@@ -74,28 +63,14 @@ export default function CredentialsPage() {
     else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
     await createCredential.mutateAsync({ name, credential_type: credType, detail })
     setOpen(false)
-    setCredType("llm")
-    setProviderType("openai_compatible")
+    setCredType("gateway")
     setName("")
-    setApiKey("")
-    setBaseUrl("")
-    setOrganizationId("")
     setGatewayAdapterType("telegram")
     setGatewayToken("")
     setGatewayConfig("")
     setToolType("searxng")
     setToolUrl("")
     setToolPreferred(false)
-  }
-
-  async function handleTest(id: number) {
-    setTestResults((prev) => ({ ...prev, [id]: "loading" }))
-    try {
-      const result = await testCredential.mutateAsync(id)
-      setTestResults((prev) => ({ ...prev, [id]: result }))
-    } catch {
-      setTestResults((prev) => ({ ...prev, [id]: { ok: false, error: "Request failed" } }))
-    }
   }
 
   function toggleSelect(id: number) {
@@ -135,8 +110,19 @@ export default function CredentialsPage() {
               <Trash2 className="h-4 w-4 mr-2" />Delete Selected ({selectedIds.size})
             </Button>
           )}
-          <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Credential</Button>
+          <Button onClick={() => { setCredType("gateway"); setOpen(true) }}><Plus className="h-4 w-4 mr-2" />Add Credential</Button>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+        <Info className="h-4 w-4 shrink-0" />
+        <span>
+          LLM providers are managed on the{" "}
+          <Link to="/providers" className="font-medium underline underline-offset-2">
+            Providers page
+          </Link>
+          .
+        </span>
       </div>
 
       <Card>
@@ -156,7 +142,6 @@ export default function CredentialsPage() {
             </TableHeader>
             <TableBody>
               {credentials?.map((cred) => {
-                const tr = testResults[cred.id]
                 return (
                   <TableRow key={cred.id}>
                     <TableCell>
@@ -165,7 +150,6 @@ export default function CredentialsPage() {
                     <TableCell className="font-medium">{cred.name}</TableCell>
                     <TableCell><Badge variant="outline">{cred.credential_type}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {cred.credential_type === "llm" && (cred.detail.provider_type as string ?? "")}
                       {cred.credential_type === "gateway" && (cred.detail.adapter_type as string ?? "")}
                       {cred.credential_type === "tool" && (
                         <span className="flex items-center gap-1">
@@ -178,11 +162,6 @@ export default function CredentialsPage() {
                     </TableCell>
                     <TableCell>{format(new Date(cred.created_at), "MMM d, yyyy")}</TableCell>
                     <TableCell className="flex gap-1">
-                      {cred.credential_type === "llm" && (
-                        <Button variant="outline" size="sm" onClick={() => handleTest(cred.id)} disabled={tr === "loading"}>
-                          {tr === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : tr && typeof tr === "object" ? (tr.ok ? <CheckCircle className="h-4 w-4 text-green-500" /> : <XCircle className="h-4 w-4 text-destructive" />) : "Test"}
-                        </Button>
-                      )}
                       {cred.credential_type === "tool" && (
                         <Button
                           variant="ghost"
@@ -247,35 +226,10 @@ export default function CredentialsPage() {
               <Select value={credType} onValueChange={(v) => setCredType(v as CredentialType)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CREDENTIAL_TYPES.map((t) => <SelectItem key={t} value={t}>{t.toUpperCase()}</SelectItem>)}
+                  {credentialTypes.map((t) => <SelectItem key={t} value={t}>{t.toUpperCase()}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            {credType === "llm" && (
-              <>
-                <div className="space-y-2">
-                  <Label>Provider Type</Label>
-                  <Select value={providerType} onValueChange={setProviderType}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROVIDER_TYPES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>API Key</Label>
-                  <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Base URL (optional)</Label>
-                  <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Organization ID (optional)</Label>
-                  <Input value={organizationId} onChange={(e) => setOrganizationId(e.target.value)} />
-                </div>
-              </>
-            )}
             {credType === "gateway" && (
               <>
                 <div className="space-y-2">

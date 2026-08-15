@@ -49,6 +49,21 @@ async def lifespan(app: FastAPI):
             "Set a secure SECRET_KEY in .env or environment before running in production (DEBUG=False)."
         )
 
+    # Hard boot dependency: agentgateway must be reachable when enabled.
+    # This is a hard cutover (Phase 1b) — do NOT silently continue if the
+    # gateway is required but unreachable, as that would hide the dependency
+    # behind the still-live direct-provider fallback.
+    if settings.AGENTGATEWAY_ENABLED:
+        from services.agentgateway_client import check_agentgateway_health
+
+        ok, message = await check_agentgateway_health(settings.AGENTGATEWAY_URL)
+        if not ok:
+            raise RuntimeError(
+                f"FATAL: AGENTGATEWAY_ENABLED is True but agentgateway is not reachable: "
+                f"{message} (AGENTGATEWAY_URL={settings.AGENTGATEWAY_URL!r})"
+            )
+        logger.info("agentgateway health check passed: %s", message)
+
     # Startup: create tables if they don't exist (dev convenience; use alembic in prod)
     Base.metadata.create_all(bind=engine)
 

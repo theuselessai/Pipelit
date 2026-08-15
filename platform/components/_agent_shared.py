@@ -166,9 +166,13 @@ def _wrap_llm_with_native_tools(llm, native_tools: list[dict]):
 
 
 def _resolve_credential_field(cred, field: str) -> str | None:
-    """Extract a secret value from a credential's child record."""
-    if field == "api_key" and cred.llm_credential:
-        return cred.llm_credential.api_key or None
+    """Extract a secret value from a credential's child record.
+
+    Note: LLM ``api_key`` is intentionally NOT resolvable — raw LLM keys
+    live in agentgateway (see services/agentgateway_config.py), never in
+    pipelit. Requests for it resolve to ``None`` and callers skip the
+    env var.
+    """
     if field == "base_url" and cred.llm_credential:
         return cred.llm_credential.base_url or None
     if field == "organization_id" and cred.llm_credential:

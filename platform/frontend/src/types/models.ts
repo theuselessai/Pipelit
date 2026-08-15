@@ -53,7 +53,7 @@ export interface WorkflowCreate { name: string; slug: string; description?: stri
 export interface WorkflowUpdate { name?: string; slug?: string; description?: string; is_active?: boolean; is_public?: boolean; is_default?: boolean; max_execution_seconds?: number }
 
 // Node
-export interface ComponentConfigData { system_prompt: string; extra_config: Record<string, unknown>; llm_credential_id: number | null; model_name: string; temperature: number | null; max_tokens: number | null; frequency_penalty: number | null; presence_penalty: number | null; top_p: number | null; timeout: number | null; max_retries: number | null; response_format: Record<string, unknown> | null; credential_id: number | null; is_active: boolean; priority: number; trigger_config: Record<string, unknown> }
+export interface ComponentConfigData { system_prompt: string; extra_config: Record<string, unknown>; llm_credential_id: number | null; model_name: string; backend_route: string | null; temperature: number | null; max_tokens: number | null; frequency_penalty: number | null; presence_penalty: number | null; top_p: number | null; timeout: number | null; max_retries: number | null; response_format: Record<string, unknown> | null; credential_id: number | null; is_active: boolean; priority: number; trigger_config: Record<string, unknown> }
 export interface ScheduleJobInfo { id: string; status: string; run_count: number; error_count: number; current_repeat: number; current_retry: number; total_repeats: number; max_retries: number; timeout_seconds: number; interval_seconds: number; last_run_at: string | null; next_run_at: string | null; last_error: string | null; created_at: string | null }
 export interface WorkflowNode { id: number; node_id: string; label: string | null; component_type: ComponentType; is_entry_point: boolean; interrupt_before: boolean; interrupt_after: boolean; position_x: number; position_y: number; config: ComponentConfigData; subworkflow_id: number | null; code_block_id: number | null; updated_at: string; schedule_job?: ScheduleJobInfo | null }
 // node_id is intentionally optional — backend auto-generates "{type}_{hex}" when omitted.
@@ -120,4 +120,10 @@ export type FilterRule = Rule
 
 // Checkpoints
 export interface Checkpoint { thread_id: string; checkpoint_ns: string; checkpoint_id: string; parent_checkpoint_id: string | null; step: number | null; source: string | null; blob_size: number }
+
+// Provider & Model types for agentgateway
+export interface ProviderModel { slug: string; model_name: string; route: string }
+export interface Provider { provider: string; provider_type: string; models: ProviderModel[] }
+export interface FetchedModel { id: string; name: string }
+export interface AvailableModel { route: string; provider: string; model_slug: string; model_name: string }
 

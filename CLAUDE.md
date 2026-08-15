@@ -27,6 +27,97 @@ Visual workflow automation platform for building LLM-powered agents. Design work
 - Agent nodes can have sub-components (tools, memory)
 - Always check that new component types are registered in ALL required places: SQLAlchemy polymorphic_identity, Pydantic literals, frontend type definitions, and migration stamps
 
+## Dev Container
+
+The dev container (`./dev.sh up`) uses a **separate database** at `/root/.local/share/plit/pipelit.db`, not the platform default `db.sqlite3`. The server gets `DATABASE_URL` from `/root/.config/plit/.env` (loaded by honcho), but manual shell commands inside the container don't.
+
+**Always use `./dev.sh exec` to run CLI commands** — it sources the correct `.env` before execution:
+```bash
+# Correct:
+./dev.sh exec python -m cli import-fixture tests/dsl_fixtures/workflow_generator/fixture.json
+
+# Wrong — hits the wrong database:
+docker exec plit-dev bash -c '... python -m cli import-fixture ...'
+```
+
+To rebuild the frontend for the dev container, build on the host then copy into the image path:
+```bash
+cd platform/frontend && npm run build
+docker exec plit-dev bash -c 'rm -rf /app/frontend/dist && cp -r /root/.local/share/plit/pipelit/platform/frontend/dist /app/frontend/dist'
+```
+
+## agentgateway Integration
+
+LLM calls route through agentgateway (v1.0.1) when `AGENTGATEWAY_ENABLED=true`. Feature-flagged — disabled by default.
+
+**Architecture:**
+```
+Pipelit (workflow engine, JWT issuer)
+  → agentgateway (:4000, LLM proxy, JWT validator, CEL enforcer)
+    → Venice / OpenAI / Anthropic / etc.
+```
+
+**Key files:**
+- `services/agentgateway_config.py` — provider/model config writer (writes to agentgateway's `config.d/`)
+- `services/agentgateway_client.py` — LangChain clients pointing at agentgateway
+- `services/jwt_issuer.py` — mints ES256 JWTs (60s, per-request)
+- `services/llm.py` — `resolve_llm_for_node()` checks `backend_route` first, falls back to `llm_credential_id`
+- `api/providers.py` — admin CRUD for providers + models
+- `api/available_models.py` — read-only model list for all users
+- `schemas/node.py` — `ComponentConfigData.backend_route` field
+- `api/nodes.py` — `model_fields` tuple must include `"backend_route"`
+
+**Settings** (in `.env`):
+- `AGENTGATEWAY_ENABLED=true/false` — feature flag
+- `AGENTGATEWAY_URL=http://localhost:4000` — LLM listener
+- `AGENTGATEWAY_DIR=/path/to/agentgateway` — config.d, keys, scripts
+- `JWT_PRIVATE_KEY` — PEM-encoded ES256 private key (signs JWTs)
+
+**agentgateway folder structure** (`AGENTGATEWAY_DIR`):
+```
+config.d/
+├── base.yaml                     # admin addr
+├── jwt/jwks.json                 # ES256 public key (validates JWTs)
+├── listeners/
+│   ├── llm.yaml                  # LLM listener (:4000) + JWT auth
+│   └── mcp.yaml                  # MCP listener (:3000)
+├── backends/<provider>/
+│   ├── _provider.yaml            # shared: host, path, auth, TLS
+│   └── <model-slug>.yaml         # model: <model-name>
+├── rules/                        # CEL authorization rules
+└── mcp_servers/                  # future MCP targets
+keys/<provider>.key               # Fernet-encrypted API keys
+config.yaml                       # assembled output (generated)
+assemble-config.sh                # merges config.d/ → config.yaml via yq
+start.sh                          # decrypt keys + assemble + exec agentgateway
+```
+
+**How it works:**
+1. Admin adds provider via `/api/v1/providers/` → writes `_provider.yaml` + encrypted key
+2. Admin adds models → writes `<model-slug>.yaml` per model
+3. `assemble-config.sh` merges fragments → one route per model in `config.yaml`
+4. agentgateway hot-reloads config (~250ms) for model changes; auto-restarts for new providers
+5. Non-admin picks model via `/api/v1/available-models/` → stored as `backend_route` on node
+6. At runtime: `resolve_llm_for_node()` → mint JWT → `create_proxied_llm()` → agentgateway → provider
+
+**Conventions:**
+- Route naming: `<provider>-<model-slug>` (e.g., `venice-glm-4.7`)
+- Key naming: `keys/<provider>.key` → `$<PROVIDER>_API_KEY` env var
+- Provider names must NOT contain hyphens (breaks route parsing)
+- JWT: ES256 only (agentgateway does not support HS256)
+- JWKS path in `listeners/llm.yaml` must be absolute in Docker
+
+### Dev Container with agentgateway
+
+When testing agentgateway integration in Docker:
+
+1. **Mount code + agentgateway dir** into the GHCR plit image
+2. **Two databases exist** — app uses `/root/.local/share/plit/pipelit.db`, mounted code has `platform/db.sqlite3` (not used)
+3. **agentgateway must be started manually** inside container after each restart
+4. **Frontend is served from `/app/frontend/dist`** (baked in image) — after rebuilding, copy: `docker exec <container> bash -c 'cp -r /root/.local/share/plit/pipelit/platform/frontend/dist /app/frontend/dist'`
+5. **Python bytecache** — after changing `.py` files, delete `.pyc` and restart container
+6. **Binary symlink** — replace `bin/agentgateway` symlink with actual binary copy before mounting (host symlinks don't resolve in container)
+
 ## Working Style
 - Always present a plan and get user approval BEFORE writing code for architectural changes
 - Do not rush to fix/improve things the user is just showing you for discussion

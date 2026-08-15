@@ -356,8 +356,10 @@ def _discover_model(
     temperature: float | None,
     db: Session,
 ) -> tuple[int, str, float | None]:
-    """Auto-discover the best model from available LLM credentials.
+    """Auto-discover the best model available through agentgateway.
 
+    Iterates LLM credentials for provider matching, but the model list
+    itself comes from the agentgateway config (no raw API key is read).
     Preference can be "cheapest", "fastest", or "most_capable".
     """
     creds = (
@@ -388,29 +390,37 @@ def _discover_model(
     return (best_cred_id, best_model, temperature)
 
 
+# Maps agentgateway provider dir names to credential provider_type values.
+# Any provider not listed here is an openai-compatible custom backend.
+_GATEWAY_PROVIDER_TYPE_MAP = {"openai": "openai", "anthropic": "anthropic", "glm": "glm"}
+
+
 def _fetch_model_ids(cred: LLMProviderCredential) -> list[str]:
-    """Fetch available model IDs from a credential. Best-effort, silent on failure."""
-    if cred.provider_type == "anthropic":
-        return [
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-0-20250514",
-            "claude-haiku-3-5-20241022",
-            "claude-3-5-sonnet-20241022",
-        ]
-    # For OpenAI-compatible providers, try the /models endpoint
+    """List model IDs reachable through agentgateway for this credential's provider.
+
+    Sources models from the agentgateway config tree
+    (``list_all_available_models()``) instead of calling the upstream
+    ``/models`` endpoint with a raw API key — pipelit no longer holds raw
+    LLM keys (they live in agentgateway).  Best-effort, silent on failure.
+    """
     try:
-        import httpx
-        base_url = (cred.base_url or "https://api.openai.com/v1").rstrip("/")
-        resp = httpx.get(
-            f"{base_url}/models",
-            headers={"Authorization": f"Bearer {cred.api_key}"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        return [m["id"] for m in data if "id" in m]
+        from services.agentgateway_config import list_all_available_models
+
+        gateway_models = list_all_available_models()
     except Exception:
         return []
+
+    model_ids: list[str] = []
+    for m in gateway_models:
+        provider_type = _GATEWAY_PROVIDER_TYPE_MAP.get(m.get("provider"), "openai_compatible")
+        if provider_type != cred.provider_type:
+            continue
+        # model_name is the real upstream model id when the gateway config
+        # sets an override; pass-through models fall back to the route slug.
+        model_id = m.get("model_name") or m.get("model_slug")
+        if model_id:
+            model_ids.append(model_id)
+    return model_ids
 
 
 def _score_model(model_id: str, preference: str) -> float:

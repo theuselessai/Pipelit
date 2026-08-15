@@ -2,7 +2,7 @@
 
 Usage:
     cd platform && python -m cli setup --username admin --password secret
-    cd platform && python -m cli apply-fixture default-agent --provider openai --model gpt-4o --api-key sk-...
+    cd platform && python -m cli apply-fixture default-agent --provider openai --model gpt-4o
 """
 
 from __future__ import annotations
@@ -117,10 +117,12 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         db.add(base_cred)
         db.flush()
 
+        # No api_key: pipelit does not store LLM keys — the raw provider key
+        # lives in agentgateway. This row only carries provider metadata for
+        # routing/provider inference.
         llm_cred = LLMProviderCredential(
             base_credentials_id=base_cred.id,
             provider_type=args.provider,
-            api_key=args.api_key,
             base_url=args.base_url or "",
         )
         db.add(llm_cred)
@@ -154,6 +156,8 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
             component_type="ai_model",
             llm_credential_id=base_cred.id,
             model_name=args.model,
+            # Route pipelit's agentgateway calls to the route plit init created.
+            backend_route=getattr(args, "backend_route", None) or None,
         )
         db.add(model_cfg)
         db.flush()
@@ -279,6 +283,26 @@ def cmd_apply_fixture(args: argparse.Namespace) -> None:
         raise
     finally:
         db.close()
+
+
+def cmd_migrate_credentials(args: argparse.Namespace) -> None:
+    """DEPRECATED — one-shot DB→agentgateway key migration is end-of-life.
+
+    Phase 1(b) hard cutover: pipelit no longer stores LLM provider API keys
+    (the encrypted ``llm_credentials.api_key`` column was dropped), so there
+    is nothing left to migrate. Provider keys and models are managed
+    directly in agentgateway (admin providers API / config.d). The command
+    is kept only to fail loudly with guidance instead of an obscure error.
+    """
+    message = (
+        "migrate-credentials is deprecated and inoperable: pipelit no longer "
+        "stores LLM API keys (llm_credentials.api_key was dropped). Manage "
+        "provider keys and models directly in agentgateway via the admin "
+        "providers API or its config.d directory."
+    )
+    print(json.dumps({"error": "deprecated", "message": message}))
+    print(f"ERROR: {message}", file=sys.stderr)
+    sys.exit(2)
 
 
 def cmd_import_fixture(args: argparse.Namespace) -> None:
@@ -458,19 +482,38 @@ def main() -> None:
     sp_fixture.add_argument(
         "--api-key",
         default=os.environ.get("PIPELIT_LLM_API_KEY"),
-        help="LLM provider API key (or set PIPELIT_LLM_API_KEY env var)",
+        help="DEPRECATED, ignored — LLM keys are managed by agentgateway, "
+        "pipelit no longer stores them (kept so existing install scripts "
+        "don't break)",
     )
     sp_fixture.add_argument("--base-url", default=None, help="LLM provider base URL")
+    sp_fixture.add_argument(
+        "--backend-route",
+        default=None,
+        help="agentgateway route name for the model node (must match the route "
+        "plit init creates, i.e. '<provider>-<model_slug>'). Stored on the "
+        "ai_model node's backend_route so pipelit's proxied LLM calls hit the "
+        "right gateway route.",
+    )
 
     sp_import = sub.add_parser("import-fixture", help="Import a workflow from a fixture JSON file")
     sp_import.add_argument("file", help="Path to fixture JSON file")
+
+    sp_migrate = sub.add_parser(
+        "migrate-credentials",
+        help="DEPRECATED — inoperable; LLM keys are managed directly in agentgateway",
+    )
+    # Legacy flags kept so old invocations fail with the deprecation message
+    # instead of an argparse error.
+    sp_migrate.add_argument("--rollback", action="store_true", help=argparse.SUPPRESS)
+    sp_migrate.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
+    sp_migrate.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
+    sp_migrate.add_argument("--populate-routes", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
     if args.command == "setup" and not args.password:
         parser.error("--password is required (or set PIPELIT_SETUP_PASSWORD env var)")
-    if args.command == "apply-fixture" and not args.api_key:
-        parser.error("--api-key is required (or set PIPELIT_LLM_API_KEY env var)")
 
     try:
         if args.command == "setup":
@@ -479,6 +522,8 @@ def main() -> None:
             cmd_apply_fixture(args)
         elif args.command == "import-fixture":
             cmd_import_fixture(args)
+        elif args.command == "migrate-credentials":
+            cmd_migrate_credentials(args)
     except SystemExit:
         raise
     except Exception as exc:
