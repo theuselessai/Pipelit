@@ -199,6 +199,11 @@ export default function CredentialsPage() {
                         </Button>
                       )}
                       {cred.credential_type === "tool" && (
+                        <Button variant="outline" size="sm" onClick={() => handleTest(cred.id)} disabled={tr === "loading"}>
+                          {tr === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : tr && typeof tr === "object" ? (tr.ok ? <CheckCircle className="h-4 w-4 text-green-500" /> : <XCircle className="h-4 w-4 text-destructive" />) : "Test"}
+                        </Button>
+                      )}
+                      {cred.credential_type === "tool" && (
                         <Button
                           variant="ghost"
                           size="sm"

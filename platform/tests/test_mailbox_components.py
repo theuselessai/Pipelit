@@ -13,6 +13,31 @@ from components import COMPONENT_REGISTRY
 from services.mailbox import Mail, Mailbox, MailboxError, MailboxNotFound
 
 
+@pytest.fixture
+def app(db):
+    from main import app as _app
+    from database import get_db
+
+    def _override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    _app.dependency_overrides[get_db] = _override_get_db
+    yield _app
+    _app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth_client(app, api_key):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    client.headers["Authorization"] = f"Bearer {api_key.key}"
+    return client
+
+
 def _node(operation: str = "create_mailbox", credential_id: int | None = 1, **extra):
     cfg = SimpleNamespace(
         extra_config={"operation": operation, **extra},
@@ -48,6 +73,53 @@ class TestRegistration:
         from schemas.node_types import NODE_TYPE_REGISTRY
 
         assert NODE_TYPE_REGISTRY["mailbox_parse"].executable is False
+
+
+class TestCredentialPersistsThroughTheAPI:
+    """Selecting a credential in the UI must actually save it.
+
+    `credential_id` lives on the shared component_configs table but was written
+    only for triggers, so a mailbox node's credential was dropped on PATCH: 200
+    back, extra_config persisted, credential silently gone. Nothing in the logs,
+    and from the UI it just looked like Save not working.
+    """
+
+    def test_credential_id_survives_a_patch(self, auth_client, workflow, db):
+        from models.credential import BaseCredential, ToolCredential
+
+        cred = BaseCredential(user_profile_id=1, name="mailbox", credential_type="tool")
+        db.add(cred)
+        db.flush()
+        db.add(ToolCredential(base_credentials_id=cred.id, tool_type="mailbox",
+                              config={"base_url": "https://mail.invalid", "domain": "mail.invalid"},
+                              secret="s"))
+        db.commit()
+
+        created = auth_client.post(
+            f"/api/v1/workflows/{workflow.slug}/nodes/",
+            json={"component_type": "mailbox_action", "config": {}},
+        )
+        assert created.status_code == 201
+        node_id = created.json()["node_id"]
+
+        resp = auth_client.patch(
+            f"/api/v1/workflows/{workflow.slug}/nodes/{node_id}/",
+            json={"config": {"credential_id": cred.id,
+                             "extra_config": {"operation": "create_mailbox"}}},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["config"]["credential_id"] == cred.id, "credential was dropped on save"
+        assert resp.json()["config"]["extra_config"]["operation"] == "create_mailbox"
+
+    def test_a_non_credentialed_type_still_cannot_set_one(self):
+        """The gate stays shut for everything that has not opted in — the panel
+        posts the whole config object on every save."""
+        from api.nodes import CREDENTIALED_NODE_TYPES
+
+        assert "mailbox_action" in CREDENTIALED_NODE_TYPES
+        assert "code" not in CREDENTIALED_NODE_TYPES
+        assert "agent" not in CREDENTIALED_NODE_TYPES
 
 
 class TestCredentialLoading:

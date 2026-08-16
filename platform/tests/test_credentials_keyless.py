@@ -14,9 +14,11 @@ setup rather than a misconfiguration.  Two separate places used to reject it:
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -121,6 +123,83 @@ class TestKeylessConnectionTest:
             auth_client.post(f"/api/v1/credentials/{keyless_credential.id}/test/")
 
         assert mock_get.call_args.args[0] == "http://192.168.0.73:8080/v1/models"
+
+
+class TestMailboxCredentialTest:
+    """A mailbox credential must be testable from the Credentials page.
+
+    Without it, a bad value is only discovered mid-execution: an admin secret
+    pasted one character short reached the service, was correctly refused, and
+    surfaced as a failed workflow run rather than as a bad credential.
+    """
+
+    def _tool(self, secret="s", config=None):
+        return SimpleNamespace(
+            tool_type="mailbox",
+            config={"base_url": "https://mail.invalid", "domain": "mail.invalid"} if config is None else config,
+            secret=secret,
+        )
+
+    def test_valid_credential_passes(self):
+        from api.credentials import _test_tool_credential
+
+        with patch("services.mailbox.list_unknown_mails", return_value=[]):
+            result = _test_tool_credential(self._tool())
+
+        assert result["ok"] is True
+
+    def test_rejected_secret_reports_the_services_own_message(self):
+        from api.credentials import _test_tool_credential
+        from services.mailbox import MailboxError
+
+        with patch("services.mailbox.list_unknown_mails",
+                   side_effect=MailboxError("GET /admin/mails_unknow failed: You need to provide "
+                                            "the admin password to access this page", 401)):
+            result = _test_tool_credential(self._tool(secret="truncated"))
+
+        assert result["ok"] is False
+        assert "admin password" in result["error"]
+
+    def test_unreachable_host_is_reported_not_raised(self):
+        """An unreachable host is the likeliest thing a connection test meets;
+        letting httpx escape turns the endpoint into a 500."""
+        from api.credentials import _test_tool_credential
+
+        with patch("services.mailbox.list_unknown_mails",
+                   side_effect=httpx.ConnectError("Name or service not known")):
+            result = _test_tool_credential(self._tool())
+
+        assert result["ok"] is False
+        assert "Could not reach" in result["error"]
+
+    def test_missing_fields_name_the_field(self):
+        from api.credentials import _test_tool_credential
+
+        result = _test_tool_credential(self._tool(secret=""))
+
+        assert result["ok"] is False
+        assert "admin_auth" in result["error"]
+
+    def test_the_secret_is_never_echoed_back(self):
+        from api.credentials import _test_tool_credential
+        from services.mailbox import MailboxError
+
+        secret = "super-secret-admin-auth"
+        with patch("services.mailbox.list_unknown_mails", side_effect=MailboxError("nope", 401)):
+            result = _test_tool_credential(self._tool(secret=secret))
+
+        assert secret not in json.dumps(result)
+
+    def test_an_untested_tool_type_says_so(self):
+        """Rather than the misleading 'LLM credential not found' 404 it used to give."""
+        from api.credentials import _test_tool_credential
+
+        result = _test_tool_credential(
+            SimpleNamespace(tool_type="searxng", config={"url": "http://x"}, secret="")
+        )
+
+        assert result["ok"] is False
+        assert "searxng" in result["error"]
 
 
 class TestKeylessRuntimeClient:
