@@ -135,6 +135,17 @@ for node types** — only for the credential column.
 3. `schemas/node.py` — `Literal` member
 4. `schemas/node_type_defs.py` — `register_node_type` with ports
 5. `frontend/src/types/models.ts` — union member
+6. `frontend/.../NodePalette.tsx` — `ICONS` entry
+7. `frontend/.../NodePalette.tsx` — `NODE_CATEGORIES` entry
+
+CLAUDE.md lists the first five. **Six and seven are real and were missing from
+it**: a type absent from `NODE_CATEGORIES` exists in the API and renders on the
+canvas but can never be *added* from the palette, which is indistinguishable
+from the node not existing. `ICONS` is a `Record<ComponentType, …>` so the
+compiler always caught that one; `NODE_CATEGORIES` was a plain array and had
+drifted — `router` was unreachable from the UI. Both are now compiler-enforced,
+and the exhaustiveness check was verified to fail by removing a type and
+watching tsc name it.
 
 ## Out of scope / parked
 
