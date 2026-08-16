@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from models.node import BaseComponentConfig, ModelComponentConfig, TriggerComponentConfig, WorkflowEdge, WorkflowNode
+from models.node import CREDENTIALED_NODE_TYPES, BaseComponentConfig, ModelComponentConfig, TriggerComponentConfig, WorkflowEdge, WorkflowNode
 from models.scheduled_job import ScheduledJob
 from models.user import UserProfile, UserRole
 from models.workflow import Workflow
@@ -58,6 +58,10 @@ def serialize_config(cc: BaseComponentConfig) -> dict:
         result["timeout"] = cc.timeout
         result["max_retries"] = cc.max_retries
         result["response_format"] = cc.response_format
+    elif cc.component_type in CREDENTIALED_NODE_TYPES:
+        # Must match the write path in api/nodes.py, or the value saves and then
+        # reads back null — the picker looks empty and Save looks broken.
+        result["credential_id"] = cc.credential_id
     elif isinstance(cc, TriggerComponentConfig) or cc.component_type.startswith("trigger_"):
         result["credential_id"] = cc.credential_id
         result["is_active"] = cc.is_active if cc.is_active is not None else True

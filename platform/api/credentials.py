@@ -75,6 +75,48 @@ def _auth_headers(api_key: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
+def _test_tool_credential(tool: ToolCredential) -> dict:
+    """Probe a tool credential without side effects.
+
+    Worth having because the alternative is discovering a bad value mid-run: a
+    mailbox admin secret pasted one character short reached the service, was
+    correctly refused, and surfaced as a failed workflow execution rather than
+    as a bad credential.
+    """
+    if tool.tool_type == "mailbox":
+        from services.mailbox import MailboxConfig, MailboxError, list_unknown_mails
+
+        conf = tool.config or {}
+        try:
+            cfg = MailboxConfig(
+                base_url=conf.get("base_url", ""),
+                admin_auth=tool.secret or "",
+                domain=conf.get("domain", ""),
+            ).resolved()
+            # Cheap, read-only, and admin-gated — it 401s without a valid secret.
+            # Creating a mailbox would prove more but litters a shared instance
+            # on every click of Test.
+            list_unknown_mails(cfg, limit=1)
+        except MailboxError as exc:
+            # MailboxError never carries the credential value, only the response.
+            return {"ok": False, "error": str(exc)[:500]}
+        except httpx.HTTPError as exc:
+            # DNS, TLS, refused, timeout — the most likely thing a connection
+            # test meets, and it must be reported rather than raised: an
+            # unreachable host escaping here becomes a 500 from the endpoint.
+            return {"ok": False, "error": f"Could not reach {cfg.base_url}: {type(exc).__name__}: {exc}"[:500]}
+        return {
+            "ok": True,
+            "detail": "Base URL and admin auth accepted. The domain is not exercised "
+                      "by this check — a wrong one fails at create_mailbox.",
+        }
+
+    return {
+        "ok": False,
+        "error": f"No connection test is implemented for tool type '{tool.tool_type}'.",
+    }
+
+
 def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
     data = {
         "id": cred.id,
@@ -113,6 +155,9 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
         data["detail"] = {
             "tool_type": tool.tool_type,
             "config": tool.config,
+            # Masked, never returned in full — this is the same treatment
+            # llm_credentials.api_key gets, for the same reason.
+            "secret": _mask(tool.secret) if tool.secret else "",
             "is_preferred": tool.is_preferred,
         }
     return data
@@ -196,6 +241,7 @@ def create_credential(
             base_credentials_id=base.id,
             tool_type=detail.get("tool_type", "api"),
             config=detail.get("config", {}),
+            secret=detail.get("secret", ""),
             is_preferred=detail.get("is_preferred", False),
         )
         db.add(sub)
@@ -282,6 +328,13 @@ def update_credential(
                 tool.tool_type = detail["tool_type"]
             if "config" in detail:
                 tool.config = detail["config"]
+            # An omitted secret keeps the stored one, and echoing back the masked
+            # value this API hands out is a no-op rather than self-destruction.
+            # (The llm branch above overwrites unconditionally and does lose the
+            # key that way — same latent wart, not fixed here.)
+            new_secret = detail.get("secret")
+            if new_secret and new_secret != _mask(tool.secret):
+                tool.secret = new_secret
             if "is_preferred" in detail:
                 tool.is_preferred = detail["is_preferred"]
 
@@ -413,6 +466,10 @@ def test_credential(
         if health_info is None:
             return {"ok": False, "detail": "not found in gateway"}
         return {"ok": True, "detail": health_info}
+
+    # Tool credential: each tool type knows its own cheap authenticated probe
+    if cred.credential_type == "tool" and cred.tool_credential:
+        return _test_tool_credential(cred.tool_credential)
 
     if not cred.llm_credential:
         raise HTTPException(status_code=404, detail="LLM credential not found.")

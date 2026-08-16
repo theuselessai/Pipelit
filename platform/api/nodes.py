@@ -23,10 +23,10 @@ from models.user import UserProfile
 from schemas.node import EdgeIn, EdgeOut, EdgeUpdate, NodeIn, NodeOut, NodeUpdate
 from api._helpers import get_workflow, serialize_edge, serialize_node
 from services.scheduler import pause_scheduled_job, resume_scheduled_job, start_scheduled_job
+from models.node import CREDENTIALED_NODE_TYPES
 from ws.broadcast import broadcast
 
 router = APIRouter()
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,6 +202,8 @@ def update_node(
             if k in model_fields and cc.component_type == "ai_model":
                 setattr(cc, k, v)
             elif k in trigger_fields and cc.component_type.startswith("trigger_"):
+                setattr(cc, k, v)
+            elif k == "credential_id" and cc.component_type in CREDENTIALED_NODE_TYPES:
                 setattr(cc, k, v)
             elif k == "system_prompt":
                 cc.system_prompt = v

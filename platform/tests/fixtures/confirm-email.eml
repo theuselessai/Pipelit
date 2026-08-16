@@ -1,0 +1,343 @@
+Received: from e234-51.smtp-out.ap-northeast-1.amazonses.com (23.251.234.51)
+        by cloudflare-email.net (cloudflare) id Zcqp3wyyTXtw
+        for <tmpzcmsk6p64j@mcp.kiwi>; Sat, 08 Aug 2026 09:41:34 +0000
+ARC-Seal: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; cv=none;
+	b=KLqkAjJqWutXdxQ1KXPszmL9jhu13SFAQakvY5k4SontVVpnXlrINxV8oHEkNnAGX3GoUaiBQ
+	KbswnhNlzOXs4wwatZexZ+S2O26ZI2ejGY0NZecyML0Kwjhnj//K2ifwApccokqHYx0VvdzWiOm
+	ahu39SPe9FP5IH+Hqw+KGXDAmqoAt0WVmz8EmnMr7Ss/sy8FxmfoOCRv9Khjw6FBA86GIFRXwhr
+	xvLGCXVlKe1UusdAR3lL8+Xr8KlOfcKw0vo3aBvuit8UMxXR37judG4SWznOhhB6RPXoNGNMplW
+	FvTxxTx27s09XzWzIcFLEvBzcQ8TyONDiEJ0KmgkDGCA==;
+ARC-Message-Signature: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; c=relaxed/relaxed;
+	h=Date:Subject:To:From:from:reply-to:cc:resent-date:resent-from:resent-to
+	:resent-cc:in-reply-to:references:list-id:list-help:list-subscribe
+	:list-post:list-owner:list-archive; t=1786182094; x=1786786894; bh=Wusbi3Os
+	5aPMrzLwWH3hOzRT4kWXRwR8Yv3tgpCAJUs=; b=AzQCwHiiPxVQ7MqMa1qWjtqiNThMi+MkeR5
+	iMN1Pz5VcGw6OvoUiBBghWGMpZ89rwr0/GAT+TSOiqXauFCS7goPqlLKgbk1eVkcW3Hv8oZVVaJ
+	a7tVw2eTykbywWTsDmjnlsqnBYnSV6dsNZON8wFrfjyoPAqeOQesvngcFyKFXOj3nHKafeozP1s
+	VgEySTzzuJWHq/tU+2xIHi1HZuRHdKcStFU7Kbnbe6VqKu4pbbgv0jKn7Y+ISVeR4af612EU/wf
+	CALyj1mH2TsmxsFE5xprUq6tyxvcKgS8VDvKEUVflQxGt+86rEBgw8nDoJw1T/5eFUY1r9oZzQG
+	0XAvFcw==;
+ARC-Authentication-Results: i=1; mx.cloudflare.net;
+	dkim=pass header.d=uat.icecap.me header.s=resend header.b=gfMmx88c;
+	dkim=pass header.d=amazonses.com header.s=zh4gjftm6etwoq6afzugpky45synznly header.b=OvzUGjZJ;
+	dmarc=pass header.from=uat.icecap.me policy.dmarc=none;
+	spf=pass (mx.cloudflare.net: domain of postmaster@e234-51.smtp-out.ap-northeast-1.amazonses.com designates 23.251.234.51 as permitted sender) smtp.helo=e234-51.smtp-out.ap-northeast-1.amazonses.com;
+	spf=pass (mx.cloudflare.net: domain of 0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me designates 23.251.234.51 as permitted sender) smtp.mailfrom=0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me;
+	arc=none smtp.remote-ip=23.251.234.51
+Received-SPF: pass (mx.cloudflare.net: domain of 0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me designates 23.251.234.51 as permitted sender)
+	receiver=mx.cloudflare.net; client-ip=23.251.234.51; envelope-from="0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me"; helo=e234-51.smtp-out.ap-northeast-1.amazonses.com;
+Authentication-Results: mx.cloudflare.net;
+	dkim=pass header.d=uat.icecap.me header.s=resend header.b=gfMmx88c;
+	dkim=pass header.d=amazonses.com header.s=zh4gjftm6etwoq6afzugpky45synznly header.b=OvzUGjZJ;
+	dmarc=pass header.from=uat.icecap.me policy.dmarc=none;
+	spf=pass (mx.cloudflare.net: domain of postmaster@e234-51.smtp-out.ap-northeast-1.amazonses.com designates 23.251.234.51 as permitted sender) smtp.helo=e234-51.smtp-out.ap-northeast-1.amazonses.com;
+	spf=pass (mx.cloudflare.net: domain of 0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me designates 23.251.234.51 as permitted sender) smtp.mailfrom=0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me;
+	arc=none smtp.remote-ip=23.251.234.51
+X-CF-SpamH-Score: 1
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/simple; s=resend;
+	d=uat.icecap.me; t=1786182094;
+	h=From:To:Subject:Message-ID:Date:MIME-Version:Content-Type;
+	bh=RnA2HAO5Uni693crDOtUS2gO11YuFQ51eUjZzItORQc=;
+	b=gfMmx88cRYoDsQzVzK2UT+Te0eM7dEVcT1zdVa3Hf+aNfQmJW7iPeUO2P6+n8ghW
+	wKfqMjXT1/FB2IMabD1uMtaAe3O10s62uonMcmnAR/VqkH4TrCIPKowwqwJrQLwBnRP
+	LBevfXTaNkymcqBa6Vu13TIqzwfhMK0C0UwQ2/Bo=
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/simple;
+	s=zh4gjftm6etwoq6afzugpky45synznly; d=amazonses.com; t=1786182094;
+	h=From:To:Subject:Message-ID:Date:MIME-Version:Content-Type:Feedback-ID;
+	bh=RnA2HAO5Uni693crDOtUS2gO11YuFQ51eUjZzItORQc=;
+	b=OvzUGjZJLEPgWjBM9Sbfex6eWumAo6ENjQw+r9VmaY83S846mOZGOwTPp04EzPGa
+	lNWVRpGxYyAAiDCbn1u6sn/8LOwzDTxHGoaYrLDpQHWmfWIBTW6CCxF/Qsf6TATjTjW
+	4r4qNVTC7kffjKjLhT30MQRHKim7FrOE5wxpd6OM=
+From: no-reply@uat.icecap.me
+To: tmpzcmsk6p64j@mcp.kiwi
+Subject: Please Confirm Your Email Address
+Message-ID: <0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@ap-northeast-1.amazonses.com>
+Date: Sat, 8 Aug 2026 09:41:33 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-f2d9fc94578eda37-Part_1"
+Feedback-ID: :1.ap-northeast-1.TOZUjv4D32rHKpTSttYRlhQwVctvKB2ZQXlAVetnc4Ud0qeEVqTelq4MdLmWOAcEm9RE/3lj0WbaV0QHkOdcGzf/U2tMWmGR/g0o89BYSfuIXYjr16kn0u/hO8YjPJkLVJMCAk1JfSHVNFeTCWhcl/bTBW40FanOspIfm+Y+WliKHThmzfhqxqXvMVhXoAX9:1.ap-northeast-1.TOS0vxEE3Ar6ai29fkp2i/jb+l2iigajCGeLfF7S3sk=:AmazonSES
+X-SES-Outgoing: 2026.08.08-23.251.234.51
+
+----_NmP-f2d9fc94578eda37-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+ZEROCAP
+
+Hello Journey Probe,
+
+Welcome to Zerocap.
+
+To complete your registration, please confirm your email address by =
+clicking the link below:
+
+Confirm Email https://fe1-stv.uat.icecap.=
+me/verify-email/JKQG7CQWI66J5KKV5UYP3MECTA7FMQQ2
+
+If you did not request =
+this, you can safely ignore this message.
+
+Best regards,
+
+The Zerocap Support Team
+
+
+
+Zerocap PTY LTD, 412 St Kilda Rd, Melbourne, =
+Victoria 3004, Australia, 1800 937 622
+=C2=A9 2025 Zerocap PTY LTD. All =
+Rights Reserved.
+----_NmP-f2d9fc94578eda37-Part_1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html><html lang=3D"en" xmlns=3D"http://www.w3.org/1999/xhtml" =
+xmlns:v=3D"urn:schemas-microsoft-com:vml" xmlns:o=3D"urn:schemas-microsoft-=
+com:office:office"><head>
+  <meta charset=3D"utf-8">
+  <meta name=3D"viewport" content=3D"width=3Ddevice-width, =
+initial-scale=3D1.0">
+  <meta http-equiv=3D"X-UA-Compatible" =
+content=3D"IE=3Dedge">
+  <meta name=3D"x-apple-disable-message-reformatting=
+">
+  <meta name=3D"format-detection" content=3D"telephone=3Dno,address=3Dno=
+,email=3Dno,date=3Dno,url=3Dno">
+  <!--[if mso]>
+  <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      =
+<o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+  </xml>
+  <![endif]-->
+  <style data-css-inline=3D"ignore">
+    /* Head-only rules for clients that honour this stylesheet: resets and
+       @media blocks, which cannot ride inline. */
+    html, body { =
+margin:0 !important; padding:0 !important; height:100% !important; =
+width:100% !important; }
+    * { -ms-text-size-adjust:100%; =
+-webkit-text-size-adjust:100%; }
+    table, td { mso-table-lspace:0pt !=
+important; mso-table-rspace:0pt !important; }
+    table { border-spacing:0 =
+!important; border-collapse:collapse !important; table-layout:fixed !=
+important; margin:0 auto !important; }
+    img { -ms-interpolation-mode:bic=
+ubic; border:0; height:auto; line-height:100%; outline:none; =
+text-decoration:none; }
+    a { text-decoration:none; }
+    /* Mobile styles */
+    @media screen and (max-width: 600px) {
+      .container { width:100% !important; }
+      .px-24 { =
+padding-left:16px !important; padding-right:16px !important; }
+      .py-32 { padding-top:24px !important; padding-bottom:24px !important;=
+ }
+      .btn { width:100% !important; text-align:center !important; }
+    }
+    /* Dark mode friendly */
+    @media (prefers-color-scheme: dark) =
+{
+      body, .bg-body { background-color:#111111 !important; }
+      .card { background-color:#1b1b1b !important; border-color:#2a2a2a !=
+important; }
+      .brand { color:#ffffff !important; }
+      .text { color:#eaeaea !important; }
+      .muted { color:#b7b7b7 !=
+important; }
+      .btn { background-color:#ffffff !important; =
+color:#0b0b0b !important; }
+      a:not(.btn) { color:#8ab4f8 !important; }
+      .divider { border-top-color:#2a2a2a !important; }
+    }
+  </style>
+  <style>
+    /* Single source of the content-cell layout. Dispatch inlines=
+ this
+       stylesheet onto each matching element, so clients that strip =
+<head>
+       styles still see it. */
+    .cell { padding:8px 28px 0 28px; =
+font-family:Inter, Segoe UI, Arial, sans-serif; }
+  </style>
+</head>
+<body class=3D"bg-body" width=3D"100%" style=3D"margin:0; padding:0; =
+background-color:#f4f6f8;">
+  <div style=3D"width:100%; =
+background-color:#f4f6f8;">
+    <table role=3D"presentation" =
+cellpadding=3D"0" cellspacing=3D"0" width=3D"100%">
+      <tbody><tr>
+        <td align=3D"center">
+          <!-- Outer container -->
+          <table class=3D"container" role=3D"presentation" =
+cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" style=3D"max-width:680px=
+;">
+            <tbody><tr>
+              <td class=3D"px-24 py-32" =
+style=3D"padding:32px 24px;">
+                <!-- Card -->
+                <table class=3D"card" role=3D"presentation" width=3D"100%" =
+style=3D"background:#ffffff; border:1px solid #e6e8eb; border-radius:8px;">
+                  <tbody><tr>
+                    <td style=3D"padding:28px=
+ 28px 8px 28px;">
+                      <!-- Brand -->
+                      <table role=3D"presentation" width=3D"100%">
+                        <tbody><tr>
+                          <td =
+class=3D"brand" style=3D"font-family:Inter,Segoe UI,Arial,sans-serif; =
+font-size:18px; font-weight:700; letter-spacing:0.2px; color:#0b0c0c;">
+                            <!-- Replace the src with your hosted logo -->
+                            <svg width=3D"24" height=3D"28" viewBox=3D"0 0 =
+24 28" fill=3D"none" style=3D"vertical-align:middle;" xmlns=3D"http://www.=
+w3.org/2000/svg">
+                                  <path d=3D"M20.8804 19.=
+019L20.8062 19.063L12.1001 24.1206L12.0249 24.1636L11.9497 24.1206L3.20068 =
+19.063L3.12549 19.02V8.73096L3.20068 8.68799L11.9497 3.63037L12.0249 3.=
+58643L12.1001 3.63037L20.8062 8.68799L20.8804 8.73193V19.019Z" =
+stroke=3D"#E8E8E8" stroke-width=3D"0.3"></path>
+                           =
+       <path d=3D"M20.73 8.81826V18.9334L12.0242 23.991L3.27542 18.9334V8.=
+81826L0 6.91626V20.8354L12.0242 27.795L24.0054 20.8354V6.91626L20.73 8.=
+81826Z" fill=3D"#F16152"></path>
+                                  <path =
+d=3D"M12.0242 3.76076L20.73 8.81834L24.0054 6.91635L12.0242 0L0 6.91635L3.=
+27542 8.81834L12.0242 3.76076Z" fill=3D"#A83031"></path></svg>
+                            <span style=3D"margin-left:8px; =
+vertical-align:middle;">ZEROCAP</span>
+                          </td>
+                        </tr>
+                      </tbody></table>
+                    </td>
+                  </tr>
+                 =20
+<tr>
+  <td class=3D"cell text" style=3D"padding: 8px 28px 0 28px;font-family: =
+Inter, Segoe UI, Arial, sans-serif;font-size: 16px;line-height: 24px;color:=
+ #0b0c0c">
+    <p style=3D"margin:0 0 16px 0;">Hello <strong>Journey =
+Probe</strong>,</p>
+    <p style=3D"margin:0 0 16px 0;">Welcome to Zerocap.=
+</p>
+    <p style=3D"margin:0 0 8px 0;">To complete your registration, =
+please confirm your email address by clicking the link below:</p>
+  </td>
+</tr>
+<tr>
+  <td style=3D"padding:20px 28px 8px 28px;">
+    <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"left">
+      <tbody><tr>
+        <td bgcolor=3D"#0B0B0B" =
+style=3D"border-radius:6px;">
+          <a class=3D"btn" =
+href=3D"https://fe1-stv.uat.icecap.me/verify-email/JKQG7CQWI66J5KKV5UYP3MEC=
+TA7FMQQ2" target=3D"_blank" style=3D"display:inline-block; padding:10px =
+18px; font-family:Inter, Segoe UI, Arial, sans-serif; font-size:14px; =
+line-height:20px; color:#ffffff; background:#0b0b0b; border-radius:6px; =
+font-weight:600;">Confirm Email</a>
+        </td>
+      </tr>
+    </tbody></table>
+  </td>
+</tr>
+
+<tr>
+  <td class=3D"cell muted" =
+style=3D"padding: 8px 28px 0 28px;font-family: Inter, Segoe UI, Arial, =
+sans-serif;font-size: 13px;line-height: 20px;color: #4a4f55">
+    <p style=3D"margin:0 0 12px 0;">If you did not request this, you can =
+safely ignore this message.</p>
+  </td>
+</tr>
+<tr>
+  <td class=3D"muted" =
+style=3D"padding:8px 28px 24px 28px; font-family:Inter, Segoe UI, Arial, =
+sans-serif; font-size:13px; line-height:20px; color:#4a4f55;">
+    <p style=3D"margin:0 0 2px 0;">Best regards,</p>
+    <p style=3D"margin:0;">The Zerocap Support Team</p>
+  </td>
+</tr>
+
+
+                  <tr>
+                    <td style=3D"padding:0 28px;">
+                      <div class=3D"divider" style=3D"border-top:1px solid =
+#e6e8eb;"></div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style=3D"padding:16px 28px =
+28px 28px;">
+                      <table role=3D"presentation" =
+width=3D"100%">
+                        <tbody><tr>
+                          <td class=3D"muted" style=3D"font-family:Inter, =
+Segoe UI, Arial, sans-serif; font-size:11px; line-height:16px; =
+color:#6b7177;">
+                            Zerocap PTY LTD, 412 St Kilda =
+Rd, Melbourne, Victoria 3004, Australia, 1800 937 622<br>
+                            =C2=A9 2025 Zerocap PTY LTD. All Rights =
+Reserved.
+                          </td>
+                          <td =
+align=3D"right">
+                            <!-- Social icons placeholders=
+ -->
+                            <svg width=3D"32" height=3D"32" =
+viewBox=3D"0 0 32 32" fill=3D"none" style=3D"display:inline-block; =
+margin-left:8px;" xmlns=3D"http://www.w3.org/2000/svg">
+<path d=3D"M16.0364 0H15.9636C7.14714 0 0 7.14713 0 15.9636V16.0364C0 24.=
+8529 7.14714 32 15.9636 32H16.0364C24.8529 32 32 24.8529 32 16.0364V15.=
+9636C32 7.14713 24.8529 0 16.0364 0Z" fill=3D"#979797"></path>
+<path d=3D"M8.94058 10.7356C8.56676 10.3885 8.38086 9.95892 8.38086 9.=
+44775C8.38086 8.93659 8.56776 8.48807 8.94058 8.14C9.31439 7.79293 9.79558 =
+7.6189 10.3851 7.6189C10.9747 7.6189 11.437 7.79293 11.8098 8.14C12.1836 8.=
+48708 12.3695 8.92366 12.3695 9.44775C12.3695 9.97185 12.1826 10.3885 11.=
+8098 10.7356C11.436 11.0827 10.9618 11.2567 10.3851 11.2567C9.80851 11.2567=
+ 9.31439 11.0827 8.94058 10.7356ZM12.0554 12.7266V23.3675H8.69402V12.=
+7266H12.0554Z" fill=3D"white"></path>
+<path d=3D"M23.2449 13.7781C23.9776 =
+14.5737 24.3435 15.6656 24.3435 17.0559V23.1799H21.1511V17.4875C21.1511 16.=
+7864 20.9692 16.2414 20.6063 15.8536C20.2434 15.4657 19.7543 15.2708 19.=
+1419 15.2708C18.5295 15.2708 18.0403 15.4647 17.6774 15.8536C17.3145 16.=
+2414 17.1326 16.7864 17.1326 17.4875V23.1799H13.9214V12.6971H17.1326V14.=
+0874C17.4577 13.624 17.8962 13.258 18.4469 12.9885C18.9977 12.719 19.6171 =
+12.5847 20.3061 12.5847C21.5329 12.5847 22.5132 12.9825 23.2449 13.7771V13.=
+7781Z" fill=3D"white"></path></svg>
+                            <svg =
+width=3D"32" height=3D"32" viewBox=3D"0 0 32 32" fill=3D"none" =
+style=3D"display:inline-block; margin-left:8px;" xmlns=3D"http://www.w3.=
+org/2000/svg">
+<path d=3D"M31.9978 16.0006C31.9978 24.0816 26.0078 30.7623 =
+18.2265 31.8464C17.4989 31.9473 16.7545 32 15.9989 32C15.1267 32 14.2702 31=
+.9305 13.4361 31.796C5.81838 30.5695 0 23.9638 0 16.0006C0 7.16393 7.16368 =
+0 16 0C24.8363 0 32 7.16393 32 16.0006H31.9978Z" fill=3D"#979797"></path>
+<path d=3D"M7.47289 8.38086L14.0167 17.1323L7.43213 24.2478H8.91447L14.6798=
+ 18.0184L19.3376 24.2478H24.3811L17.4695 15.0041L23.5987 8.38086H22.1163L16=
+.8073 14.118L12.5174 8.38086H7.47388H7.47289ZM9.65215 9.4728H11.9686L22.=
+1998 23.1559H19.8834L9.65215 9.4728Z" fill=3D"white"></path></svg>
+
+                          </td>
+                        </tr>
+                      </tbody></table>
+                    </td>
+                  </tr>
+                </tbody></table>
+                <!-- /Card -->
+              </td>
+            </tr>
+          </tbody></table>
+        </td>
+      </tr>
+    </tbody></table>
+  </div>
+
+
+</body></html>
+----_NmP-f2d9fc94578eda37-Part_1--

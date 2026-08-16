@@ -44,6 +44,9 @@ export default function CredentialsPage() {
   const [organizationId, setOrganizationId] = useState("")
   const [toolType, setToolType] = useState("searxng")
   const [toolUrl, setToolUrl] = useState("")
+  const [toolBaseUrl, setToolBaseUrl] = useState("")
+  const [toolDomain, setToolDomain] = useState("")
+  const [toolSecret, setToolSecret] = useState("")
   const [toolPreferred, setToolPreferred] = useState(false)
   const [gatewayAdapterType, setGatewayAdapterType] = useState("telegram")
   const [gatewayToken, setGatewayToken] = useState("")
@@ -55,8 +58,11 @@ export default function CredentialsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    if (credType === "tool" && !toolUrl.trim()) {
+    if (credType === "tool" && toolType === "searxng" && !toolUrl.trim()) {
       return // URL is required
+    }
+    if (credType === "tool" && toolType === "mailbox" && (!toolBaseUrl.trim() || !toolDomain.trim() || !toolSecret.trim())) {
+      return // base URL, domain and admin auth are all required — the driver validates loudly too
     }
     let detail: Record<string, unknown> = {}
     if (credType === "llm") detail = { provider_type: providerType, api_key: apiKey, base_url: baseUrl, organization_id: organizationId }
@@ -71,7 +77,13 @@ export default function CredentialsPage() {
         }
       }
     }
-    else if (credType === "tool") detail = { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
+    else if (credType === "tool") {
+      // `config` is a plain JSON column; anything sensitive belongs in `secret`,
+      // which is encrypted at rest and only ever read back masked.
+      detail = toolType === "mailbox"
+        ? { tool_type: toolType, config: { base_url: toolBaseUrl, domain: toolDomain }, secret: toolSecret, is_preferred: toolPreferred }
+        : { tool_type: toolType, config: { url: toolUrl }, is_preferred: toolPreferred }
+    }
     await createCredential.mutateAsync({ name, credential_type: credType, detail })
     setOpen(false)
     setCredType("llm")
@@ -85,6 +97,9 @@ export default function CredentialsPage() {
     setGatewayConfig("")
     setToolType("searxng")
     setToolUrl("")
+    setToolBaseUrl("")
+    setToolDomain("")
+    setToolSecret("")
     setToolPreferred(false)
   }
 
@@ -184,6 +199,10 @@ export default function CredentialsPage() {
                         </Button>
                       )}
                       {cred.credential_type === "tool" && (
+                        <>
+                        <Button variant="outline" size="sm" onClick={() => handleTest(cred.id)} disabled={tr === "loading"}>
+                          {tr === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : tr && typeof tr === "object" ? (tr.ok ? <CheckCircle className="h-4 w-4 text-green-500" /> : <XCircle className="h-4 w-4 text-destructive" />) : "Test"}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -195,6 +214,7 @@ export default function CredentialsPage() {
                         >
                           <Star className={`h-4 w-4 ${(cred.detail as Record<string, unknown>).is_preferred ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`} />
                         </Button>
+                        </>
                       )}
                       {cred.credential_type === "gateway" && (
                         <>
@@ -306,13 +326,36 @@ export default function CredentialsPage() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="searxng">SearXNG</SelectItem>
+                      <SelectItem value="mailbox">Mailbox (temp-mail)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>URL</Label>
-                  <Input value={toolUrl} onChange={(e) => setToolUrl(e.target.value)} placeholder="http://localhost:8888" required />
-                </div>
+                {toolType === "searxng" && (
+                  <div className="space-y-2">
+                    <Label>URL</Label>
+                    <Input value={toolUrl} onChange={(e) => setToolUrl(e.target.value)} placeholder="http://localhost:8888" required />
+                  </div>
+                )}
+                {toolType === "mailbox" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Base URL</Label>
+                      <Input value={toolBaseUrl} onChange={(e) => setToolBaseUrl(e.target.value)} placeholder="https://api.mcp.kiwi" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Domain</Label>
+                      <Input value={toolDomain} onChange={(e) => setToolDomain(e.target.value)} placeholder="mcp.kiwi" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Admin Auth</Label>
+                      <Input type="password" value={toolSecret} onChange={(e) => setToolSecret(e.target.value)} placeholder="x-admin-auth header value" required />
+                      <p className="text-[11px] text-muted-foreground">
+                        Stored encrypted and only ever read back masked. This credential reads and
+                        deletes <strong>every</strong> mailbox on the instance, not just ones created here.
+                      </p>
+                    </div>
+                  </>
+                )}
                 <div className="flex items-center gap-2">
                   <Checkbox checked={toolPreferred} onCheckedChange={(v) => setToolPreferred(v === true)} />
                   <Label className="text-sm">Preferred (use this credential when multiple are available)</Label>

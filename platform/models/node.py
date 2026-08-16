@@ -229,6 +229,14 @@ class _ValidateTopologyConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "validate_topology"}
 
 
+class _MailboxActionConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "mailbox_action"}
+
+
+class _MailboxParseConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "mailbox_parse"}
+
+
 class TriggerComponentConfig(BaseComponentConfig):
     """Config for trigger nodes."""
     __mapper_args__ = {"polymorphic_identity": "trigger_telegram"}
@@ -259,6 +267,19 @@ class _ReplyChatConfig(BaseComponentConfig):
 
 
 # Mapping from component_type string to the config class to use for creation
+CREDENTIALED_NODE_TYPES = {"mailbox_action"}
+"""Non-trigger node types that carry a credential of their own.
+
+`credential_id` lives on the shared component_configs table, but both the write
+path (api/nodes.py) and the read path (api/_helpers.py) gated it on the type
+being a trigger. A node outside that gate had its credential silently dropped on
+save AND omitted from the response, so the picker came back empty — which reads
+as "Save doesn't work", with nothing in the logs.
+
+The gating itself is deliberate: the details panel posts the whole config object
+on every save, so an ungated field would let a mailbox node acquire a
+model_name. New types opt in here, and both paths read this one set."""
+
 COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "ai_model": ModelComponentConfig,
     "agent": AIComponentConfig,
@@ -292,6 +313,8 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "skill": _SkillConfig,
     "validate_gherkin": _ValidateGherkinConfig,
     "validate_topology": _ValidateTopologyConfig,
+    "mailbox_action": _MailboxActionConfig,
+    "mailbox_parse": _MailboxParseConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,
     "trigger_manual": TriggerComponentConfig,
