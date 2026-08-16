@@ -337,6 +337,43 @@ register_node_type(NodeTypeSpec(
 ))
 
 register_node_type(NodeTypeSpec(
+    component_type="mailbox_action",
+    display_name="Mailbox",
+    description=(
+        "Disposable inboxes on the temp-mail service: create, wait for a message, "
+        "read a verification or reset token, delete, prune. Needs a mailbox credential."
+    ),
+    category="action",
+    inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=False,
+                           description="Optional upstream value; parameters come from config")],
+    outputs=[
+        PortDefinition(name="result", data_type=DataType.OBJECT, description="Operation-specific payload"),
+        PortDefinition(name="address", data_type=DataType.STRING,
+                       description="Mailbox address as returned by the service — authoritative"),
+        PortDefinition(name="address_id", data_type=DataType.STRING,
+                       description="Numeric id; every /admin/*/:id route keys on this"),
+        PortDefinition(name="jwt", data_type=DataType.STRING,
+                       description="Per-mailbox token, scoped to this mailbox alone"),
+        PortDefinition(name="token", data_type=DataType.STRING,
+                       description="Verification or reset token, for the wait_for_*_email operations"),
+        PortDefinition(name="mails", data_type=DataType.ARRAY, description="Matched messages"),
+    ],
+))
+
+register_node_type(NodeTypeSpec(
+    component_type="mailbox_parse",
+    display_name="Parse Email",
+    description=(
+        "Pull a verification token, a reset token, or links out of a raw message. "
+        "Pure — no network and no credential, so it is safe to give an agent."
+    ),
+    category="sub_component",
+    executable=False,
+    inputs=[PortDefinition(name="raw_message", data_type=DataType.STRING, description="Raw RFC-822 message")],
+    outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="Extracted token, URLs, or decoded text")],
+))
+
+register_node_type(NodeTypeSpec(
     component_type="output_parser",
     display_name="Output Parser",
     category="sub_component",

@@ -113,6 +113,9 @@ def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
         data["detail"] = {
             "tool_type": tool.tool_type,
             "config": tool.config,
+            # Masked, never returned in full — this is the same treatment
+            # llm_credentials.api_key gets, for the same reason.
+            "secret": _mask(tool.secret) if tool.secret else "",
             "is_preferred": tool.is_preferred,
         }
     return data
@@ -196,6 +199,7 @@ def create_credential(
             base_credentials_id=base.id,
             tool_type=detail.get("tool_type", "api"),
             config=detail.get("config", {}),
+            secret=detail.get("secret", ""),
             is_preferred=detail.get("is_preferred", False),
         )
         db.add(sub)
@@ -282,6 +286,13 @@ def update_credential(
                 tool.tool_type = detail["tool_type"]
             if "config" in detail:
                 tool.config = detail["config"]
+            # An omitted secret keeps the stored one, and echoing back the masked
+            # value this API hands out is a no-op rather than self-destruction.
+            # (The llm branch above overwrites unconditionally and does lose the
+            # key that way — same latent wart, not fixed here.)
+            new_secret = detail.get("secret")
+            if new_secret and new_secret != _mask(tool.secret):
+                tool.secret = new_secret
             if "is_preferred" in detail:
                 tool.is_preferred = detail["is_preferred"]
 

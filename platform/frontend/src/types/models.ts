@@ -39,6 +39,8 @@ export type ComponentType =
   | "skill"
   | "validate_gherkin"
   | "validate_topology"
+  | "mailbox_action"
+  | "mailbox_parse"
   | "assertion"
 export type EdgeType = "direct" | "conditional"
 // "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.

@@ -11,6 +11,7 @@ import {
   Code, UserCheck, ShieldAlert, FileText, CheckSquare, FileCheck,
   Database, DatabaseZap, UserSearch, UserPlus, Plug, Fingerprint, KeyRound,
   Rocket, PencilRuler, CalendarClock, HeartPulse,
+  Mail, MailSearch,
   type LucideIcon,
 } from "lucide-react"
 
@@ -55,6 +56,8 @@ const ICONS: Record<ComponentType, LucideIcon> = {
   validate_gherkin: CheckSquare,
   validate_topology: FileCheck,
   assertion: ClipboardCheck,
+  mailbox_action: Mail,
+  mailbox_parse: MailSearch,
 }
 
 const NODE_CATEGORIES: { label: string; types: ComponentType[] }[] = [

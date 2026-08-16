@@ -55,6 +55,7 @@ from components import (  # noqa: E402, F401
     trigger,
     validate_gherkin,
     validate_topology,
+    mailbox,
     whoami,
     workflow_create,
     workflow_discover,

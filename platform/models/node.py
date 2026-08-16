@@ -229,6 +229,14 @@ class _ValidateTopologyConfig(BaseComponentConfig):
     __mapper_args__ = {"polymorphic_identity": "validate_topology"}
 
 
+class _MailboxActionConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "mailbox_action"}
+
+
+class _MailboxParseConfig(BaseComponentConfig):
+    __mapper_args__ = {"polymorphic_identity": "mailbox_parse"}
+
+
 class TriggerComponentConfig(BaseComponentConfig):
     """Config for trigger nodes."""
     __mapper_args__ = {"polymorphic_identity": "trigger_telegram"}
@@ -292,6 +300,8 @@ COMPONENT_TYPE_TO_CONFIG: dict[str, type[BaseComponentConfig]] = {
     "skill": _SkillConfig,
     "validate_gherkin": _ValidateGherkinConfig,
     "validate_topology": _ValidateTopologyConfig,
+    "mailbox_action": _MailboxActionConfig,
+    "mailbox_parse": _MailboxParseConfig,
     "trigger_telegram": TriggerComponentConfig,
     "trigger_schedule": TriggerComponentConfig,
     "trigger_manual": TriggerComponentConfig,

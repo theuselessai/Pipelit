@@ -103,8 +103,12 @@ class ToolCredential(Base):
     base_credentials_id: Mapped[int] = mapped_column(
         ForeignKey("credentials.id", ondelete="CASCADE"), unique=True
     )
-    tool_type: Mapped[str] = mapped_column(String(20))  # searxng, browser, api
+    tool_type: Mapped[str] = mapped_column(String(20))  # searxng, browser, api, mailbox
     config: Mapped[dict] = mapped_column(JSON, default=dict)
+    # `config` is a plain JSON column, so it must never hold a secret. Anything
+    # sensitive goes here instead, where EncryptedString gives it Fernet at rest
+    # — the same treatment as LLMProviderCredential.api_key.
+    secret: Mapped[str] = mapped_column(EncryptedString(500), default="")
     is_preferred: Mapped[bool] = mapped_column(Boolean, default=False)
 
     base_credentials: Mapped[BaseCredential] = relationship("BaseCredential", back_populates="tool_credential")
