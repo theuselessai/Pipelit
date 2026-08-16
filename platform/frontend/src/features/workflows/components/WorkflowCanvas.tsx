@@ -124,7 +124,7 @@ function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean; nodeOutput?: Record<string, unknown> }; selected?: boolean }) {
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean; nodeOutput?: Record<string, unknown>; operation?: string }; selected?: boolean }) {
   const iconColor = getColor(data.componentType)
   const isRunning = data.executionStatus === "running"
   const isWaiting = data.executionStatus === "waiting"
@@ -186,9 +186,17 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
         {COMPONENT_ICONS[data.componentType] && (
           <FontAwesomeIcon icon={COMPONENT_ICONS[data.componentType]} className="w-5 h-5 shrink-0" style={{ color: iconColor }} />
         )}
-        <div>
+        <div className="min-w-0">
           <div className="text-xs font-medium text-muted-foreground">{displayType}</div>
-          <div className="text-sm font-semibold">{isAiModel ? (data.modelName || "undefined") : displayLabel}</div>
+          {/* The label is a random suffix, so a node carrying an operation shows
+              that instead — otherwise every mailbox node looks alike on canvas.
+              Same treatment ai_model already gets with its model name. */}
+          <div className="text-sm font-semibold truncate">
+            {isAiModel ? (data.modelName || "undefined") : data.operation ? data.operation.replace(/_/g, " ") : displayLabel}
+          </div>
+          {data.operation && (
+            <div className="text-[10px] text-muted-foreground truncate">{displayLabel}</div>
+          )}
         </div>
       </div>
       {data.isEntryPoint && <div className="text-[10px] text-primary mt-1">Entry Point</div>}
@@ -440,7 +448,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id] },
+      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id], operation: n.component_type === "mailbox_action" ? ((n.config?.extra_config?.operation as string) || "create_mailbox") : undefined },
       selected: n.node_id === selectedNodeId,
     }
   }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry])

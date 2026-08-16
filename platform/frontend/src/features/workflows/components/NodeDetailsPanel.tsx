@@ -56,6 +56,74 @@ function formatTimestamp(ts: string | undefined): string {
   }
 }
 
+type MailboxField = {
+  key: string
+  label: string
+  type: "text" | "number" | "boolean"
+  placeholder?: string
+  help?: string
+}
+
+/**
+ * The parameters each mailbox operation reads from extra_config.
+ *
+ * Data-driven rather than a block of conditionals per operation: the node
+ * carries eight operations and the set will grow, and this is the shape
+ * NodeTypeSpec.config_schema would take if anything consumed it yet.
+ *
+ * Text fields accept {{ }} expressions, which is how an address reaches a
+ * downstream node — so nothing here is validated as a literal.
+ */
+const MAILBOX_ADDRESS: MailboxField = {
+  key: "address", label: "Address", type: "text",
+  placeholder: "{{ create_mailbox_1.address }}",
+  help: "Use the address the service returned, never one rebuilt from the name.",
+}
+const MAILBOX_JWT: MailboxField = {
+  key: "jwt", label: "Mailbox JWT", type: "text",
+  placeholder: "{{ create_mailbox_1.jwt }}",
+  help: "Optional. Supplying it keeps the full-service admin secret out of this call.",
+}
+const MAILBOX_TIMEOUT: MailboxField = {
+  key: "timeout_seconds", label: "Timeout (seconds)", type: "number",
+  placeholder: "150", help: "Verification mail has been observed at 60-120s.",
+}
+
+const MAILBOX_OPERATION_FIELDS: Record<string, MailboxField[]> = {
+  create_mailbox: [
+    { key: "name", label: "Name", type: "text", placeholder: "(random, e2e-prefixed)",
+      help: "Alphanumeric only — the service silently strips everything else." },
+  ],
+  delete_mailbox: [
+    { key: "address_id", label: "Address ID", type: "text",
+      placeholder: "{{ create_mailbox_1.address_id }}",
+      help: "The numeric id, not the address. This is what revokes the mailbox JWT." },
+  ],
+  list_mails: [MAILBOX_ADDRESS, MAILBOX_JWT],
+  wait_for_mail: [
+    MAILBOX_ADDRESS, MAILBOX_JWT,
+    { key: "contains", label: "Body contains", type: "text",
+      help: "Optional. Without it the first message that arrives matches." },
+    MAILBOX_TIMEOUT,
+    { key: "poll_seconds", label: "Poll interval (seconds)", type: "number", placeholder: "2" },
+  ],
+  wait_for_verification_email: [MAILBOX_ADDRESS, MAILBOX_JWT, MAILBOX_TIMEOUT],
+  wait_for_reset_password_email: [MAILBOX_ADDRESS, MAILBOX_JWT, MAILBOX_TIMEOUT],
+  list_unknown_mails: [],
+  prune_mailboxes: [
+    { key: "prefix", label: "Prefix", type: "text", placeholder: "tmpe2e",
+      help: "Required, no default: this prefix is shared across repos and matches other suites' mailboxes." },
+    { key: "protect", label: "Protect (comma separated)", type: "text",
+      placeholder: "tmpe2e178623933674lfew@mcp.kiwi",
+      help: "Required to delete. Reconcile against portal-client/docs/funded-entity-handover.md first." },
+    { key: "older_than_days", label: "Only older than (days)", type: "number",
+      help: "Secondary guard. Measured: it cannot separate junk from the permanent fixtures." },
+    { key: "limit", label: "Scan limit", type: "number", placeholder: "100" },
+    { key: "dry_run", label: "Dry run", type: "boolean" },
+    { key: "confirm", label: "Confirm deletion", type: "boolean" },
+  ],
+}
+
 const MAILBOX_OPERATION_HELP: Record<string, string> = {
   create_mailbox: "Creates a disposable address. Emits address, address_id and a mailbox-scoped jwt.",
   wait_for_verification_email: "Polls for the confirmation mail, then extracts its token. Needs address; jwt optional but avoids using the admin secret.",
@@ -217,6 +285,21 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [mailboxOperation, setMailboxOperation] = useState<string>(
     (node.config.extra_config?.operation as string) ?? "create_mailbox"
   )
+  const [mailboxParams, setMailboxParams] = useState<Record<string, string | boolean>>(() => {
+    const extra = (node.config.extra_config ?? {}) as Record<string, unknown>
+    const seeded: Record<string, string | boolean> = {}
+    for (const fields of Object.values(MAILBOX_OPERATION_FIELDS)) {
+      for (const f of fields) {
+        if (extra[f.key] === undefined) continue
+        seeded[f.key] = f.type === "boolean"
+          ? Boolean(extra[f.key])
+          : Array.isArray(extra[f.key]) ? (extra[f.key] as unknown[]).join(", ") : String(extra[f.key])
+      }
+    }
+    // dry_run defaults on: prune deletes real mailboxes on a shared instance
+    if (seeded.dry_run === undefined) seeded.dry_run = true
+    return seeded
+  })
   const [triggerIsActive, setTriggerIsActive] = useState(node.config.is_active ?? true)
   const [triggerPriority, setTriggerPriority] = useState<string>(node.config.priority?.toString() ?? "0")
   const [triggerConfig, setTriggerConfig] = useState(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
@@ -355,6 +438,20 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     }
     if (node.component_type === "mailbox_action") {
       parsedExtra = { ...parsedExtra, operation: mailboxOperation }
+      for (const f of MAILBOX_OPERATION_FIELDS[mailboxOperation] ?? []) {
+        const v = mailboxParams[f.key]
+        if (f.type === "boolean") {
+          parsedExtra[f.key] = Boolean(v)
+        } else if (typeof v === "string" && v.trim() !== "") {
+          // `protect` is a list; everything else is a scalar. Numbers stay
+          // strings when they carry a {{ }} expression rather than a literal.
+          parsedExtra[f.key] = f.key === "protect"
+            ? v.split(",").map((x) => x.trim()).filter(Boolean)
+            : f.type === "number" && !v.includes("{{") ? Number(v) : v
+        } else {
+          delete parsedExtra[f.key]
+        }
+      }
     }
     if (node.component_type === "merge") {
       parsedExtra = { ...parsedExtra, mode: mergeMode }
@@ -1489,9 +1586,33 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 ))}
               </SelectContent>
             </Select>
+            {(MAILBOX_OPERATION_FIELDS[mailboxOperation] ?? []).map((f) => (
+              <div key={f.key} className="space-y-1">
+                {f.type === "boolean" ? (
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">{f.label}</Label>
+                    <Switch
+                      checked={Boolean(mailboxParams[f.key])}
+                      onCheckedChange={(v) => setMailboxParams((prev) => ({ ...prev, [f.key]: v }))}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <Label className="text-xs">{f.label}</Label>
+                    <Input
+                      className="text-xs h-7"
+                      value={String(mailboxParams[f.key] ?? "")}
+                      placeholder={f.placeholder}
+                      onChange={(e) => setMailboxParams((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    />
+                  </>
+                )}
+                {f.help && <p className="text-[10px] text-muted-foreground">{f.help}</p>}
+              </div>
+            ))}
             <p className="text-[10px] text-muted-foreground">
-              Parameters go in Extra Config, and accept {"{{ }}"} expressions — e.g.{" "}
-              {"{"}"address": "{"{{"} create_mailbox_1.address {"}}"}"{"}"}
+              Text fields accept {"{{ }}"} expressions. Anything not listed here can still be set
+              in Extra Config below.
             </p>
           </div>
         </>
