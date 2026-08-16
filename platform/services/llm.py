@@ -136,7 +136,13 @@ def create_llm_from_db(
             kwargs["model_kwargs"] = {"response_format": response_format}
         if credential.base_url:
             kwargs["base_url"] = credential.base_url
-        return SanitizedChatOpenAI(api_key=api_key, **kwargs)
+        # Local inference servers (llama.cpp, vLLM, LM Studio, Ollama, MLX) take
+        # any token or none, so a keyless credential is a legitimate setup here.
+        # The OpenAI SDK refuses to construct without one ("Missing credentials.
+        # Please pass an `api_key` ..."), so stand in a placeholder rather than
+        # failing a configuration that works.  A server that does check the token
+        # still rejects it, with its own error.
+        return SanitizedChatOpenAI(api_key=api_key or "not-needed", **kwargs)
 
     raise ValueError(f"Unsupported provider type: {provider_type}")
 
