@@ -10,6 +10,7 @@ import {
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
   faTerminal, faUserPlus, faPlug, faFingerprint,
   faDatabase, faFloppyDisk, faIdCard,
+  faEnvelope, faEnvelopeOpenText,
   faRocket, faPenRuler, faCompass, faBrain, faGraduationCap,
   faSquareCheck, faFileCircleCheck,
 } from "@fortawesome/free-solid-svg-icons"
@@ -59,6 +60,8 @@ const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
 }
 
 const COMPONENT_COLORS: Record<string, string> = {
+  mailbox_action: "#0ea5e9",
+  mailbox_parse: "#38bdf8",
   ai_model: "#3b82f6",
   agent: "#8b5cf6",
   deep_agent: "#7c3aed",
@@ -100,6 +103,8 @@ const COMPONENT_COLORS: Record<string, string> = {
 }
 
 const COMPONENT_ICONS: Record<string, IconDefinition> = {
+  mailbox_action: faEnvelope,
+  mailbox_parse: faEnvelopeOpenText,
   ai_model: faMicrochip, agent: faRobot, deep_agent: faBrain,
   categorizer: faTags, router: faCodeBranch, switch: faCodeBranch, extractor: faMagnifyingGlassChart,
   run_command: faTerminal,
