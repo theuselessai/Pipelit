@@ -99,11 +99,31 @@ Default timeout is **150s** — observed verification latency is 60–120s, so t
 driver's 60s default sits exactly where it flakes. That stays inside Pipelit's
 5-minute node timeout.
 
-## Lifecycle
+## Lifecycle — and why prune is the dangerous one
 
-353 addresses currently exist on the instance; 322 of them start with `tmpe2e`.
-Nothing has ever cleaned up. `prune_mailboxes` filters on the `name` prefix and
-`created_at`/`updated_at` from `GET /admin/address`, and defaults to dry-run.
+353 addresses exist on the instance; 322 start with `tmpe2e`, and nothing has
+ever cleaned up. But **the prefix carries no ownership**: `e2e` is
+portal-client's `e2eId()`, shared across repos, so a prefix match sweeps up
+every mailbox any suite has created — including the permanent fixtures in
+`portal-client/docs/funded-entity-handover.md`. `tmpe2e178623933674lfew@mcp.kiwi`
+belongs to the only funded, vendor-ready entity, described there as
+irreplaceable, and it matches.
+
+The damage would be irreversible in an unusual way: nothing in the portal API
+deletes a user, so the account outlives its mailbox with no channel for password
+reset or email confirmation — permanently half-usable, impossible to recreate.
+
+**An age floor does not solve it.** Measured 2026-08-16: all 322 matching
+mailboxes were 3-7 days old and the funded fixture sat at the median.
+`older_than=3` would delete 307 including the fixture; `older_than=7` deletes
+nothing. No threshold separates junk from treasure, so age is a secondary guard
+and the protect list is what actually discriminates.
+
+So `prune_mailboxes` requires an explicit `prefix` (no default), an explicit
+non-empty `protect` list, and `confirm=True` before deleting anything; caps a
+run at 25; and defaults to dry-run. It must never be called from a lifecycle
+hook — a blind prefix match on a timer is how the funded fixture disappears at
+3am.
 
 ## Registration checklist
 

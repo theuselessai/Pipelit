@@ -129,43 +129,104 @@ class TestOperations:
 
 
 class TestPrune:
+    """Prune is the one destructive operation, and the prefix it matches on is
+    NOT ours — `e2e` belongs to portal-client's e2eId() and is shared across
+    repos. `tmpe2e178623933674lfew@mcp.kiwi` is the only funded, vendor-ready UAT
+    fixture and matches it. Nothing in the portal API deletes a user, so removing
+    that mailbox strands an account that cannot be recreated.
+    """
+
+    FUNDED_FIXTURE = "tmpe2e178623933674lfew@mcp.kiwi"
+
     def _addresses(self):
         return [
-            {"id": 1, "name": "tmpe2eaaa", "created_at": "old"},
-            {"id": 2, "name": "tmpsomeoneelse", "created_at": "old"},
-            {"id": 3, "name": "tmpe2ebbb", "created_at": "old"},
+            {"id": 1, "name": "tmpe2eaaa@mcp.kiwi", "created_at": "2020-01-01 00:00:00"},
+            {"id": 2, "name": "tmpsomeoneelse@mcp.kiwi", "created_at": "2020-01-01 00:00:00"},
+            {"id": 3, "name": self.FUNDED_FIXTURE, "created_at": "2020-01-01 00:00:00"},
         ]
 
-    def test_dry_run_is_the_default_and_deletes_nothing(self):
-        """This deletes real mailboxes on a shared instance, and the prefix is
-        all that separates ours from someone else's."""
+    def _run(self, **extra):
         with patch(CONFIG_PATCH), \
                 patch("components.mailbox.mb.list_addresses", side_effect=[self._addresses(), []]), \
                 patch("components.mailbox.mb.delete_mailbox") as delete:
-            out = _build(_node("prune_mailboxes"))({})
+            out = _build(_node("prune_mailboxes", **extra))({})
+        return out["result"], delete
 
-        assert out["result"]["dry_run"] is True
-        assert out["result"]["matched"] == 2
-        assert out["result"]["deleted"] == 0
+    def test_no_default_prefix(self):
+        """A default of 'tmpe2e' would sweep up every suite's mailboxes."""
+        with patch(CONFIG_PATCH):
+            with pytest.raises(MailboxError, match="explicit `prefix`"):
+                _build(_node("prune_mailboxes"))({})
+
+    def test_dry_run_is_the_default(self):
+        result, delete = self._run(prefix="tmpe2e")
+        assert result["dry_run"] is True
+        assert result["deleted"] == 0
         delete.assert_not_called()
 
-    def test_only_the_prefix_matches(self):
-        with patch(CONFIG_PATCH), \
-                patch("components.mailbox.mb.list_addresses", side_effect=[self._addresses(), []]), \
-                patch("components.mailbox.mb.delete_mailbox") as delete:
-            out = _build(_node("prune_mailboxes", dry_run=False))({})
+    def test_delete_refuses_without_confirm(self):
+        result, delete = self._run(prefix="tmpe2e", dry_run=False, protect=[self.FUNDED_FIXTURE])
+        assert "confirm=True is required" in result["refused"]
+        delete.assert_not_called()
 
-        assert out["result"]["deleted"] == 2
-        assert sorted(c.args[1] for c in delete.call_args_list) == [1, 3]
+    def test_delete_refuses_without_a_protect_list(self):
+        """The prefix cannot distinguish disposable mailboxes from fixtures, so
+        whoever deletes must have reconciled against the handover register."""
+        result, delete = self._run(prefix="tmpe2e", dry_run=False, confirm=True)
+        assert "protect" in result["refused"]
+        delete.assert_not_called()
+
+    def test_protected_entries_are_excluded(self):
+        result, delete = self._run(
+            prefix="tmpe2e", dry_run=False, confirm=True, protect=[self.FUNDED_FIXTURE],
+        )
+        assert result["protected"] == 1
+        assert result["deleted"] == 1
+        assert [c.args[1] for c in delete.call_args_list] == [1], "only the unprotected mailbox"
+
+    def test_the_funded_fixture_is_never_deleted_when_protected(self):
+        _, delete = self._run(
+            prefix="tmpe2e", dry_run=False, confirm=True, protect=[self.FUNDED_FIXTURE],
+        )
+        deleted_ids = [c.args[1] for c in delete.call_args_list]
+        assert 3 not in deleted_ids, "deleted the irreplaceable funded fixture"
+
+    def test_age_floor_skips_young_mailboxes(self):
+        """Secondary guard only: measured against the live instance, every
+        matching mailbox was 3-7 days old with the fixture at the median, so no
+        threshold separates junk from treasure."""
+        with patch(CONFIG_PATCH), \
+                patch("components.mailbox.mb.list_addresses",
+                      side_effect=[[{"id": 9, "name": "tmpe2enew@mcp.kiwi",
+                                     "created_at": "2999-01-01 00:00:00"}], []]), \
+                patch("components.mailbox.mb.delete_mailbox") as delete:
+            out = _build(_node("prune_mailboxes", prefix="tmpe2e", dry_run=False,
+                               confirm=True, protect=["x"], older_than_days=30))({})
+
+        assert out["result"]["skipped_too_young"] == 1
+        delete.assert_not_called()
+
+    def test_refuses_a_sweep_above_the_ceiling(self):
+        many = [{"id": i, "name": f"tmpe2e{i}@mcp.kiwi", "created_at": "2020-01-01 00:00:00"}
+                for i in range(60)]
+        with patch(CONFIG_PATCH), \
+                patch("components.mailbox.mb.list_addresses", side_effect=[many, []]), \
+                patch("components.mailbox.mb.delete_mailbox") as delete:
+            out = _build(_node("prune_mailboxes", prefix="tmpe2e", dry_run=False,
+                               confirm=True, protect=["nothing"]))({})
+
+        assert "ceiling" in out["result"]["refused"]
+        delete.assert_not_called()
 
     def test_a_failed_delete_does_not_abort_the_sweep(self):
         with patch(CONFIG_PATCH), \
                 patch("components.mailbox.mb.list_addresses", side_effect=[self._addresses(), []]), \
                 patch("components.mailbox.mb.delete_mailbox",
                       side_effect=[MailboxError("gone"), None]):
-            out = _build(_node("prune_mailboxes", dry_run=False))({})
+            out = _build(_node("prune_mailboxes", prefix="tmpe2e", dry_run=False,
+                               confirm=True, protect=["nothing-matches"]))({})
 
-        assert out["result"]["matched"] == 2
+        assert out["result"]["would_delete"] == 2
         assert out["result"]["deleted"] == 1
 
 

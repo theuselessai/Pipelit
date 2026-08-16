@@ -28,10 +28,9 @@ from services import mailbox as mb
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PRUNE_PREFIX = "tmpe2e"
-"""Mailboxes are created with an `e2e` prefix and the service prepends its own
-`tmp`, so the stored name starts `tmpe2e`. 322 of the 353 addresses on the
-instance matched this when the node was written, none of them cleaned up."""
+PRUNE_MAX_DELETE = 25
+"""Ceiling on deletions per run. A sweep that wants to remove more than this
+should be run deliberately, more than once, by someone watching."""
 
 
 def _load_config(credential_id: int | None) -> mb.MailboxConfig:
@@ -149,16 +148,45 @@ def mailbox_action_factory(node):
 
 
 def _prune(cfg: mb.MailboxConfig, extra: dict) -> dict:
-    """Delete mailboxes matching a name prefix, oldest first.
+    """Delete mailboxes matching a name prefix. Dry-run unless told otherwise.
 
-    Dry-run by default: this deletes real mailboxes on a shared instance, and the
-    prefix is the only thing standing between "our disposable accounts" and
-    someone else's. `matched` is always reported so a dry run tells you exactly
-    what a real run would remove.
+    🔴 THE PREFIX CARRIES NO OWNERSHIP. `e2e` belongs to portal-client's
+    `e2eId()` and is shared across repos, so a prefix match sweeps up every
+    mailbox any suite has ever created on that instance — including the
+    mailboxes of the permanent UAT fixtures in
+    `portal-client/docs/funded-entity-handover.md`. One of those,
+    `tmpe2e178623933674lfew@mcp.kiwi`, belongs to the only funded, vendor-ready
+    entity and is described there as irreplaceable.
+
+    The damage would be irreversible in a way mailbox deletion usually isn't:
+    nothing in the portal API deletes a user, so the account survives its
+    mailbox with no channel for password reset or email confirmation —
+    permanently half-usable and impossible to recreate.
+
+    AN AGE FLOOR DOES NOT SAVE YOU, measured against the live instance
+    2026-08-16: all 322 matching mailboxes were 3-7 days old and the funded
+    fixture sat at the median. `older_than=3` would have deleted 307 of them
+    including the fixture; `older_than=7` deletes nothing. There is no threshold
+    that separates junk from treasure, so age is a secondary guard and the
+    protect list is the one that actually discriminates.
+
+    Hence, to delete anything: an explicit prefix, an explicit protect list, and
+    confirm=True. And never from a lifecycle hook — a blind prefix match on a
+    timer is how the funded fixture disappears at 3am.
     """
-    prefix = extra.get("prefix", DEFAULT_PRUNE_PREFIX)
+    prefix = str(extra.get("prefix") or "")
     dry_run = extra.get("dry_run", True)
+    confirm = extra.get("confirm", False)
+    protect = {str(p).strip() for p in (extra.get("protect") or []) if str(p).strip()}
+    older_than_days = extra.get("older_than_days")
     limit = int(extra.get("limit", 100))
+
+    if not prefix:
+        raise mb.MailboxError(
+            "prune_mailboxes needs an explicit `prefix`. There is deliberately no default: "
+            "'tmpe2e' matches every mailbox portal-client's suites have ever created, including "
+            "permanent fixtures listed in portal-client/docs/funded-entity-handover.md."
+        )
 
     matched: list[dict] = []
     offset = 0
@@ -170,25 +198,72 @@ def _prune(cfg: mb.MailboxConfig, extra: dict) -> dict:
         offset += 50
     matched = matched[:limit]
 
-    deleted = []
-    if not dry_run:
-        for row in matched:
-            try:
-                mb.delete_mailbox(cfg, row["id"])
-                deleted.append(row["id"])
-            except mb.MailboxError:
-                logger.warning("prune: failed to delete mailbox id=%s", row.get("id"), exc_info=True)
+    def _is_protected(row: dict) -> bool:
+        name = str(row.get("name", ""))
+        return any(p in name for p in protect)
 
-    result = {
+    protected = [r for r in matched if _is_protected(r)]
+    candidates = [r for r in matched if not _is_protected(r)]
+
+    skipped_young = 0
+    if older_than_days is not None:
+        keep = []
+        for row in candidates:
+            age = _age_days(row.get("created_at", ""))
+            if age is None or age > float(older_than_days):
+                keep.append(row)
+            else:
+                skipped_young += 1
+        candidates = keep
+
+    deleted: list[int] = []
+    refused: str | None = None
+    if not dry_run:
+        if not confirm:
+            refused = "confirm=True is required to delete; nothing was removed"
+        elif not protect:
+            refused = (
+                "a non-empty `protect` list is required to delete. The prefix cannot tell our "
+                "disposable mailboxes from the permanent fixtures — reconcile against "
+                "portal-client/docs/funded-entity-handover.md and pass them here"
+            )
+        elif len(candidates) > PRUNE_MAX_DELETE:
+            refused = (
+                f"{len(candidates)} mailboxes matched, above the {PRUNE_MAX_DELETE} per-run "
+                "ceiling; narrow the prefix or lower `limit`"
+            )
+        else:
+            for row in candidates:
+                try:
+                    mb.delete_mailbox(cfg, row["id"])
+                    deleted.append(row["id"])
+                except mb.MailboxError:
+                    logger.warning("prune: failed to delete mailbox id=%s", row.get("id"), exc_info=True)
+
+    ports = _blank_ports()
+    ports["result"] = {
         "dry_run": bool(dry_run),
         "prefix": prefix,
         "matched": len(matched),
+        "protected": len(protected),
+        "skipped_too_young": skipped_young,
+        "would_delete": len(candidates),
         "deleted": len(deleted),
-        "names": [a.get("name") for a in matched[:20]],
+        "refused": refused,
+        "names": [a.get("name") for a in candidates[:20]],
     }
-    ports = _blank_ports()
-    ports["result"] = result
     return ports
+
+
+def _age_days(created_at: str) -> float | None:
+    """Age from the service's own `created_at` ('2026-08-13 02:53:41', UTC, naive)."""
+    from datetime import datetime, timezone
+
+    try:
+        stamp = datetime.fromisoformat(created_at.strip().replace("Z", "")).replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+    return (datetime.now(timezone.utc) - stamp).total_seconds() / 86400
 
 
 # ---------------------------------------------------------------------------

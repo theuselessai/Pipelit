@@ -122,6 +122,47 @@ class TestResetPasswordToken:
         raw = "reset: https://host.example/reset-password/TOKEN12345?lang=en#top"
         assert extract_reset_password_token(raw) == "TOKEN12345"
 
+    def test_survives_a_jwt_length_token(self):
+        """Same species as the verification-token truncation, different length.
+
+        The reset token is a JWT and far longer than the 32-char confirmation
+        token, so a capped pattern truncates it while still returning something
+        that looks like a token. Flagged by the sibling suite, which hit exactly
+        this with a capped \\S+ capture.
+        """
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            + "a" * 400
+            + ".c2lnbmF0dXJlLXBhZGRpbmctdGhhdC1rZWVwcy1nb2luZw"
+        )
+        raw = f"reset here: https://host.example/reset-password/{jwt}"
+        assert extract_reset_password_token(raw) == jwt
+
+
+class TestFixtureIntegrity:
+    def test_captured_message_has_not_drifted(self):
+        """Pin the fixture, because it now guards four implementations.
+
+        This file is a copy of portal-client's, which test-hub also copied. Two
+        copies of a fixture guarding two copies of a parser can drift apart
+        silently, and then both sides stay green while disagreeing. A checksum
+        turns that into a failing test.
+
+        It does NOT cover the other failure mode: if the mail service changes its
+        MIME encoding, every stale fixture keeps passing while every live parse
+        breaks. That gap is real and unaddressed here.
+        """
+        import hashlib
+
+        # Verified 2026-08-16: byte-identical across all three copies —
+        # portal-client/src/test/fixtures/, test-hub/src/drivers/mail/fixtures/,
+        # and this one. That shared baseline is what the pin protects.
+        digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+        assert digest == "cb3fc7c1d62739449d811e7cccf504abf61da4103736a8055ca3f6d133e1cf35", (
+            "confirm-email.eml changed. If that was deliberate, re-pin this digest and tell "
+            "whoever maintains the sibling copies; if not, the fixture has drifted."
+        )
+
 
 class TestMailboxNames:
     def test_generated_names_are_alphanumeric_and_prefixed(self):
