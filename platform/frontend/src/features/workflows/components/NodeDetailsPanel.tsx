@@ -211,7 +211,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const [codePopoutWindow, setCodePopoutWindow] = useState<Window | null>(null)
 
   // Trigger fields
-  const [triggerCredentialId, setTriggerCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
+  // Not trigger-specific: credential_id is one column on component_configs,
+  // shared by triggers and by any node in CREDENTIALED_NODE_TYPES.
+  const [credentialId, setCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
   const [mailboxOperation, setMailboxOperation] = useState<string>(
     (node.config.extra_config?.operation as string) ?? "create_mailbox"
   )
@@ -392,7 +394,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
           top_p: topP ? Number(topP) : null,
           frequency_penalty: frequencyPenalty ? Number(frequencyPenalty) : null,
           presence_penalty: presencePenalty ? Number(presencePenalty) : null,
-          credential_id: triggerCredentialId ? Number(triggerCredentialId) : null,
+          credential_id: credentialId ? Number(credentialId) : null,
           is_active: triggerIsActive,
           priority: triggerPriority ? Number(triggerPriority) : 0,
           trigger_config: parsedTriggerConfig,
@@ -473,7 +475,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
             <>
               <div className="space-y-2">
                 <Label className="text-xs">Credential</Label>
-                <Select value={triggerCredentialId || "none"} onValueChange={(v) => setTriggerCredentialId(v === "none" ? "" : v)}>
+                <Select value={credentialId || "none"} onValueChange={(v) => setCredentialId(v === "none" ? "" : v)}>
                   <SelectTrigger><SelectValue placeholder="Select credential (optional)" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">None</SelectItem>
@@ -1478,7 +1480,7 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
               {MAILBOX_OPERATION_HELP[mailboxOperation] ?? ""}
             </p>
             <Label className="text-xs font-semibold">Credential</Label>
-            <Select value={triggerCredentialId || "none"} onValueChange={(v) => setTriggerCredentialId(v === "none" ? "" : v)}>
+            <Select value={credentialId || "none"} onValueChange={(v) => setCredentialId(v === "none" ? "" : v)}>
               <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Select mailbox credential" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">None</SelectItem>
