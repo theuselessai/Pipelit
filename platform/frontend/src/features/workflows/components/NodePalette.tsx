@@ -1,5 +1,6 @@
 import { useCallback } from "react"
 import { useCreateNode } from "@/api/nodes"
+import { useNodeTypes } from "@/api/workflows"
 import { Button } from "@/components/ui/button"
 import type { ComponentType } from "@/types/models"
 import {
@@ -92,8 +93,18 @@ const _everyTypeIsInThePalette: Exclude<ComponentType, PalettedType> extends nev
   : Exclude<ComponentType, PalettedType> = true
 void _everyTypeIsInThePalette
 
+function derivedLabel(type: ComponentType): string {
+  return type.replace(/^trigger_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export default function NodePalette({ slug }: { slug: string }) {
   const createNode = useCreateNode(slug)
+  // The backend already names every node type. Deriving a label from the
+  // component_type string instead produced "Mailbox Action" for a node the
+  // registry calls "Mailbox", and "Ai Model" for "AI Model" — the same
+  // duplication that let NODE_CATEGORIES drift. Fall back to the derived form
+  // only while the registry is still loading.
+  const { data: registry } = useNodeTypes()
 
   const handleAdd = useCallback((type: ComponentType) => {
     createNode.mutate({
@@ -121,7 +132,7 @@ export default function NodePalette({ slug }: { slug: string }) {
                   disabled={createNode.isPending}
                 >
                   {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
-                  {type.replace(/^trigger_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                  {registry?.[type]?.display_name ?? derivedLabel(type)}
                 </Button>
               )
             })}

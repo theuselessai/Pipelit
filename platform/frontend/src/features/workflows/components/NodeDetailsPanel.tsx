@@ -56,6 +56,17 @@ function formatTimestamp(ts: string | undefined): string {
   }
 }
 
+const MAILBOX_OPERATION_HELP: Record<string, string> = {
+  create_mailbox: "Creates a disposable address. Emits address, address_id and a mailbox-scoped jwt.",
+  wait_for_verification_email: "Polls for the confirmation mail, then extracts its token. Needs address; jwt optional but avoids using the admin secret.",
+  wait_for_reset_password_email: "Same, for the password-reset token.",
+  wait_for_mail: "Polls until any message arrives, or one matching `contains`.",
+  list_mails: "Lists what is currently in the mailbox.",
+  delete_mailbox: "Deletes by address_id. This is what revokes the mailbox jwt.",
+  list_unknown_mails: "Mail sent to addresses that do not exist — use when a wait times out.",
+  prune_mailboxes: "Bulk delete by prefix. Dry-run unless confirm=true, and requires an explicit protect list.",
+}
+
 export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Props) {
   // key={node.node_id} causes React to fully remount when switching nodes,
   // so all useState initializers run fresh — no stale state across nodes.
@@ -201,6 +212,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
   // Trigger fields
   const [triggerCredentialId, setTriggerCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
+  const [mailboxOperation, setMailboxOperation] = useState<string>(
+    (node.config.extra_config?.operation as string) ?? "create_mailbox"
+  )
   const [triggerIsActive, setTriggerIsActive] = useState(node.config.is_active ?? true)
   const [triggerPriority, setTriggerPriority] = useState<string>(node.config.priority?.toString() ?? "0")
   const [triggerConfig, setTriggerConfig] = useState(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
@@ -336,6 +350,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     }
     if (node.component_type === "assertion") {
       parsedExtra = { ...parsedExtra, rules: assertionRules, use_llm_judge: assertionJudge, pass_threshold: assertionThreshold }
+    }
+    if (node.component_type === "mailbox_action") {
+      parsedExtra = { ...parsedExtra, operation: mailboxOperation }
     }
     if (node.component_type === "merge") {
       parsedExtra = { ...parsedExtra, mode: mergeMode }
@@ -1439,6 +1456,44 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         </>
       )}
 
+      {node.component_type === "mailbox_action" && (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold">Mailbox Operation</Label>
+            <Select value={mailboxOperation} onValueChange={setMailboxOperation}>
+              <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="create_mailbox">Create mailbox</SelectItem>
+                <SelectItem value="wait_for_verification_email">Wait for verification email</SelectItem>
+                <SelectItem value="wait_for_reset_password_email">Wait for password-reset email</SelectItem>
+                <SelectItem value="wait_for_mail">Wait for any mail</SelectItem>
+                <SelectItem value="list_mails">List mail</SelectItem>
+                <SelectItem value="delete_mailbox">Delete mailbox</SelectItem>
+                <SelectItem value="list_unknown_mails">List unknown mail (diagnostic)</SelectItem>
+                <SelectItem value="prune_mailboxes">Prune mailboxes</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              {MAILBOX_OPERATION_HELP[mailboxOperation] ?? ""}
+            </p>
+            <Label className="text-xs font-semibold">Credential</Label>
+            <Select value={triggerCredentialId || "none"} onValueChange={(v) => setTriggerCredentialId(v === "none" ? "" : v)}>
+              <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Select mailbox credential" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {allCredentials.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              Parameters go in Extra Config, and accept {"{{ }}"} expressions — e.g.{" "}
+              {"{"}"address": "{"{{"} create_mailbox_1.address {"}}"}"{"}"}
+            </p>
+          </div>
+        </>
+      )}
       {node.component_type === "merge" && (
         <>
           <Separator />
