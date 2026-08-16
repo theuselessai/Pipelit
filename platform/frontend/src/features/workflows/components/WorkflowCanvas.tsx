@@ -157,7 +157,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
   const showFallbackHandle = isSwitch && data.enableFallback
   return (
     <div
-      className={`relative px-3 py-2 rounded-lg border-2 border-muted-foreground/50 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
+      className={`relative px-3 py-2 rounded-lg border-2 border-muted-foreground/50 bg-card shadow-sm ${isFixedWidth ? "w-[250px]" : data.operation ? "min-w-[200px]" : "min-w-[140px]"} ${selected ? "ring-2 ring-primary" : ""}`}
     >
       {!isTrigger && !isSubComponent && <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />}
       {isSubComponent && <Handle type="source" position={Position.Top} id="sub-source" className="!bg-muted-foreground !w-2 !h-2 !rounded-none !rotate-45" />}
@@ -187,12 +187,12 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           )}
         </div>
       )}
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${data.executable !== false && !isTool ? "pr-6" : ""}`}>
         {COMPONENT_ICONS[data.componentType] && (
           <FontAwesomeIcon icon={COMPONENT_ICONS[data.componentType]} className="w-5 h-5 shrink-0" style={{ color: iconColor }} />
         )}
         <div className="min-w-0">
-          <div className="text-xs font-medium text-muted-foreground">{displayType}</div>
+          <div className="text-xs font-medium text-muted-foreground truncate">{displayType}</div>
           {/* The label is a random suffix, so a node carrying an operation shows
               that instead — otherwise every mailbox node looks alike on canvas.
               Same treatment ai_model already gets with its model name. */}
