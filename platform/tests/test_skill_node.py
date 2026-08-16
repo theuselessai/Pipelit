@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import tempfile
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -590,76 +592,158 @@ class TestSandboxedSkillAwareBackend:
 
 
 class TestMakeSkillAwareBackend:
-    """Tests for the _make_skill_aware_backend factory function."""
+    """Tests for _make_skill_aware_backend.
 
-    def test_factory_with_class_backend(self):
-        """Factory correctly instantiates a class-based backend (like StateBackend)."""
+    It returns an initialized backend instance, not a factory: deepagents 0.7
+    removed backend factories, and FilesystemMiddleware rejects any callable
+    that is not a BackendProtocol instance.
+    """
+
+    def test_wraps_instance_backend(self):
+        """The supplied backend instance is wrapped directly."""
         from components._agent_shared import _make_skill_aware_backend, SkillAwareBackend
 
-        class MockBackendClass:
-            def __init__(self, tool_runtime):
-                self.tool_runtime = tool_runtime
-
-        factory = _make_skill_aware_backend(MockBackendClass, ["/skills"])
-        runtime = MagicMock()
-        result = factory(runtime)
-
-        assert isinstance(result, SkillAwareBackend)
-        assert isinstance(result._default, MockBackendClass)
-        assert result._default.tool_runtime is runtime
-
-    def test_factory_with_instance_backend(self):
-        """Factory wraps an existing backend instance directly."""
-        from components._agent_shared import _make_skill_aware_backend, SkillAwareBackend
-
-        # Use a plain object with ls to simulate a backend instance
-        # (MagicMock is always callable, so it would be treated as a factory)
         class FakeBackend:
             def ls(self, path):
                 return []
 
         existing_backend = FakeBackend()
-        factory = _make_skill_aware_backend(existing_backend, ["/skills"])
-        runtime = MagicMock()
-        result = factory(runtime)
+        result = _make_skill_aware_backend(existing_backend, ["/skills"])
 
         assert isinstance(result, SkillAwareBackend)
         assert result._default is existing_backend
 
-    def test_factory_preserves_skill_paths(self):
-        """Factory passes skill paths through to SkillAwareBackend."""
+    def test_returns_instance_not_factory(self):
+        """The return value must be a backend instance, never a callable.
+
+        A callable here is precisely what deepagents 0.7 rejects, and it made
+        every deep_agent node with skill edges fail at construction.
+        """
+        from components._agent_shared import _make_skill_aware_backend, SkillAwareBackend
+
+        result = _make_skill_aware_backend(MagicMock(), ["/skills"])
+
+        assert isinstance(result, SkillAwareBackend)
+        assert not callable(result)
+
+    def test_accepted_by_deepagents_filesystem_middleware(self):
+        """The wrapper is accepted by the real deepagents middleware.
+
+        This is the assertion whose absence let the 0.7 breakage through: the
+        unit tests exercised our own factory contract and mocked out
+        create_deep_agent, so nothing ever checked what deepagents does with
+        what we hand it.
+        """
+        from deepagents.middleware.filesystem import FilesystemMiddleware
+        from deepagents.backends.state import StateBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        backend = _make_skill_aware_backend(StateBackend(), ["/skills"])
+        middleware = FilesystemMiddleware(backend=backend)
+
+        assert middleware.backend is backend
+
+    def test_exposes_full_protocol_surface_on_the_class(self):
+        """Every BackendProtocol method must exist on the CLASS, not just the instance.
+
+        deepagents 0.7 introspects the backend class — `type(backend).delete`
+        (protocol.py `_supports_delete`) and `getattr(cls, "grep")`
+        (`_method_accepts_max_count`). `__getattr__` only answers instance
+        lookups, so methods left to it are invisible there: `_supports_delete`
+        raised AttributeError on every model call, which was fatal.
+        """
+        from deepagents.backends.protocol import BackendProtocol
+        from deepagents.backends.local_shell import LocalShellBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        wrapper = _make_skill_aware_backend(LocalShellBackend(root_dir="/tmp"), ["/skills"])
+
+        protocol_methods = [m for m in vars(BackendProtocol) if not m.startswith("_")]
+        missing = [m for m in protocol_methods if not hasattr(type(wrapper), m)]
+
+        assert not missing, f"not visible to class-level introspection: {missing}"
+
+    def test_class_level_capability_probes_match_wrapped_backend(self):
+        """The wrapper must not silently downgrade the backend's capabilities."""
+        from deepagents.backends.protocol import _method_accepts_max_count, _supports_delete
+        from deepagents.backends.local_shell import LocalShellBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        raw = LocalShellBackend(root_dir="/tmp")
+        wrapper = _make_skill_aware_backend(raw, ["/skills"])
+
+        assert _supports_delete(wrapper) == _supports_delete(raw)
+        assert _method_accepts_max_count(type(wrapper), "grep") == _method_accepts_max_count(type(raw), "grep")
+
+    def test_real_deep_agent_constructs_and_runs(self):
+        """A real deep agent built on the wrapper both constructs AND runs.
+
+        Covers both halves of the deepagents 0.7 breakage, each of which took
+        down every deep_agent node with skill edges in a different place:
+          - construction: FilesystemMiddleware rejected the factory closure
+          - model call:   _supports_delete() hit type(backend).delete
+
+        Construction alone is not enough — the second failure only appears once
+        the graph is invoked.
+        """
+        from langchain_core.language_models.fake_chat_models import FakeListChatModel
+        from deepagents import create_deep_agent
+        from deepagents.backends.local_shell import LocalShellBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        class ToolBindingFake(FakeListChatModel):
+            """Real chat models implement bind_tools; the stock fake does not."""
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        with tempfile.TemporaryDirectory() as tmp:
+            skills_dir = os.path.join(tmp, "skills", "demo")
+            os.makedirs(skills_dir)
+            with open(os.path.join(skills_dir, "SKILL.md"), "w") as fh:
+                fh.write("---\nname: demo\ndescription: demo skill\n---\nbody\n")
+
+            backend = _make_skill_aware_backend(
+                LocalShellBackend(root_dir=tmp), [os.path.join(tmp, "skills")],
+            )
+            agent = create_deep_agent(
+                model=ToolBindingFake(responses=["hello from the agent"]),
+                system_prompt="test",
+                backend=backend,
+                skills=[os.path.join(tmp, "skills")],
+            )
+
+            result = agent.invoke({"messages": [{"role": "user", "content": "hi"}]})
+
+        assert result["messages"][-1].content == "hello from the agent"
+
+    def test_preserves_skill_paths(self):
+        """Skill paths are passed through to SkillAwareBackend."""
         from components._agent_shared import _make_skill_aware_backend
 
         paths = ["/skills/web", "/skills/code"]
-        factory = _make_skill_aware_backend(MagicMock(), paths)
-        result = factory(MagicMock())
+        result = _make_skill_aware_backend(MagicMock(), paths)
 
         assert result._skill_paths == ["/skills/web", "/skills/code"]
 
-    def test_factory_returns_sandboxed_variant_for_sandbox_backend(self):
-        """Factory returns SandboxedSkillAwareBackend when default is SandboxBackendProtocol."""
+    def test_returns_sandboxed_variant_for_sandbox_backend(self):
+        """A SandboxBackendProtocol backend yields SandboxedSkillAwareBackend."""
         from components._agent_shared import _make_skill_aware_backend, SandboxedSkillAwareBackend
         from components.sandboxed_backend import SandboxedShellBackend
 
         # SandboxedShellBackend inherits from LocalShellBackend which is a SandboxBackendProtocol
         sandbox_backend = MagicMock(spec=SandboxedShellBackend)
-        sandbox_backend.ls = MagicMock()  # has ls → treated as instance
 
-        factory = _make_skill_aware_backend(sandbox_backend, ["/skills"])
-        result = factory(MagicMock())
+        result = _make_skill_aware_backend(sandbox_backend, ["/skills"])
 
         assert isinstance(result, SandboxedSkillAwareBackend)
 
-    def test_factory_returns_plain_variant_for_non_sandbox_backend(self):
-        """Factory returns plain SkillAwareBackend when default is NOT SandboxBackendProtocol."""
+    def test_returns_plain_variant_for_non_sandbox_backend(self):
+        """A non-sandbox backend yields the plain SkillAwareBackend."""
         from components._agent_shared import _make_skill_aware_backend, SkillAwareBackend, SandboxedSkillAwareBackend
+        from deepagents.backends.state import StateBackend
 
-        class FakeStateBackend:
-            def __init__(self, tool_runtime):
-                pass
-
-        factory = _make_skill_aware_backend(FakeStateBackend, ["/skills"])
-        result = factory(MagicMock())
+        result = _make_skill_aware_backend(StateBackend(), ["/skills"])
 
         assert isinstance(result, SkillAwareBackend)
         assert not isinstance(result, SandboxedSkillAwareBackend)

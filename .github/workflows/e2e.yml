@@ -12,6 +12,17 @@ on:
       - "platform/main.py"
       - "platform/cli/**"
       - "platform/ws/**"
+      # The execution path: a component or service change is exactly what breaks
+      # the chat round-trip (send -> gateway -> Pipelit -> RQ -> LLM -> WS), and
+      # unit tests mock the library boundaries where those breaks live. Omitting
+      # these meant the deepagents 0.7 backend regression could not trigger the
+      # one job that catches it.
+      - "platform/components/**"
+      - "platform/services/**"
+      - "platform/handlers/**"
+      - "platform/tasks/**"
+      - "platform/triggers/**"
+      - "platform/requirements.txt"
       - "e2e/**"
   push:
     tags:

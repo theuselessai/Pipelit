@@ -719,7 +719,62 @@ class SkillAwareBackend:
                 results[default_indices[i]] = resp
         return results
 
-    # -- All other methods delegated via __getattr__ ------------------------
+    # -- Remaining protocol surface, delegated explicitly -------------------
+    #
+    # These could all be served by __getattr__ below, and were until deepagents
+    # 0.7.  They cannot be any more: 0.7 introspects the backend *class*, not the
+    # instance, and __getattr__ only answers instance lookups.  Two call sites:
+    #
+    #   protocol.py:928  _supports_delete()  -> type(backend).delete
+    #       AttributeError, uncaught, on every model call.  This is fatal.
+    #   protocol.py:876  _method_accepts_max_count() -> getattr(cls, "grep")
+    #       AttributeError, caught, logs a warning; grep's max_count cap is then
+    #       applied after the search instead of bounding it.
+    #
+    # Signatures mirror BackendProtocol exactly so that introspection sees what
+    # it expects — notably grep's keyword-only max_count.
+    #
+    # Routing note: only reads (ls/als, read/aread, download_files) are routed to
+    # the skill filesystem.  Skill directories are read-only providers, so writes
+    # and deletes go to the default backend, which is the pre-0.7 behaviour.
+
+    def write(self, file_path: str, content: str):
+        return self._default.write(file_path, content)
+
+    async def awrite(self, file_path: str, content: str):
+        return await self._default.awrite(file_path, content)
+
+    def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False):
+        return self._default.edit(file_path, old_string, new_string, replace_all)
+
+    async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False):
+        return await self._default.aedit(file_path, old_string, new_string, replace_all)
+
+    def delete(self, file_path: str):
+        return self._default.delete(file_path)
+
+    async def adelete(self, file_path: str):
+        return await self._default.adelete(file_path)
+
+    def glob(self, pattern: str, path: str | None = None):
+        return self._default.glob(pattern, path)
+
+    async def aglob(self, pattern: str, path: str | None = None):
+        return await self._default.aglob(pattern, path)
+
+    def grep(self, pattern: str, path: str | None = None, glob: str | None = None, *, max_count: int | None = None):
+        return self._default.grep(pattern, path, glob, max_count=max_count)
+
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None, *, max_count: int | None = None):
+        return await self._default.agrep(pattern, path, glob, max_count=max_count)
+
+    def upload_files(self, files):
+        return self._default.upload_files(files)
+
+    async def aupload_files(self, files):
+        return await self._default.aupload_files(files)
+
+    # -- Anything else (id, custom attributes) delegated via __getattr__ -----
 
     def __getattr__(self, name):
         return getattr(self._default, name)
@@ -758,51 +813,51 @@ class SandboxedSkillAwareBackend(SkillAwareBackend):
 # We do this via class registration rather than direct inheritance to avoid
 # importing the protocol at class-definition time.
 try:
+    from deepagents.backends.protocol import BackendProtocol as _BP
     from deepagents.backends.protocol import SandboxBackendProtocol as _SBP
     SandboxBackendProtocol = _SBP  # re-export for test convenience
 
     # ABC.register() makes isinstance/issubclass checks pass without requiring
     # the class to actually inherit (virtual subclass).
     _SBP.register(SandboxedSkillAwareBackend)
+    # Register the plain wrapper too: deepagents 0.7 gates on
+    # isinstance(backend, BackendProtocol) when deciding whether a callable is a
+    # legal backend, and a wrapper that only duck-types would sit one refactor
+    # away from being rejected.  SandboxedSkillAwareBackend inherits this via
+    # SkillAwareBackend and is additionally registered as a sandbox backend above.
+    _BP.register(SkillAwareBackend)
 except ImportError:
     SandboxBackendProtocol = None  # type: ignore[assignment,misc]
 
 
 def _make_skill_aware_backend(
-    default_backend_or_factory,
+    default_backend,
     skill_paths: list[str],
     sandbox_to_host: dict[str, str] | None = None,
 ):
-    """Create a backend factory that wraps the default backend with skill-aware routing.
+    """Wrap *default_backend* with skill-aware routing, returning the instance.
 
-    The returned factory is compatible with ``create_deep_agent(backend=...)`` and
-    ``SkillsMiddleware(backend=...)`` — both accept a callable that takes a
-    ``ToolRuntime`` and returns a ``BackendProtocol``.
+    This returns an initialized backend, NOT a factory.  deepagents 0.7 removed
+    backend factories: ``FilesystemMiddleware`` requires a ``BackendProtocol``
+    instance and rejects any callable that is not one, so a factory closure here
+    made every ``deep_agent`` node with skill edges fail at construction with
+    ``TypeError: backend must be an initialized backend instance``.
 
-    When the resolved default backend is a ``SandboxBackendProtocol`` (i.e.
-    supports ``execute()``), returns a ``SandboxedSkillAwareBackend`` so that
-    the execute tool remains available.
+    The pre-0.7 factory also accepted a backend *class* or *factory function* and
+    called it with a ``ToolRuntime``.  Neither exists in 0.7 — ``StateBackend()``
+    now takes no arguments and callers pass instances — so those branches are
+    gone with the closure.
 
-    When *sandbox_to_host* is provided, ``SkillAwareBackend`` translates
-    sandbox paths (``/.skill_providers/X/...``) to host paths before reading.
+    When the wrapped backend is a ``SandboxBackendProtocol`` (i.e. supports
+    ``execute()``), returns a ``SandboxedSkillAwareBackend`` so the execute tool
+    remains available to the agent.
+
+    When *sandbox_to_host* is provided, ``SkillAwareBackend`` translates sandbox
+    paths (``/.skill_providers/X/...``) to host paths before reading.
     """
-
-    def factory(tool_runtime):
-        # Classes (like StateBackend) and factory functions need to be called
-        # with tool_runtime.  Already-instantiated backends (e.g. a
-        # FilesystemBackend instance) should be used directly.
-        if isinstance(default_backend_or_factory, type):
-            default = default_backend_or_factory(tool_runtime)
-        elif callable(default_backend_or_factory) and not hasattr(default_backend_or_factory, "ls"):
-            default = default_backend_or_factory(tool_runtime)
-        else:
-            default = default_backend_or_factory
-
-        if SandboxBackendProtocol is not None and isinstance(default, SandboxBackendProtocol):
-            return SandboxedSkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host)
-        return SkillAwareBackend(default, skill_paths, sandbox_to_host=sandbox_to_host)
-
-    return factory
+    if SandboxBackendProtocol is not None and isinstance(default_backend, SandboxBackendProtocol):
+        return SandboxedSkillAwareBackend(default_backend, skill_paths, sandbox_to_host=sandbox_to_host)
+    return SkillAwareBackend(default_backend, skill_paths, sandbox_to_host=sandbox_to_host)
 
 
 def _publish_tool_status(
