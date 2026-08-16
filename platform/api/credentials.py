@@ -58,6 +58,23 @@ def _mask(value: str) -> str:
     return value[:4] + "****" + value[-4:]
 
 
+def _auth_headers(api_key: str | None) -> dict[str, str]:
+    """Bearer header for *api_key*, or no header at all when there is no key.
+
+    An empty key must mean *no* Authorization header, never an empty one:
+    httpx refuses to send the malformed ``"Bearer "`` and raises
+    ``LocalProtocolError: Illegal header value b'Bearer '`` when serializing the
+    request, so it never leaves the process.  That surfaced as a connection-test
+    failure for keyless local inference servers (llama.cpp, vLLM, LM Studio,
+    Ollama, MLX), which need no credentials and answer happily with no header.
+
+    The key is stripped first: a whitespace-only value is truthy in Python but
+    produces the same unsendable header, and pasting one into the form is easy.
+    """
+    key = (api_key or "").strip()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
 def _serialize_credential(cred: BaseCredential, db: Session) -> dict:
     data = {
         "id": cred.id,
@@ -423,7 +440,7 @@ def test_credential(
             base = llm.base_url.rstrip("/") if llm.base_url else "https://api.z.ai/api/paas/v4"
             resp = httpx.get(
                 f"{base}/models",
-                headers={"Authorization": f"Bearer {llm.api_key}"},
+                headers=_auth_headers(llm.api_key),
                 timeout=15,
             )
             if resp.status_code in (401, 403):
@@ -435,7 +452,7 @@ def test_credential(
             base_url = llm.base_url.rstrip("/") if llm.base_url else "https://api.openai.com/v1"
             resp = httpx.get(
                 f"{base_url}/models",
-                headers={"Authorization": f"Bearer {llm.api_key}"},
+                headers=_auth_headers(llm.api_key),
                 timeout=15,
             )
             if resp.status_code in (401, 403):
@@ -480,7 +497,7 @@ def list_credential_models(
     try:
         resp = httpx.get(
             f"{base_url}/models",
-            headers={"Authorization": f"Bearer {llm.api_key}"},
+            headers=_auth_headers(llm.api_key),
             timeout=15,
         )
         resp.raise_for_status()
