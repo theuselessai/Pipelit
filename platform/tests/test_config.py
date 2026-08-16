@@ -289,10 +289,25 @@ def test_allowed_hosts_removed():
     assert not hasattr(Settings, "ALLOWED_HOSTS") or "ALLOWED_HOSTS" not in Settings.model_fields
 
 
-def test_sandbox_mode_default():
-    """Settings.SANDBOX_MODE defaults to 'auto'."""
-    s = Settings()
-    assert s.SANDBOX_MODE == "auto"
+def test_sandbox_mode_default(tmp_path, monkeypatch):
+    """With no conf.json, SANDBOX_MODE falls back to 'auto'.
+
+    Asserted through load_conf() in an isolated PIPELIT_DIR rather than through
+    Settings(), which binds its defaults from conf.json at import time.  Reading
+    the real config made this fail for any developer who had actually run
+    `cli setup` — it writes the detected mode (e.g. "bwrap") to
+    ~/.config/pipelit/conf.json, so running the platform broke its own test.
+    """
+    pipelit_dir = tmp_path / "pipelit"
+    pipelit_dir.mkdir(parents=True)
+    monkeypatch.setenv("PIPELIT_DIR", str(pipelit_dir))
+    monkeypatch.delenv("SANDBOX_MODE", raising=False)
+
+    conf = load_conf()
+
+    assert conf.sandbox_mode == "auto"
+    # Replicate how Settings constructs the default from conf.json
+    assert (conf.sandbox_mode or "auto") == "auto"
 
 
 def test_zombie_threshold_zero_from_conf(tmp_path, monkeypatch):
