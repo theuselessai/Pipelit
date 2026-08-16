@@ -719,7 +719,62 @@ class SkillAwareBackend:
                 results[default_indices[i]] = resp
         return results
 
-    # -- All other methods delegated via __getattr__ ------------------------
+    # -- Remaining protocol surface, delegated explicitly -------------------
+    #
+    # These could all be served by __getattr__ below, and were until deepagents
+    # 0.7.  They cannot be any more: 0.7 introspects the backend *class*, not the
+    # instance, and __getattr__ only answers instance lookups.  Two call sites:
+    #
+    #   protocol.py:928  _supports_delete()  -> type(backend).delete
+    #       AttributeError, uncaught, on every model call.  This is fatal.
+    #   protocol.py:876  _method_accepts_max_count() -> getattr(cls, "grep")
+    #       AttributeError, caught, logs a warning; grep's max_count cap is then
+    #       applied after the search instead of bounding it.
+    #
+    # Signatures mirror BackendProtocol exactly so that introspection sees what
+    # it expects — notably grep's keyword-only max_count.
+    #
+    # Routing note: only reads (ls/als, read/aread, download_files) are routed to
+    # the skill filesystem.  Skill directories are read-only providers, so writes
+    # and deletes go to the default backend, which is the pre-0.7 behaviour.
+
+    def write(self, file_path: str, content: str):
+        return self._default.write(file_path, content)
+
+    async def awrite(self, file_path: str, content: str):
+        return await self._default.awrite(file_path, content)
+
+    def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False):
+        return self._default.edit(file_path, old_string, new_string, replace_all)
+
+    async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False):
+        return await self._default.aedit(file_path, old_string, new_string, replace_all)
+
+    def delete(self, file_path: str):
+        return self._default.delete(file_path)
+
+    async def adelete(self, file_path: str):
+        return await self._default.adelete(file_path)
+
+    def glob(self, pattern: str, path: str | None = None):
+        return self._default.glob(pattern, path)
+
+    async def aglob(self, pattern: str, path: str | None = None):
+        return await self._default.aglob(pattern, path)
+
+    def grep(self, pattern: str, path: str | None = None, glob: str | None = None, *, max_count: int | None = None):
+        return self._default.grep(pattern, path, glob, max_count=max_count)
+
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None, *, max_count: int | None = None):
+        return await self._default.agrep(pattern, path, glob, max_count=max_count)
+
+    def upload_files(self, files):
+        return self._default.upload_files(files)
+
+    async def aupload_files(self, files):
+        return await self._default.aupload_files(files)
+
+    # -- Anything else (id, custom attributes) delegated via __getattr__ -----
 
     def __getattr__(self, name):
         return getattr(self._default, name)

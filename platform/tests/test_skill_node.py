@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import tempfile
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -640,6 +642,80 @@ class TestMakeSkillAwareBackend:
         middleware = FilesystemMiddleware(backend=backend)
 
         assert middleware.backend is backend
+
+    def test_exposes_full_protocol_surface_on_the_class(self):
+        """Every BackendProtocol method must exist on the CLASS, not just the instance.
+
+        deepagents 0.7 introspects the backend class — `type(backend).delete`
+        (protocol.py `_supports_delete`) and `getattr(cls, "grep")`
+        (`_method_accepts_max_count`). `__getattr__` only answers instance
+        lookups, so methods left to it are invisible there: `_supports_delete`
+        raised AttributeError on every model call, which was fatal.
+        """
+        from deepagents.backends.protocol import BackendProtocol
+        from deepagents.backends.local_shell import LocalShellBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        wrapper = _make_skill_aware_backend(LocalShellBackend(root_dir="/tmp"), ["/skills"])
+
+        protocol_methods = [m for m in vars(BackendProtocol) if not m.startswith("_")]
+        missing = [m for m in protocol_methods if not hasattr(type(wrapper), m)]
+
+        assert not missing, f"not visible to class-level introspection: {missing}"
+
+    def test_class_level_capability_probes_match_wrapped_backend(self):
+        """The wrapper must not silently downgrade the backend's capabilities."""
+        from deepagents.backends.protocol import _method_accepts_max_count, _supports_delete
+        from deepagents.backends.local_shell import LocalShellBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        raw = LocalShellBackend(root_dir="/tmp")
+        wrapper = _make_skill_aware_backend(raw, ["/skills"])
+
+        assert _supports_delete(wrapper) == _supports_delete(raw)
+        assert _method_accepts_max_count(type(wrapper), "grep") == _method_accepts_max_count(type(raw), "grep")
+
+    def test_real_deep_agent_constructs_and_runs(self):
+        """A real deep agent built on the wrapper both constructs AND runs.
+
+        Covers both halves of the deepagents 0.7 breakage, each of which took
+        down every deep_agent node with skill edges in a different place:
+          - construction: FilesystemMiddleware rejected the factory closure
+          - model call:   _supports_delete() hit type(backend).delete
+
+        Construction alone is not enough — the second failure only appears once
+        the graph is invoked.
+        """
+        from langchain_core.language_models.fake_chat_models import FakeListChatModel
+        from deepagents import create_deep_agent
+        from deepagents.backends.local_shell import LocalShellBackend
+        from components._agent_shared import _make_skill_aware_backend
+
+        class ToolBindingFake(FakeListChatModel):
+            """Real chat models implement bind_tools; the stock fake does not."""
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        with tempfile.TemporaryDirectory() as tmp:
+            skills_dir = os.path.join(tmp, "skills", "demo")
+            os.makedirs(skills_dir)
+            with open(os.path.join(skills_dir, "SKILL.md"), "w") as fh:
+                fh.write("---\nname: demo\ndescription: demo skill\n---\nbody\n")
+
+            backend = _make_skill_aware_backend(
+                LocalShellBackend(root_dir=tmp), [os.path.join(tmp, "skills")],
+            )
+            agent = create_deep_agent(
+                model=ToolBindingFake(responses=["hello from the agent"]),
+                system_prompt="test",
+                backend=backend,
+                skills=[os.path.join(tmp, "skills")],
+            )
+
+            result = agent.invoke({"messages": [{"role": "user", "content": "hi"}]})
+
+        assert result["messages"][-1].content == "hello from the agent"
 
     def test_preserves_skill_paths(self):
         """Skill paths are passed through to SkillAwareBackend."""
