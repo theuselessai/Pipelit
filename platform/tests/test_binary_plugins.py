@@ -250,3 +250,51 @@ class TestInvocation:
             run(plugin, session="s1")
         assert type(exc.value).__name__ == "TIMEOUT"
         assert "unknown" in str(exc.value)
+
+
+class TestIdentityNode:
+    """The verb surface as a node — one component serves every plugin."""
+
+    @staticmethod
+    def _run(op, **cfg):
+        from types import SimpleNamespace
+
+        from components.binary_auth import binary_auth_factory
+        n = SimpleNamespace(
+            component_type="fake_bin_auth",
+            component_config=SimpleNamespace(
+                extra_config={"operation": op, **cfg}, credential_id=None),
+        )
+        return binary_auth_factory(n)({})
+
+    def test_a_listing_verb_returns_its_port(self, plugin):
+        respond(plugin, ok({"sessions": [{"id": "a1", "env": "e1"}]}))
+        assert self._run("auth.sessionList")["sessions"][0]["id"] == "a1"
+
+    def test_the_password_travels_on_stdin_and_not_on_argv(self, plugin):
+        respond(plugin, ok({"session": {"id": "a1"}}))
+        self._run("auth.login", env="e1", session="a1", username="u", password="hunter2")
+        argv = json.loads((io_dir(plugin) / "last_argv.json").read_text())
+        stdin = json.loads((io_dir(plugin) / "last_stdin.json").read_text())
+        assert "hunter2" not in " ".join(argv)
+        assert stdin["credential"]["password"] == "hunter2"
+        assert argv[:4] == ["--env", "e1", "--session", "a1"]
+
+    def test_a_missing_required_parameter_is_caught_before_spawning(self, plugin):
+        respond(plugin, ok())
+        with pytest.raises(Exception) as exc:
+            self._run("auth.login", env="e1")
+        assert type(exc.value).__name__ == "MISSING_PARAM"
+        assert not (io_dir(plugin) / "last_argv.json").exists()
+
+    def test_an_unknown_verb_is_refused(self, plugin):
+        respond(plugin, ok())
+        with pytest.raises(Exception) as exc:
+            self._run("auth.teleport")
+        assert type(exc.value).__name__ == "UNKNOWN_VERB"
+
+    def test_a_binary_refusal_surfaces_under_its_own_code(self, plugin):
+        respond(plugin, failed("LOGIN_REJECTED"), exit_code=4)
+        with pytest.raises(Exception) as exc:
+            self._run("auth.login", env="e1", session="a1", username="u", password="p")
+        assert type(exc.value).__name__ == "LOGIN_REJECTED"

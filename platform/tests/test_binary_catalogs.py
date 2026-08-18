@@ -11,7 +11,17 @@ import json
 import pytest
 
 from schemas.binary_catalogs import component_type_for, load_specs
+from schemas.binary_verbs import VERB_MARKER
 from schemas.node_types import NODE_TYPE_REGISTRY, DataType
+
+
+def operation_specs(directory):
+    """The node types derived from a catalog's OPERATIONS.
+
+    Every plugin also gets an identity node type, which comes from the protocol's
+    verb surface rather than from the catalog — see TestIdentityType.
+    """
+    return [s for s in load_specs(directory) if not s.config_schema.get(VERB_MARKER)]
 
 
 def _catalog(binary="demo-bin", operations=None, **overrides):
@@ -70,7 +80,7 @@ class TestDerivation:
             _op(id="things.b", domain="things"),
             _op(id="others.c", domain="others"),
         ]))
-        specs = load_specs(catalog_dir)
+        specs = operation_specs(catalog_dir)
         assert sorted(s.component_type for s in specs) == [
             "demo_bin_others", "demo_bin_things"
         ]
@@ -80,7 +90,7 @@ class TestDerivation:
             _op(id="things.a", outputs=[{"name": "one", "type": "string", "description": "d"}]),
             _op(id="things.b", outputs=[{"name": "two", "type": "array", "description": "d"}]),
         ]))
-        spec = load_specs(catalog_dir)[0]
+        spec = operation_specs(catalog_dir)[0]
         assert {p.name: p.data_type for p in spec.outputs} == {
             "one": DataType.STRING,
             "two": DataType.ARRAY,
@@ -92,7 +102,7 @@ class TestDerivation:
             _op(id="things.a", outputs=[{"name": "x", "type": "string", "description": "d"}]),
             _op(id="things.b", outputs=[{"name": "x", "type": "number", "description": "d"}]),
         ]))
-        spec = load_specs(catalog_dir)[0]
+        spec = operation_specs(catalog_dir)[0]
         port = next(p for p in spec.outputs if p.name == "x")
         assert port.data_type is DataType.ANY
         assert "varies by operation" in port.description
@@ -100,7 +110,7 @@ class TestDerivation:
     def test_config_schema_carries_each_operations_params(self, catalog_dir):
         params = {"type": "object", "properties": {"n": {"type": "string"}}}
         write(catalog_dir, _catalog(operations=[_op(params=params)]))
-        spec = load_specs(catalog_dir)[0]
+        spec = operation_specs(catalog_dir)[0]
         assert spec.config_schema["properties"]["operation"]["enum"] == ["things.doThing"]
         assert spec.config_schema["x-operations"]["things.doThing"]["params"] == params
         assert spec.config_schema["x-binary"] == "demo-bin"
@@ -115,7 +125,7 @@ class TestRefusal:
     def test_unreadable_catalog_does_not_stop_the_others(self, catalog_dir):
         (catalog_dir / "broken.json").write_text("{not json")
         write(catalog_dir, _catalog(binary="good-bin"))
-        assert [s.component_type for s in load_specs(catalog_dir)] == ["good_bin_things"]
+        assert [s.component_type for s in operation_specs(catalog_dir)] == ["good_bin_things"]
 
     def test_an_overlong_component_type_is_skipped_not_truncated(self, catalog_dir):
         """component_type is String(30) and the polymorphic discriminator.
@@ -128,7 +138,7 @@ class TestRefusal:
             _op(id=f"{long_domain}.a", domain=long_domain),
             _op(id="fine.b", domain="fine"),
         ]))
-        assert [s.component_type for s in load_specs(catalog_dir)] == ["demo_bin_fine"]
+        assert [s.component_type for s in operation_specs(catalog_dir)] == ["demo_bin_fine"]
 
     def test_missing_directory_is_not_an_error(self, tmp_path):
         assert load_specs(tmp_path / "absent") == []
@@ -139,7 +149,7 @@ class TestEnvelopeUnwrapping:
         """The binary writes an envelope to stdout; both forms reach this loader."""
         write(catalog_dir, {"ok": True, "data": _catalog(), "proof": None,
                             "slot_patch": None, "error": None}, name="wrapped.json")
-        assert [s.component_type for s in load_specs(catalog_dir)] == ["demo_bin_things"]
+        assert [s.component_type for s in operation_specs(catalog_dir)] == ["demo_bin_things"]
 
 
 class TestNaming:
@@ -149,3 +159,18 @@ class TestNaming:
 
     def test_hyphens_become_underscores(self):
         assert component_type_for("demo-bin", "things") == "demo_bin_things"
+
+
+class TestIdentityType:
+    def test_every_catalog_also_yields_an_identity_node_type(self, catalog_dir):
+        """Identity management is protocol-defined, so a plugin gets it whatever
+        its catalog contains — including a catalog with no operations at all in
+        the domains a host cares about."""
+        write(catalog_dir, _catalog())
+        verbs = [s for s in load_specs(catalog_dir) if s.config_schema.get(VERB_MARKER)]
+        assert [s.component_type for s in verbs] == ["demo_bin_auth"]
+
+    def test_a_refused_catalog_yields_no_identity_type_either(self, catalog_dir):
+        """The plugin is unusable, so offering to log into it would be a lie."""
+        write(catalog_dir, _catalog(protocol=2))
+        assert load_specs(catalog_dir) == []

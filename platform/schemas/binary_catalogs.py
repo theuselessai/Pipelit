@@ -215,6 +215,12 @@ def load_specs(catalog_dir: Path | None = None) -> list[NodeTypeSpec]:
                 continue
             by_domain.setdefault(op["domain"], []).append(op)
 
+        # Identity management is protocol-defined rather than catalog-defined,
+        # so every plugin gets it regardless of what its catalog contains.
+        from schemas.binary_verbs import auth_spec_for
+
+        specs.append(register_node_type(auth_spec_for(binary)))
+
         for domain, ops in sorted(by_domain.items()):
             name = component_type_for(binary, domain)
             if len(name) > MAX_COMPONENT_TYPE:

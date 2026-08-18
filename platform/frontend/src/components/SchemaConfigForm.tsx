@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { usePluginEnvironments, usePluginSessions } from "@/api/plugins"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -62,6 +63,10 @@ function ScalarField({
   const type = spec.type as string | undefined
   const enumValues = spec.enum as string[] | undefined
   const description = spec.description as string | undefined
+  // Masked in the panel, but NOT secret at rest: the value lives in the node's
+  // extra_config, so it reaches the database and the nodes API like any other
+  // field. Intended for disposable test identities. See the note beneath.
+  const secret = spec.secret === true
 
   return (
     <div className="space-y-1">
@@ -85,6 +90,8 @@ function ScalarField({
           <FieldLabel name={name} spec={spec} required={required} />
           <Input
             className="text-xs h-7"
+            type={secret ? "password" : undefined}
+            autoComplete={secret ? "new-password" : undefined}
             value={value === undefined || value === null ? "" : String(value)}
             placeholder={type && type !== "string" ? type : undefined}
             onChange={(e) => onChange(e.target.value)}
@@ -99,7 +106,13 @@ function ScalarField({
 export default function SchemaConfigForm({ schema, value, onChange }: SchemaConfigFormProps) {
   const operations = (schema["x-operations"] ?? {}) as Record<string, OperationSpec>
   const binary = schema["x-binary"] as string | undefined
+  // On an identity node the verbs ESTABLISH a session rather than consuming one,
+  // so `session` and `env` arrive as ordinary parameters — offering the pickers
+  // as well would show two fields for one value, one of them wrong.
+  const isVerbNode = schema["x-verbs"] === true
   const ids = useMemo(() => Object.keys(operations).sort(), [operations])
+  const sessions = usePluginSessions(isVerbNode ? undefined : binary)
+  const environments = usePluginEnvironments(isVerbNode ? undefined : binary)
 
   const selected = (value.operation as string) ?? ""
   const op = operations[selected]
@@ -134,21 +147,38 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
         {op?.summary && <p className="text-[10px] text-muted-foreground">{op.summary}</p>}
       </div>
 
-      {selected && (
+      {selected && !isVerbNode && (
         <>
           <div className="space-y-1">
             <Label className="text-xs">
               Session
               {op?.session_required && <span className="text-destructive ml-0.5">*</span>}
             </Label>
-            <Input
-              className="text-xs h-7"
-              value={(value.session as string) ?? ""}
-              placeholder={op?.session_required ? "required by this operation" : "not required"}
-              onChange={(e) => set("session", e.target.value)}
-            />
+            {sessions.data?.items?.length ? (
+              <Select value={(value.session as string) ?? ""} onValueChange={(v) => set("session", v)}>
+                <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Choose an identity" /></SelectTrigger>
+                <SelectContent>
+                  {sessions.data.items.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.id}{s.subject ? ` — ${s.subject}` : ""} ({s.env})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              // The list comes from running the binary, which can fail — a stale
+              // registration, a missing plugin. Falling back to free text keeps
+              // the node editable rather than unconfigurable.
+              <Input
+                className="text-xs h-7"
+                value={(value.session as string) ?? ""}
+                placeholder={sessions.isError ? "could not reach the binary — type a handle" : "identity handle"}
+                onChange={(e) => set("session", e.target.value)}
+              />
+            )}
             <p className="text-[10px] text-muted-foreground">
-              Identity handle held by the binary. Pipelit stores no credentials of its own.
+              Identities are held by the binary; this platform stores no credentials of its own.
+              Create one with an identity node, or with `auth login`.
             </p>
           </div>
 
@@ -160,17 +190,33 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
           {!op?.session_required && (
             <div className="space-y-1">
               <Label className="text-xs">Environment</Label>
-              <Input
-                className="text-xs h-7"
-                value={(value.env as string) ?? ""}
-                onChange={(e) => set("env", e.target.value)}
-              />
+              {environments.data?.items?.length ? (
+                <Select value={(value.env as string) ?? ""} onValueChange={(v) => set("env", v)}>
+                  <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Choose an environment" /></SelectTrigger>
+                  <SelectContent>
+                    {environments.data.items.map((e) => (
+                      <SelectItem key={e.name} value={e.name}>{e.name} ({e.kind})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  className="text-xs h-7"
+                  value={(value.env as string) ?? ""}
+                  onChange={(e) => set("env", e.target.value)}
+                />
+              )}
               <p className="text-[10px] text-muted-foreground">
                 This operation needs no identity, so it names an environment directly.
               </p>
             </div>
           )}
 
+        </>
+      )}
+
+      {selected && (
+        <>
           {Object.entries(properties).map(([name, spec]) => (
             <ScalarField
               key={name}
@@ -184,6 +230,14 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
 
           {Object.keys(properties).length === 0 && (
             <p className="text-[10px] text-muted-foreground">This operation takes no parameters.</p>
+          )}
+
+          {Object.values(properties).some((p) => (p as Json).secret === true) && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-500">
+              Masked here, but stored in plain text on this node — it reaches the database
+              and the nodes API like any other field. Intended for disposable test identities,
+              not for an account that matters.
+            </p>
           )}
 
           {op?.timeout_default_s !== undefined && (

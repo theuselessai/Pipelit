@@ -186,11 +186,12 @@ def register_derived_types() -> int:
     Not a `@register("...")` decorator like the built-ins: the types come from
     operator-supplied catalogs and are not knowable at import.
     """
+    from schemas.binary_verbs import VERB_MARKER
     from schemas.node_types import NODE_TYPE_REGISTRY
 
     count = 0
     for component_type, spec in NODE_TYPE_REGISTRY.items():
-        if "x-binary" in spec.config_schema:
+        if "x-binary" in spec.config_schema and not spec.config_schema.get(VERB_MARKER):
             COMPONENT_REGISTRY[component_type] = binary_op_factory
             count += 1
     return count

@@ -23,9 +23,11 @@ def get_component_factory(component_type: str):
         # Node types derived from a binary catalog are registered when
         # components.binary_op imports, which may be before the catalogs have
         # been read. Rather than depend on that ordering, re-derive on a miss.
+        from components.binary_auth import register_verb_types
         from components.binary_op import register_derived_types
 
         register_derived_types()
+        register_verb_types()
     if component_type not in COMPONENT_REGISTRY:
         raise KeyError(
             f"Unknown component type: '{component_type}'. "
@@ -39,6 +41,7 @@ from components import (  # noqa: E402, F401
     agent,
     ai_model,
     assertion,
+    binary_auth,
     binary_op,
     categorizer,
     code,

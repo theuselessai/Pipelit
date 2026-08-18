@@ -1,0 +1,100 @@
+"""Binary plugins: what is installed, and the identities each one holds.
+
+Read-only. Every response here comes from running the plugin's own read verbs —
+`auth session list` and `env list` — because the binary is the only thing that
+knows. Neither prints credential material by construction.
+
+These exist so a node can offer a picker instead of a text field. A mistyped
+session handle is otherwise an UNKNOWN_SESSION at run time, discovered when the
+workflow runs rather than when it is built.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from auth import get_current_user
+from models.user import UserProfile
+from services.plugins import PluginError, installed, read_registration, verified_plugin
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+READ_TIMEOUT_S = 30.0
+
+
+def _run_verb(binary: str, verb: list[str]) -> dict:
+    """Run one read-only verb and return its envelope data."""
+    try:
+        plugin, _ = verified_plugin(binary)
+    except PluginError as exc:
+        # A plugin that changed since registration, or was never registered, is a
+        # configuration problem rather than a bad request.
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    try:
+        proc = subprocess.run(
+            [*plugin.argv, *verb], capture_output=True, text=True,
+            timeout=READ_TIMEOUT_S, cwd=plugin.directory,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(status_code=502, detail=f"{binary} did not respond: {exc}") from None
+
+    try:
+        envelope = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{binary} did not write one JSON object to stdout",
+        ) from None
+
+    if not envelope.get("ok"):
+        error = envelope.get("error") or {}
+        raise HTTPException(status_code=502, detail=error.get("message") or f"{binary} refused")
+    return envelope.get("data") or {}
+
+
+@router.get("/")
+def list_plugins(profile: UserProfile = Depends(get_current_user)):
+    """Installed plugins, and whether each is registered.
+
+    Installed and registered are different states: a directory can be dropped in
+    without having passed conformance, and it cannot be used until it has.
+    """
+    items = []
+    for name in installed():
+        entry: dict = {"plugin": name, "registered": False}
+        try:
+            # The registration is keyed by the binary's own name, which is only
+            # knowable from its catalog — so look for one that claims this plugin.
+            from services.plugins import REGISTRATION_DIR
+
+            for path in REGISTRATION_DIR.glob("*.plugin.json"):
+                reg = read_registration(path.name.removesuffix(".plugin.json"))
+                if reg.plugin == name:
+                    entry.update(registered=True, binary=reg.binary,
+                                 registered_at=reg.registered_at, dev_mode=reg.dev_mode)
+                    break
+        except PluginError:
+            pass
+        items.append(entry)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/{binary}/sessions/")
+def list_sessions(binary: str, profile: UserProfile = Depends(get_current_user)):
+    """Identities this binary holds. Never includes token material."""
+    data = _run_verb(binary, ["auth", "session", "list"])
+    return {"items": data.get("sessions", []), "unreadable": data.get("unreadable", [])}
+
+
+@router.get("/{binary}/environments/")
+def list_environments(binary: str, profile: UserProfile = Depends(get_current_user)):
+    """Environments this binary may be pointed at."""
+    data = _run_verb(binary, ["env", "list"])
+    return {"items": data.get("envs", data.get("environments", []))}

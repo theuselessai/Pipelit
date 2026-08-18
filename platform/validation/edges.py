@@ -160,4 +160,46 @@ class EdgeValidator:
             if spec.requires_model and node.node_id not in nodes_with_model:
                 errors.append(f"Node '{node.node_id}' ({node.component_type}) requires a model connection")
 
+            errors.extend(_binary_operation_errors(node, spec))
+
         return errors
+
+
+def _binary_operation_errors(node, spec) -> list[str]:
+    """Design-time checks for a node driven by a binary's operation schema.
+
+    Caught here rather than at run time because the answer is knowable when the
+    workflow is built: the catalog already says which operations need an identity
+    and which parameters they require. Finding out instead by running the
+    workflow means discovering it against a real backend, which for a mutating
+    operation is the expensive place to learn.
+    """
+    operations = spec.config_schema.get("x-operations")
+    if not operations:
+        return []
+
+    config = (node.component_config.extra_config or {}) if node.component_config else {}
+    operation = config.get("operation")
+    label = f"Node '{node.node_id}' ({node.component_type})"
+
+    if not operation:
+        return [f"{label} has no operation selected"]
+    if operation not in operations:
+        return [f"{label} names operation '{operation}', which its binary does not offer"]
+
+    errors: list[str] = []
+    op = operations[operation]
+
+    if op.get("session_required") and not str(config.get("session") or "").strip():
+        errors.append(
+            f"{label} runs '{operation}', which requires an identity, but no session is set"
+        )
+
+    # A required parameter left empty fails at the binary with BAD_PARAMS. The
+    # catalog declares them, so say so now instead.
+    required = (op.get("params") or {}).get("required") or []
+    missing = [k for k in required if not str(config.get(k) or "").strip()]
+    if missing:
+        errors.append(f"{label} is missing required parameter(s): {', '.join(sorted(missing))}")
+
+    return errors
