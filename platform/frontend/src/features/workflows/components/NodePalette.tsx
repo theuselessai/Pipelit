@@ -117,8 +117,8 @@ export default function NodePalette({ slug }: { slug: string }) {
   // only while the registry is still loading.
   const { data: registry } = useNodeTypes()
 
-  // Grouped by binary rather than listed flat: `zc-portal-admin · verification`
-  // and `zc-portal · funding` are different authorities, and a single "Binaries"
+  // Grouped by binary rather than listed flat: an admin binary's domain and a
+  // customer binary's domain are different authorities, and a single "Binaries"
   // heading would leave that difference to be read off the end of a label. One
   // entry per (binary, domain) plus one identity entry per binary — NOT an
   // operation list; the operation is chosen in the details panel, never here.
@@ -139,7 +139,7 @@ export default function NodePalette({ slug }: { slug: string }) {
       position_x: 250,
       position_y: 150,
       // Preseed the binary (and domain) so the node knows whose catalog governs
-      // it. Deliberately NO operation: 14 of zc-portal-admin's 15 operations
+      // it. Deliberately NO operation: a binary's operations mostly
       // write real customer state — a silently-defaulted operation is a loaded
       // gun. The operation is chosen, visibly, in the details panel.
       ...(extraConfig ? { config: { extra_config: extraConfig } } : {}),

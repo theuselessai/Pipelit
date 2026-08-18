@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Register a binary plugin: check it, pin it, and write its catalog.
 
-    python scripts/register_plugin.py zc-portal-admin
-    python scripts/register_plugin.py zc-portal-admin --dev
+    python scripts/register_plugin.py <plugin-name>
+    python scripts/register_plugin.py <plugin-name> --dev
 
 A plugin is a directory under the plugins directory containing an executable and
 a `plugin.json` that says how to run it. Registration runs `<bin> catalog`,

@@ -1,8 +1,8 @@
 """Task 4a: the drift guard at the registration boundary, planted violation #2
 (catalog-change semantics for a saved node), and the restart-trap demonstration.
 
-Fixtures are invented — `fake-bin`, `things.doThing` — never the real
-zc-portal-admin catalog: it is gitignored and unreconstructible, so a test
+Fixtures are invented — `fake-bin`, `things.doThing` — never a real
+operator-supplied catalog: those are gitignored and unreconstructible, so a test
 that hardcoded it would put back exactly what the gitignore is keeping out.
 
 `binary_op` / `binary_auth` are STATIC polymorphic identities (models/node.py):
