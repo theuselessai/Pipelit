@@ -129,10 +129,6 @@ VERBS: dict[str, dict[str, Any]] = {
 }
 
 
-def component_type_for(binary: str) -> str:
-    return f"{binary}_auth".replace("-", "_")
-
-
 def build_argv(verb_id: str, config: dict) -> tuple[list[str], dict]:
     """Return (argv fragment, credential object) for one verb.
 
@@ -162,8 +158,13 @@ def build_argv(verb_id: str, config: dict) -> tuple[list[str], dict]:
     return argv, credential
 
 
-def auth_spec_for(binary: str) -> NodeTypeSpec:
-    """One node type per plugin covering identity and environment management."""
+def auth_spec() -> NodeTypeSpec:
+    """The single static identity node type, `binary_auth`.
+
+    One node type serves every plugin: the verb surface is protocol-defined, so
+    it is identical whichever binary the node names. Which binary that is lives
+    in the node's own config (`extra_config["binary"]`), never in the type.
+    """
     outputs: dict[str, PortDefinition] = {}
     for verb in VERBS.values():
         for name, data_type, description in verb["outputs"]:
@@ -171,12 +172,12 @@ def auth_spec_for(binary: str) -> NodeTypeSpec:
                 name=name, data_type=data_type, description=description))
 
     return NodeTypeSpec(
-        component_type=component_type_for(binary),
-        display_name=f"{binary} · identity",
+        component_type="binary_auth",
+        display_name="Binary Identity",
         description=(
-            f"Identity and environment management for the {binary} binary: log in, "
-            f"refresh, list and forget sessions, register environments. Credentials "
-            f"are held by the binary — this platform stores none of its own."
+            "Identity and environment management for a binary plugin: log in, "
+            "refresh, list and forget sessions, register environments. Credentials "
+            "are held by the binary — this platform stores none of its own."
         ),
         category="action",
         inputs=[PortDefinition(name="input", data_type=DataType.ANY, required=False,
@@ -185,10 +186,14 @@ def auth_spec_for(binary: str) -> NodeTypeSpec:
         config_schema={
             "type": "object",
             "properties": {
+                "binary": {
+                    "type": "string",
+                    "title": "Binary",
+                    "description": "Name of the registered binary this node manages identities for.",
+                },
                 "operation": {"type": "string", "title": "Operation", "enum": sorted(VERBS)},
             },
-            "required": ["operation"],
-            "x-binary": binary,
+            "required": ["binary", "operation"],
             VERB_MARKER: True,
             "x-operations": {
                 verb_id: {

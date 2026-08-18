@@ -1,27 +1,28 @@
-"""Node types derived from binary catalogs.
+"""The catalog access layer behind the static binary node types.
 
 Fixtures here are deliberately invented — `demo-bin`, `things`, `doThing`. The
 real catalogs describe one organisation's operations and are gitignored for that
 reason; a test file that hardcoded them would put back exactly what the gitignore
 is keeping out.
+
+Nothing here registers node types: `binary_op` and `binary_auth` are static, and
+this module answers per-call questions about a binary's pinned catalog. The
+freshness tests below are the point of that design — a catalog registered into
+an already-running process is visible on the very next call, no reimport.
 """
 
 import json
+import os
 
 import pytest
 
-from schemas.binary_catalogs import component_type_for, load_specs
-from schemas.binary_verbs import VERB_MARKER
-from schemas.node_types import NODE_TYPE_REGISTRY, DataType
-
-
-def operation_specs(directory):
-    """The node types derived from a catalog's OPERATIONS.
-
-    Every plugin also gets an identity node type, which comes from the protocol's
-    verb surface rather than from the catalog — see TestIdentityType.
-    """
-    return [s for s in load_specs(directory) if not s.config_schema.get(VERB_MARKER)]
+from schemas.binary_catalogs import (
+    catalog_for,
+    config_schema_for,
+    operation_output_ports,
+    operations_for,
+)
+from schemas.node_types import DataType
 
 
 def _catalog(binary="demo-bin", operations=None, **overrides):
@@ -54,123 +55,179 @@ def _op(id="things.doThing", domain="things", outputs=None, **overrides):
     return op
 
 
-@pytest.fixture
-def catalog_dir(tmp_path):
-    """A catalog directory, with the registry restored afterwards.
-
-    The registry is process-global, so a test that registers types would leak
-    them into every later test in the session.
-    """
-    before = dict(NODE_TYPE_REGISTRY)
-    yield tmp_path
-    NODE_TYPE_REGISTRY.clear()
-    NODE_TYPE_REGISTRY.update(before)
-
-
 def write(directory, doc, name=None):
     path = directory / (name or f"{doc.get('binary', 'x')}.json")
     path.write_text(json.dumps(doc))
     return path
 
 
-class TestDerivation:
-    def test_one_node_type_per_domain(self, catalog_dir):
-        write(catalog_dir, _catalog(operations=[
-            _op(id="things.a", domain="things"),
-            _op(id="things.b", domain="things"),
-            _op(id="others.c", domain="others"),
-        ]))
-        specs = operation_specs(catalog_dir)
-        assert sorted(s.component_type for s in specs) == [
-            "demo_bin_others", "demo_bin_things"
-        ]
+def bump_mtime(path):
+    """Force a visibly different mtime — two quick writes may otherwise share one."""
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
 
-    def test_ports_are_the_union_of_the_domains_operations(self, catalog_dir):
-        write(catalog_dir, _catalog(operations=[
-            _op(id="things.a", outputs=[{"name": "one", "type": "string", "description": "d"}]),
-            _op(id="things.b", outputs=[{"name": "two", "type": "array", "description": "d"}]),
+
+class TestAccess:
+    def test_the_catalog_is_read_by_binary_name(self, tmp_path):
+        write(tmp_path, _catalog())
+        assert catalog_for("demo-bin", tmp_path)["binary"] == "demo-bin"
+
+    def test_operations_are_keyed_by_id_and_carry_their_domain(self, tmp_path):
+        write(tmp_path, _catalog(operations=[
+            _op(id="things.a", domain="things"),
+            _op(id="others.b", domain="others"),
         ]))
-        spec = operation_specs(catalog_dir)[0]
-        assert {p.name: p.data_type for p in spec.outputs} == {
+        ops = operations_for("demo-bin", tmp_path)
+        assert sorted(ops) == ["others.b", "things.a"]
+        assert ops["things.a"]["domain"] == "things"
+        assert ops["others.b"]["domain"] == "others"
+
+    def test_an_entry_keeps_the_legacy_sidecar_shape(self, tmp_path):
+        params = {"type": "object", "properties": {"n": {"type": "string"}}}
+        write(tmp_path, _catalog(operations=[_op(params=params)]))
+        entry = operations_for("demo-bin", tmp_path)["things.doThing"]
+        assert entry["summary"] == "Do the thing."
+        assert entry["params"] == params
+        assert entry["session_required"] is True
+        assert entry["timeout_default_s"] == 30
+        assert entry["outputs"] == ["thing_id"]
+
+    def test_output_ports_are_typed_from_the_operation(self, tmp_path):
+        write(tmp_path, _catalog(operations=[
+            _op(outputs=[
+                {"name": "one", "type": "string", "description": "d"},
+                {"name": "two", "type": "array", "description": "d"},
+            ]),
+        ]))
+        ports = operation_output_ports("demo-bin", "things.doThing", tmp_path)
+        assert {p.name: p.data_type for p in ports} == {
             "one": DataType.STRING,
             "two": DataType.ARRAY,
         }
 
-    def test_a_port_declared_with_two_types_widens_to_any(self, catalog_dir):
-        """Rather than silently taking whichever operation was read first."""
-        write(catalog_dir, _catalog(operations=[
-            _op(id="things.a", outputs=[{"name": "x", "type": "string", "description": "d"}]),
-            _op(id="things.b", outputs=[{"name": "x", "type": "number", "description": "d"}]),
-        ]))
-        spec = operation_specs(catalog_dir)[0]
-        port = next(p for p in spec.outputs if p.name == "x")
-        assert port.data_type is DataType.ANY
-        assert "varies by operation" in port.description
+    def test_an_operation_with_no_outputs_is_an_empty_list_not_none(self, tmp_path):
+        """[] means "knows there are none"; None means "cannot know"."""
+        write(tmp_path, _catalog(operations=[_op(outputs=[])]))
+        assert operation_output_ports("demo-bin", "things.doThing", tmp_path) == []
 
-    def test_config_schema_carries_each_operations_params(self, catalog_dir):
-        params = {"type": "object", "properties": {"n": {"type": "string"}}}
-        write(catalog_dir, _catalog(operations=[_op(params=params)]))
-        spec = operation_specs(catalog_dir)[0]
-        assert spec.config_schema["properties"]["operation"]["enum"] == ["things.doThing"]
-        assert spec.config_schema["x-operations"]["things.doThing"]["params"] == params
-        assert spec.config_schema["x-binary"] == "demo-bin"
+    def test_an_unknown_operation_is_none_not_empty(self, tmp_path):
+        write(tmp_path, _catalog())
+        assert operation_output_ports("demo-bin", "things.nope", tmp_path) is None
+
+    def test_an_unknown_binary_is_none_everywhere(self, tmp_path):
+        assert catalog_for("no-such-bin", tmp_path) is None
+        assert operations_for("no-such-bin", tmp_path) is None
+        assert operation_output_ports("no-such-bin", "x", tmp_path) is None
+        assert config_schema_for("no-such-bin", tmp_path) is None
+
+    def test_a_binary_name_cannot_escape_the_catalog_directory(self, tmp_path):
+        """The name arrives from node configuration, so it is caller-controlled."""
+        for name in ("../etc", "a/b", "..", "", "."):
+            assert catalog_for(name, tmp_path) is None
 
 
 class TestRefusal:
-    def test_an_unknown_protocol_refuses_the_whole_catalog(self, catalog_dir):
+    def test_an_unknown_protocol_refuses_the_whole_catalog(self, tmp_path):
         """Not just the operations we happen to recognise — the whole document."""
-        write(catalog_dir, _catalog(protocol=2, operations=[_op(), _op(id="things.b")]))
-        assert load_specs(catalog_dir) == []
+        write(tmp_path, _catalog(protocol=2, operations=[_op(), _op(id="things.b")]))
+        assert catalog_for("demo-bin", tmp_path) is None
+        assert operations_for("demo-bin", tmp_path) is None
 
-    def test_unreadable_catalog_does_not_stop_the_others(self, catalog_dir):
-        (catalog_dir / "broken.json").write_text("{not json")
-        write(catalog_dir, _catalog(binary="good-bin"))
-        assert [s.component_type for s in operation_specs(catalog_dir)] == ["good_bin_things"]
+    def test_an_unreadable_catalog_disables_only_its_own_binary(self, tmp_path):
+        (tmp_path / "broken-bin.json").write_text("{not json")
+        write(tmp_path, _catalog(binary="good-bin"))
+        assert catalog_for("broken-bin", tmp_path) is None
+        assert sorted(operations_for("good-bin", tmp_path)) == ["things.doThing"]
 
-    def test_an_overlong_component_type_is_skipped_not_truncated(self, catalog_dir):
-        """component_type is String(30) and the polymorphic discriminator.
+    def test_a_missing_directory_is_not_an_error(self, tmp_path):
+        assert catalog_for("demo-bin", tmp_path / "absent") is None
 
-        Truncating would collide with a neighbouring domain and load the wrong
-        config class, which is worse than the node type being absent.
-        """
-        long_domain = "d" * 40
-        write(catalog_dir, _catalog(operations=[
-            _op(id=f"{long_domain}.a", domain=long_domain),
-            _op(id="fine.b", domain="fine"),
-        ]))
-        assert [s.component_type for s in operation_specs(catalog_dir)] == ["demo_bin_fine"]
-
-    def test_missing_directory_is_not_an_error(self, tmp_path):
-        assert load_specs(tmp_path / "absent") == []
+    def test_an_operation_missing_id_or_domain_skips_itself_only(self, tmp_path):
+        broken = _op(id="things.b")
+        del broken["domain"]
+        write(tmp_path, _catalog(operations=[_op(), broken]))
+        assert sorted(operations_for("demo-bin", tmp_path)) == ["things.doThing"]
 
 
 class TestEnvelopeUnwrapping:
-    def test_a_catalog_still_inside_its_envelope_is_accepted(self, catalog_dir):
-        """The binary writes an envelope to stdout; both forms reach this loader."""
-        write(catalog_dir, {"ok": True, "data": _catalog(), "proof": None,
-                            "slot_patch": None, "error": None}, name="wrapped.json")
-        assert [s.component_type for s in operation_specs(catalog_dir)] == ["demo_bin_things"]
+    def test_a_catalog_still_inside_its_envelope_is_accepted(self, tmp_path):
+        """The binary writes an envelope to stdout; both forms reach this reader."""
+        write(tmp_path, {"ok": True, "data": _catalog(), "proof": None,
+                         "slot_patch": None, "error": None}, name="demo-bin.json")
+        assert catalog_for("demo-bin", tmp_path)["binary"] == "demo-bin"
 
 
-class TestNaming:
-    def test_the_binary_prefixes_the_domain(self):
-        """Two binaries with a `funding` domain must not collide."""
-        assert component_type_for("a-bin", "funding") != component_type_for("b-bin", "funding")
+class TestFreshness:
+    """A catalog registered into a RUNNING process is visible on the next call.
 
-    def test_hyphens_become_underscores(self):
-        assert component_type_for("demo-bin", "things") == "demo_bin_things"
+    This is the property the static-type design exists to provide: nothing is
+    read at import, so there is nothing a restart would refresh.
+    """
+
+    def test_a_catalog_written_after_a_miss_is_found_on_the_next_call(self, tmp_path):
+        assert catalog_for("late-bin", tmp_path) is None
+        write(tmp_path, _catalog(binary="late-bin"))
+        assert catalog_for("late-bin", tmp_path)["binary"] == "late-bin"
+
+    def test_a_rewritten_catalog_is_visible_without_any_reimport(self, tmp_path):
+        path = write(tmp_path, _catalog(operations=[
+            _op(outputs=[{"name": "a", "type": "string", "description": "d"}]),
+        ]))
+        before = operation_output_ports("demo-bin", "things.doThing", tmp_path)
+        assert [p.name for p in before] == ["a"]
+
+        path.write_text(json.dumps(_catalog(operations=[
+            _op(outputs=[
+                {"name": "a", "type": "string", "description": "d"},
+                {"name": "b", "type": "number", "description": "d"},
+            ]),
+        ])))
+        bump_mtime(path)
+        after = operation_output_ports("demo-bin", "things.doThing", tmp_path)
+        assert [p.name for p in after] == ["a", "b"]
+
+    def test_a_deleted_catalog_stops_resolving(self, tmp_path):
+        path = write(tmp_path, _catalog())
+        assert catalog_for("demo-bin", tmp_path) is not None
+        path.unlink()
+        assert catalog_for("demo-bin", tmp_path) is None
+
+    def test_an_unchanged_file_is_served_from_the_cache(self, tmp_path):
+        write(tmp_path, _catalog())
+        first = catalog_for("demo-bin", tmp_path)
+        assert catalog_for("demo-bin", tmp_path) is first
 
 
-class TestIdentityType:
-    def test_every_catalog_also_yields_an_identity_node_type(self, catalog_dir):
-        """Identity management is protocol-defined, so a plugin gets it whatever
-        its catalog contains — including a catalog with no operations at all in
-        the domains a host cares about."""
-        write(catalog_dir, _catalog())
-        verbs = [s for s in load_specs(catalog_dir) if s.config_schema.get(VERB_MARKER)]
-        assert [s.component_type for s in verbs] == ["demo_bin_auth"]
+class TestConfigSchema:
+    def test_the_legacy_shape_survives(self, tmp_path):
+        """`SchemaConfigForm` consumes this shape unchanged, keyed by binary."""
+        write(tmp_path, _catalog(operations=[
+            _op(id="things.b", domain="things"),
+            _op(id="things.a", domain="things"),
+        ]))
+        schema = config_schema_for("demo-bin", tmp_path)
+        assert schema["properties"]["operation"]["enum"] == ["things.a", "things.b"]
+        assert schema["required"] == ["operation"]
+        assert schema["x-binary"] == "demo-bin"
+        assert "session" in schema["properties"]
+        assert "env" in schema["properties"]
+        assert schema["x-operations"]["things.a"]["domain"] == "things"
 
-    def test_a_refused_catalog_yields_no_identity_type_either(self, catalog_dir):
-        """The plugin is unusable, so offering to log into it would be a lie."""
-        write(catalog_dir, _catalog(protocol=2))
-        assert load_specs(catalog_dir) == []
+
+class TestReservedKeys:
+    def test_a_parameter_colliding_with_a_platform_key_is_skipped(self, tmp_path):
+        """`binary`, `domain`, `operation`, `session`, `env` are the platform's
+        own extra_config keys; a catalog parameter of that name would be
+        indistinguishable from them."""
+        write(tmp_path, _catalog(operations=[_op(params={
+            "type": "object",
+            "required": ["session", "n"],
+            "properties": {
+                "session": {"type": "string"},
+                "binary": {"type": "string"},
+                "n": {"type": "string"},
+            },
+        })]))
+        params = operations_for("demo-bin", tmp_path)["things.doThing"]["params"]
+        assert sorted(params["properties"]) == ["n"]
+        assert params["required"] == ["n"]

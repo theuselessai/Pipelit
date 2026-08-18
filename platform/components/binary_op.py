@@ -5,8 +5,11 @@ stdin, and writes exactly one JSON envelope to stdout. Whatever it does inside �
 several requests, a read-back to verify a write, polling until something settles
 — is its own business and never reaches this layer.
 
-This module is registered for every node type derived from a catalog rather than
-for a fixed component type, because those types are not knowable here.
+Every binary node shares the single static component type `binary_op`. Which
+binary a node invokes is its own data (`extra_config["binary"]`), and the
+operation's surface — parameters, session requirement, output ports — is read
+from that binary's pinned catalog at call time via `schemas.binary_catalogs`,
+so a plugin registered while this process runs needs no restart.
 """
 
 from __future__ import annotations
@@ -15,8 +18,8 @@ import json
 import logging
 import subprocess
 
-from components import COMPONENT_REGISTRY
-from schemas.node_types import get_node_type
+from components import register
+from schemas.binary_catalogs import operations_for
 from services.plugins import PluginError, verified_plugin
 
 logger = logging.getLogger(__name__)
@@ -52,36 +55,38 @@ def _error(code: str, message: str) -> BinaryOperationError:
     return cls(message)
 
 
-def _operation_spec(component_type: str, operation: str) -> tuple[str, dict]:
-    spec = get_node_type(component_type)
-    if spec is None:
-        raise _error("UNKNOWN_NODE_TYPE", f"no node type {component_type!r} is registered")
-    schema = spec.config_schema
-    binary = schema.get("x-binary")
-    operations = schema.get("x-operations") or {}
-    if not binary:
-        raise _error("NOT_A_BINARY_NODE", f"{component_type!r} does not come from a catalog")
+def _operation_spec(binary: str, operation: str) -> dict:
+    """The catalog entry for one operation of one binary, or a coded error."""
+    operations = operations_for(binary)
+    if operations is None:
+        raise _error(
+            "UNKNOWN_BINARY",
+            f"no catalog for binary {binary!r} — is it registered? "
+            f"Run scripts/register_plugin.py <plugin>.",
+        )
     if operation not in operations:
         raise _error(
             "UNKNOWN_OPERATION",
-            f"{operation!r} is not an operation of {component_type}. "
+            f"{operation!r} is not an operation of {binary}. "
             f"Known: {', '.join(sorted(operations))}",
         )
-    return binary, operations[operation]
+    return operations[operation]
 
 
+@register("binary_op")
 def binary_op_factory(node):
     """Return an executable node that performs one operation of one plugin."""
-    component_type = node.component_type
     extra = node.component_config.extra_config or {}
+    binary = str(extra.get("binary") or "")
     operation = str(extra.get("operation") or "")
 
     def binary_op_node(state: dict) -> dict:
+        if not binary:
+            raise _error("NO_BINARY", "this node names no binary; set one in its config")
         if not operation:
-            raise _error("NO_OPERATION", f"{component_type} node has no operation selected")
+            raise _error("NO_OPERATION", f"this {binary} node has no operation selected")
 
-        binary, op_spec = _operation_spec(component_type, operation)
-        spec = get_node_type(component_type)
+        op_spec = _operation_spec(binary, operation)
         plugin, _registration = verified_plugin(binary)
 
         session = str(extra.get("session") or "")
@@ -169,34 +174,16 @@ def binary_op_factory(node):
                 f"{proof.get('detail') or 'no detail given'}. The write may not have taken effect.",
             )
 
-        # Every port the node type declares gets a value. A port this operation
-        # does not emit resolves to None rather than being absent, because an
-        # absent port becomes the literal string "{{ node.port }}" downstream.
+        # Every port the CONFIGURED OPERATION declares gets a value. A port the
+        # invocation did not emit resolves to None rather than being absent,
+        # because an absent port becomes the literal string "{{ node.port }}"
+        # downstream.
         data = envelope.get("data") or {}
-        ports: dict = {p.name: None for p in (spec.outputs if spec else [])}
+        ports: dict = {name: None for name in op_spec.get("outputs", []) if name}
         ports.update({k: v for k, v in data.items() if k in ports})
         return ports
 
     return binary_op_node
 
 
-def register_derived_types() -> int:
-    """Point every catalog-derived node type at this factory.
-
-    Not a `@register("...")` decorator like the built-ins: the types come from
-    operator-supplied catalogs and are not knowable at import.
-    """
-    from schemas.binary_verbs import VERB_MARKER
-    from schemas.node_types import NODE_TYPE_REGISTRY
-
-    count = 0
-    for component_type, spec in NODE_TYPE_REGISTRY.items():
-        if "x-binary" in spec.config_schema and not spec.config_schema.get(VERB_MARKER):
-            COMPONENT_REGISTRY[component_type] = binary_op_factory
-            count += 1
-    return count
-
-
-register_derived_types()
-
-__all__ = ["binary_op_factory", "register_derived_types", "BinaryOperationError", "PluginError"]
+__all__ = ["binary_op_factory", "BinaryOperationError", "PluginError"]

@@ -707,9 +707,49 @@ for _ct, _spec in NODE_TYPE_REGISTRY.items():
         _spec.executable = False
 
 
-# Node types derived from binary catalogs, if any are present. Registered last so
-# the built-ins above are already in place, and separately so that a malformed or
-# missing catalog cannot stop the built-in types from loading.
-from schemas.binary_catalogs import load_specs  # noqa: E402
+# ── Binary plugins ────────────────────────────────────────────────────────────
+# Two STATIC types cover every binary plugin. The binary is node data
+# (extra_config["binary"]), and the operation surface comes from the binary's
+# pinned catalog via schemas.binary_catalogs — resolved per node, per call, so a
+# plugin registered while this process runs needs no restart. binary_op declares
+# no outputs here: its ports are derived per node from (binary, operation).
 
-load_specs()
+from schemas.binary_verbs import auth_spec  # noqa: E402
+
+register_node_type(NodeTypeSpec(
+    component_type="binary_op",
+    display_name="Binary Operation",
+    description=(
+        "One operation of a registered binary plugin. The binary and the "
+        "operation are chosen in the node's config; the ports are whatever "
+        "that operation declares in the binary's catalog."
+    ),
+    category="action",
+    inputs=[
+        PortDefinition(
+            name="input",
+            data_type=DataType.ANY,
+            required=False,
+            description="Optional upstream value; parameters come from config",
+        )
+    ],
+    outputs=[],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "binary": {
+                "type": "string",
+                "title": "Binary",
+                "description": "Name of the registered binary this node invokes.",
+            },
+            "operation": {
+                "type": "string",
+                "title": "Operation",
+                "description": "An operation id from the binary's catalog.",
+            },
+        },
+        "required": ["binary", "operation"],
+    },
+))
+
+register_node_type(auth_spec())

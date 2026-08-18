@@ -5,11 +5,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel
 
-# The built-in types. This is no longer the whole set: node types are also
-# derived at import from binary catalogs (schemas/binary_catalogs.py), which are
-# operator-supplied and therefore unknowable here. So the validator below checks
-# the live registry and falls back to this tuple, rather than the tuple being a
-# Literal that would reject every derived type.
+# The built-in types. Binary plugins do not add to this set: every plugin node
+# is one of the two static types below (binary_op / binary_auth), with the
+# binary itself carried in the node's extra_config. The validator checks the
+# live registry and falls back to this tuple.
 STATIC_COMPONENT_TYPES = (
     "categorizer",
     "router",
@@ -53,6 +52,8 @@ STATIC_COMPONENT_TYPES = (
     "validate_topology",
     "mailbox_action",
     "mailbox_parse",
+    "binary_op",
+    "binary_auth",
 )
 
 
@@ -61,10 +62,7 @@ def _known_component_type(value: str) -> str:
 
     if value in NODE_TYPE_REGISTRY or value in STATIC_COMPONENT_TYPES:
         return value
-    raise ValueError(
-        f"unknown component_type {value!r}. Derived types need their binary's "
-        f"catalog present in platform/catalogs/ — see that directory's README."
-    )
+    raise ValueError(f"unknown component_type {value!r}")
 
 
 ComponentTypeStr = Annotated[str, AfterValidator(_known_component_type)]

@@ -2,7 +2,7 @@
 
 import pytest
 
-from schemas.binary_verbs import VERBS, auth_spec_for, build_argv, component_type_for
+from schemas.binary_verbs import VERBS, auth_spec, build_argv
 
 
 class TestArgv:
@@ -40,24 +40,27 @@ class TestArgv:
 
 
 class TestSpec:
-    def test_every_plugin_gets_the_same_verbs(self):
+    def test_one_static_type_serves_every_plugin(self):
         """The verb surface is fixed by the protocol, so it does not come from a
-        catalog and is identical for a plugin nobody has written yet."""
-        a = auth_spec_for("one-bin").config_schema["x-operations"]
-        b = auth_spec_for("other-bin").config_schema["x-operations"]
-        assert sorted(a) == sorted(b) == sorted(VERBS)
+        catalog: a single `binary_auth` type covers a plugin nobody has written
+        yet, and which binary a node manages is node data, not part of the type."""
+        spec = auth_spec()
+        assert spec.component_type == "binary_auth"
+        assert "x-binary" not in spec.config_schema
+        assert sorted(spec.config_schema["x-operations"]) == sorted(VERBS)
 
-    def test_the_component_type_fits_the_column(self):
-        """component_type is a String(30) and the polymorphic discriminator."""
-        assert len(component_type_for("zc-portal-admin")) <= 30
+    def test_the_binary_is_declared_as_config(self):
+        schema = auth_spec().config_schema
+        assert schema["properties"]["binary"]["title"] == "Binary"
+        assert "binary" in schema["required"]
 
     def test_the_password_is_marked_secret(self):
-        params = auth_spec_for("x").config_schema["x-operations"]["auth.login"]["params"]
+        params = auth_spec().config_schema["x-operations"]["auth.login"]["params"]
         assert params["properties"]["password"]["secret"] is True
 
     def test_verbs_do_not_ask_for_a_session_picker(self):
         """On these nodes `session` is a handle being WRITTEN, not one chosen."""
-        ops = auth_spec_for("x").config_schema["x-operations"]
+        ops = auth_spec().config_schema["x-operations"]
         assert all(op["session_required"] is False for op in ops.values())
 
 

@@ -1,7 +1,9 @@
 """Identity and environment management as workflow nodes.
 
-The verb surface is fixed by the protocol, so one component serves every plugin —
-unlike operations, which differ per binary and come from a catalog.
+The verb surface is fixed by the protocol, so the single static component type
+`binary_auth` serves every plugin — unlike operations, which differ per binary
+and come from a catalog. Which binary a node manages is its own data
+(`extra_config["binary"]`).
 
 Credentials travel on stdin, never on argv: a process's command line is readable
 by other processes for the life of the call, which is why the binaries refuse
@@ -20,10 +22,9 @@ import json
 import logging
 import subprocess
 
-from components import COMPONENT_REGISTRY
+from components import register
 from components.binary_op import TIMEOUT_GRACE_S, _error
-from schemas.binary_verbs import VERB_MARKER, VERBS, build_argv
-from schemas.node_types import get_node_type
+from schemas.binary_verbs import VERBS, build_argv
 from services.plugins import verified_plugin
 
 logger = logging.getLogger(__name__)
@@ -31,23 +32,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_S = 60.0
 
 
+@register("binary_auth")
 def binary_auth_factory(node):
     """Return an executable node that performs one identity or environment verb."""
-    component_type = node.component_type
     extra = node.component_config.extra_config or {}
+    binary = str(extra.get("binary") or "")
     verb_id = str(extra.get("operation") or "")
 
     def binary_auth_node(state: dict) -> dict:
-        spec = get_node_type(component_type)
-        if spec is None or not spec.config_schema.get(VERB_MARKER):
-            raise _error("NOT_AN_IDENTITY_NODE", f"{component_type!r} is not an identity node")
+        if not binary:
+            raise _error("NO_BINARY", "this node names no binary; set one in its config")
         if verb_id not in VERBS:
             raise _error(
                 "UNKNOWN_VERB",
                 f"{verb_id!r} is not a verb. Known: {', '.join(sorted(VERBS))}",
             )
 
-        binary = spec.config_schema["x-binary"]
         plugin, _registration = verified_plugin(binary)
 
         missing = [
@@ -91,25 +91,15 @@ def binary_auth_factory(node):
             raise _error(str(err.get("code") or "BINARY_ERROR"),
                          str(err.get("message") or f"{verb_id} failed"))
 
+        # Every port the CONFIGURED VERB declares gets a value; an unemitted
+        # port is None, never absent — an absent port becomes the literal
+        # string "{{ node.port }}" downstream.
         data = envelope.get("data") or {}
-        ports: dict = {p.name: None for p in (spec.outputs if spec else [])}
+        ports: dict = {name: None for name, _, _ in VERBS[verb_id]["outputs"]}
         ports.update({k: v for k, v in data.items() if k in ports})
         return ports
 
     return binary_auth_node
 
 
-def register_verb_types() -> int:
-    from schemas.node_types import NODE_TYPE_REGISTRY
-
-    count = 0
-    for component_type, spec in NODE_TYPE_REGISTRY.items():
-        if spec.config_schema.get(VERB_MARKER):
-            COMPONENT_REGISTRY[component_type] = binary_auth_factory
-            count += 1
-    return count
-
-
-register_verb_types()
-
-__all__ = ["binary_auth_factory", "register_verb_types"]
+__all__ = ["binary_auth_factory"]

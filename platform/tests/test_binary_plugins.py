@@ -13,9 +13,8 @@ import subprocess
 
 import pytest
 
+import schemas.binary_catalogs as binary_catalogs
 from components.binary_op import binary_op_factory
-from schemas.binary_catalogs import load_specs
-from schemas.node_types import NODE_TYPE_REGISTRY
 from services import plugins
 from services.plugins import (
     PluginError,
@@ -98,11 +97,11 @@ def plugin(tmp_path, monkeypatch):
     catalogs = tmp_path / "catalogs"
     catalogs.mkdir()
     (catalogs / "fake-bin.json").write_text(json.dumps(_catalog()))
-    before = dict(NODE_TYPE_REGISTRY)
-    load_specs(catalogs)
+    # The components resolve the catalog per call through the access layer, so
+    # pointing the directory somewhere else is all a test needs — no node types
+    # to register, no registry to restore.
+    monkeypatch.setattr(binary_catalogs, "CATALOG_DIR", catalogs)
     yield directory
-    NODE_TYPE_REGISTRY.clear()
-    NODE_TYPE_REGISTRY.update(before)
 
 
 def io_dir(plugin_dir):
@@ -127,9 +126,10 @@ def failed(code, message="it failed", slot_patch=None):
 
 def node(**extra):
     from types import SimpleNamespace
+    extra.setdefault("binary", "fake-bin")
     extra.setdefault("operation", "things.doThing")
     return SimpleNamespace(
-        component_type="fake_bin_things",
+        component_type="binary_op",
         component_config=SimpleNamespace(extra_config=extra, credential_id=None),
     )
 
@@ -252,6 +252,41 @@ class TestInvocation:
         assert "unknown" in str(exc.value)
 
 
+class TestStaticTypes:
+    """binary_op / binary_auth are static: registered at import, whatever the
+    machine's catalogs hold. The binary is node data, resolved per call."""
+
+    def test_the_factories_are_registered_under_the_static_names(self):
+        from components import get_component_factory
+        from components.binary_auth import binary_auth_factory
+
+        assert get_component_factory("binary_op") is binary_op_factory
+        assert get_component_factory("binary_auth") is binary_auth_factory
+
+    def test_a_node_naming_no_binary_is_refused(self, plugin):
+        with pytest.raises(Exception) as exc:
+            run(plugin, binary="", session="s1")
+        assert type(exc.value).__name__ == "NO_BINARY"
+
+    def test_a_node_naming_an_uncatalogued_binary_is_refused(self, plugin):
+        with pytest.raises(Exception) as exc:
+            run(plugin, binary="no-such-bin", session="s1")
+        assert type(exc.value).__name__ == "UNKNOWN_BINARY"
+
+    def test_an_identity_node_naming_no_binary_is_refused(self, plugin):
+        from types import SimpleNamespace
+
+        from components.binary_auth import binary_auth_factory
+        n = SimpleNamespace(
+            component_type="binary_auth",
+            component_config=SimpleNamespace(
+                extra_config={"operation": "auth.sessionList"}, credential_id=None),
+        )
+        with pytest.raises(Exception) as exc:
+            binary_auth_factory(n)({})
+        assert type(exc.value).__name__ == "NO_BINARY"
+
+
 class TestIdentityNode:
     """The verb surface as a node — one component serves every plugin."""
 
@@ -261,9 +296,10 @@ class TestIdentityNode:
 
         from components.binary_auth import binary_auth_factory
         n = SimpleNamespace(
-            component_type="fake_bin_auth",
+            component_type="binary_auth",
             component_config=SimpleNamespace(
-                extra_config={"operation": op, **cfg}, credential_id=None),
+                extra_config={"binary": "fake-bin", "operation": op, **cfg},
+                credential_id=None),
         )
         return binary_auth_factory(n)({})
 
