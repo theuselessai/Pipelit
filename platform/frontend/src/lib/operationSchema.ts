@@ -88,9 +88,15 @@ export function filterOperationsToDomain(
  * truthful to suggest until an operation is chosen. The catalog sidecar carries
  * output names only, so those ports surface as `any`.
  *
+ * A `binary_auth` type is the same discipline through a different table: its
+ * static spec declares the UNION of every verb's outputs (the type is what edge
+ * validation resolves), which is truthful for no single verb. With no verb
+ * chosen — or one the `x-operations` sidecar does not recognise — it offers NO
+ * ports; once a verb is chosen it offers exactly that verb's outputs, typed
+ * from the spec.
+ *
  * Every other type starts from the spec's declared ports, narrowed to the
- * configured operation where the schema is operation-driven (binary_auth,
- * mailbox_action).
+ * configured operation where the schema is operation-driven (mailbox_action).
  */
 export function effectiveOutputPorts(
   componentType: string,
@@ -113,6 +119,7 @@ export function effectiveOutputPorts(
   }
   const base = spec?.outputs ?? []
   const emitted = emittedPortNames(schema, extraConfig)
+  if (componentType === "binary_auth" && !emitted) return []
   return emitted ? base.filter((p) => emitted.has(p.name)) : base
 }
 
