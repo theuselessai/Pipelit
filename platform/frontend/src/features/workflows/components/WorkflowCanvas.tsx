@@ -42,7 +42,7 @@ import {
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import type { WorkflowDetail, ComponentType, EdgeLabel, SwitchRule } from "@/types/models"
-import { emittedPortNames, narrowOutput } from "@/lib/binaryPorts"
+import { emittedPortNames, narrowOutput } from "@/lib/operationSchema"
 import type { NodeStatus } from "@/types/nodeIO"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"

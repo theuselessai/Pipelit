@@ -166,10 +166,13 @@ class EdgeValidator:
 
 
 def _binary_operation_errors(node, spec) -> list[str]:
-    """Design-time checks for a node driven by a binary's operation schema.
+    """Design-time checks for any node driven by an operation schema.
+
+    Written for node types derived from a binary catalog, and applies equally to
+    a built-in that declares one — mailbox_action does.
 
     Caught here rather than at run time because the answer is knowable when the
-    workflow is built: the catalog already says which operations need an identity
+    workflow is built: the schema already says which operations need an identity
     and which parameters they require. Finding out instead by running the
     workflow means discovering it against a real backend, which for a mutating
     operation is the expensive place to learn.
@@ -179,13 +182,16 @@ def _binary_operation_errors(node, spec) -> list[str]:
         return []
 
     config = (node.component_config.extra_config or {}) if node.component_config else {}
-    operation = config.get("operation")
+    # A schema may declare a default, which the component applies when the key is
+    # absent. Ignoring it here would fail every node that has never been opened.
+    default = ((spec.config_schema.get("properties") or {}).get("operation") or {}).get("default")
+    operation = config.get("operation") or default
     label = f"Node '{node.node_id}' ({node.component_type})"
 
     if not operation:
         return [f"{label} has no operation selected"]
     if operation not in operations:
-        return [f"{label} names operation '{operation}', which its binary does not offer"]
+        return [f"{label} names operation '{operation}', which this node type does not offer"]
 
     errors: list[str] = []
     op = operations[operation]

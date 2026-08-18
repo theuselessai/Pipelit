@@ -39,11 +39,6 @@ export interface SchemaConfigFormProps {
   onChange: (next: Record<string, unknown>) => void
 }
 
-/** True when this schema is one this form can drive. */
-export function isOperationSchema(schema: unknown): boolean {
-  return Boolean(schema && typeof schema === "object" && "x-operations" in (schema as Json))
-}
-
 function FieldLabel({ name, spec, required }: { name: string; spec: Json; required: boolean }) {
   const title = (spec.title as string) ?? name
   return (
@@ -74,18 +69,21 @@ function ScalarField({
   // extra_config, so it reaches the database and the nodes API like any other
   // field. Intended for disposable test identities. See the note beneath.
   const secret = spec.secret === true
+  // A parameter may declare a default. It matters beyond convenience: a guard
+  // like a dry-run flag has to be the value you get without deciding.
+  const effective = value === undefined ? spec.default : value
 
   return (
     <div className="space-y-1">
       {type === "boolean" ? (
         <div className="flex items-center justify-between">
           <FieldLabel name={name} spec={spec} required={required} />
-          <Switch checked={Boolean(value)} onCheckedChange={onChange} />
+          <Switch checked={Boolean(effective)} onCheckedChange={onChange} />
         </div>
       ) : enumValues ? (
         <>
           <FieldLabel name={name} spec={spec} required={required} />
-          <Select value={(value as string) ?? ""} onValueChange={onChange}>
+          <Select value={(effective as string) ?? ""} onValueChange={onChange}>
             <SelectTrigger className="text-xs h-7"><SelectValue placeholder="—" /></SelectTrigger>
             <SelectContent>
               {enumValues.map((v) => (
@@ -101,8 +99,12 @@ function ScalarField({
             className="text-xs h-7"
             type={secret ? "password" : undefined}
             autoComplete={secret ? "new-password" : undefined}
-            value={value === undefined || value === null ? "" : String(value)}
-            placeholder={type && type !== "string" ? type : undefined}
+            value={
+              effective === undefined || effective === null ? ""
+                : Array.isArray(effective) ? effective.join(", ")
+                : String(effective)
+            }
+            placeholder={(spec.placeholder as string | undefined) ?? (type && type !== "string" ? type : undefined)}
             onChange={(e) => onChange(e.target.value)}
           />
         </>
@@ -113,7 +115,10 @@ function ScalarField({
 }
 
 export default function SchemaConfigForm({ schema, value, onChange }: SchemaConfigFormProps) {
-  const operations = (schema["x-operations"] ?? {}) as Record<string, OperationSpec>
+  const operations = useMemo(
+    () => (schema["x-operations"] ?? {}) as Record<string, OperationSpec>,
+    [schema],
+  )
   const binary = schema["x-binary"] as string | undefined
   // On an identity node the verbs ESTABLISH a session rather than consuming one,
   // so `session` and `env` arrive as ordinary parameters — offering the pickers

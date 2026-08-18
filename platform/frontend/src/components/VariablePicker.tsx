@@ -3,7 +3,7 @@ import { useNodeTypes } from "@/api/workflows"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import type { WorkflowDetail } from "@/types/models"
-import { emittedPortNames } from "@/lib/binaryPorts"
+import { emittedPortNames } from "@/lib/operationSchema"
 import type { PortDefinition } from "@/types/nodeIO"
 
 interface VariablePickerProps {

@@ -336,6 +336,95 @@ register_node_type(NodeTypeSpec(
     outputs=[PortDefinition(name="result", data_type=DataType.STRING, description="JSON validation result")],
 ))
 
+
+# ── mailbox_action operation schema ─────────────────────────────────────────
+# The parameters each operation reads from extra_config, in the same shape the
+# binary catalogs emit — so one form renders both. Text fields accept {{ }}
+# expressions, which is how an address reaches a downstream node, so nothing
+# here is validated as a literal.
+_MB_ADDRESS = {
+    "type": "string", "title": "Address", "placeholder": "{{ create_mailbox_1.address }}",
+    "description": "Use the address the service returned, never one rebuilt from the name.",
+}
+_MB_JWT = {
+    "type": "string", "title": "Mailbox JWT", "placeholder": "{{ create_mailbox_1.jwt }}",
+    "description": "Optional. Supplying it keeps the full-service admin secret out of this call.",
+}
+_MB_TIMEOUT = {
+    "type": "number", "title": "Timeout (seconds)", "placeholder": "150",
+    "description": "Verification mail has been observed at 60-120s.",
+}
+
+
+def _mb(summary, outputs, **properties):
+    return {"summary": summary, "outputs": outputs,
+            "params": {"type": "object", "properties": properties}}
+
+
+MAILBOX_OPERATIONS = {
+    "create_mailbox": _mb(
+        "Creates a disposable address. Emits address, address_id and a mailbox-scoped jwt.",
+        ["result", "address", "address_id", "jwt"],
+        name={"type": "string", "title": "Name", "placeholder": "(random, e2e-prefixed)",
+              "description": "Alphanumeric only — the service silently strips everything else."},
+    ),
+    "wait_for_verification_email": _mb(
+        "Polls for the confirmation mail, then extracts its token. Needs address; "
+        "jwt optional but avoids using the admin secret.",
+        ["result", "token"],
+        address=_MB_ADDRESS, jwt=_MB_JWT, timeout_seconds=_MB_TIMEOUT,
+    ),
+    "wait_for_reset_password_email": _mb(
+        "Same, for the password-reset token.",
+        ["result", "token"],
+        address=_MB_ADDRESS, jwt=_MB_JWT, timeout_seconds=_MB_TIMEOUT,
+    ),
+    "wait_for_mail": _mb(
+        "Polls until any message arrives, or one matching `contains`.",
+        ["result", "mails"],
+        address=_MB_ADDRESS, jwt=_MB_JWT,
+        contains={"type": "string", "title": "Body contains",
+                  "description": "Optional. Without it the first message that arrives matches."},
+        timeout_seconds=_MB_TIMEOUT,
+        poll_seconds={"type": "number", "title": "Poll interval (seconds)", "placeholder": "2"},
+    ),
+    "list_mails": _mb(
+        "Lists what is currently in the mailbox.",
+        ["result", "mails"], address=_MB_ADDRESS, jwt=_MB_JWT,
+    ),
+    "delete_mailbox": _mb(
+        "Deletes by address_id. This is what revokes the mailbox jwt.",
+        ["result"],
+        address_id={"type": "string", "title": "Address ID",
+                    "placeholder": "{{ create_mailbox_1.address_id }}",
+                    "description": "The numeric id, not the address. This is what revokes the mailbox JWT."},
+    ),
+    "list_unknown_mails": _mb(
+        "Mail sent to addresses that do not exist — use when a wait times out.",
+        ["result", "mails"],
+    ),
+    "prune_mailboxes": _mb(
+        "Bulk delete by prefix. Dry-run unless confirm=true, and requires an explicit protect list.",
+        ["result"],
+        prefix={"type": "string", "title": "Prefix", "placeholder": "tmpe2e",
+                "description": "Required, no default: this prefix is shared across repos and "
+                               "matches other suites' mailboxes."},
+        protect={"type": "array", "title": "Protect (comma separated)",
+                 "placeholder": "tmpkeepme0000@mail.example",
+                 "description": "Required to delete. Reconcile against your permanent-fixture "
+                                "inventory first — the prefix cannot tell disposable mailboxes "
+                                "from irreplaceable ones."},
+        older_than_days={"type": "number", "title": "Only older than (days)",
+                         "description": "Secondary guard. Measured: it cannot separate junk "
+                                        "from the permanent fixtures."},
+        limit={"type": "number", "title": "Scan limit", "placeholder": "100"},
+        # Defaults ON: prune deletes real mailboxes on a shared instance, so the
+        # harmless setting is the one you get without deciding.
+        dry_run={"type": "boolean", "title": "Dry run", "default": True},
+        confirm={"type": "boolean", "title": "Confirm deletion"},
+    ),
+}
+
 register_node_type(NodeTypeSpec(
     component_type="mailbox_action",
     display_name="Mailbox",
@@ -358,6 +447,19 @@ register_node_type(NodeTypeSpec(
                        description="Verification or reset token, for the wait_for_*_email operations"),
         PortDefinition(name="mails", data_type=DataType.ARRAY, description="Matched messages"),
     ],
+    config_schema={
+        "type": "object",
+        "properties": {
+            "operation": {
+                "type": "string",
+                "title": "Operation",
+                "enum": list(MAILBOX_OPERATIONS),
+                "default": "create_mailbox",
+            },
+        },
+        "required": ["operation"],
+        "x-operations": MAILBOX_OPERATIONS,
+    },
 ))
 
 register_node_type(NodeTypeSpec(
