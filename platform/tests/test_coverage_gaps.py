@@ -241,8 +241,15 @@ class TestDeliveryService:
 
 class TestEdgeValidation:
     def test_validate_edge_unknown_source(self):
+        from types import SimpleNamespace
+
         from validation.edges import EdgeValidator
-        errors = EdgeValidator.validate_edge("totally_unknown_type", "agent")
+
+        def stub(component_type):
+            return SimpleNamespace(component_type=component_type,
+                                   component_config=SimpleNamespace(extra_config={}))
+
+        errors = EdgeValidator.validate_edge(stub("totally_unknown_type"), stub("agent"))
         assert isinstance(errors, list)
 
     def test_validate_workflow_edges_conditional_no_value(self, db, workflow):

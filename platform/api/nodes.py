@@ -54,6 +54,32 @@ def _unlink_sub_component(
             setattr(tgt_cfg, config_field, None)
 
 
+def _verify_binary_allowlisted(binary) -> None:
+    """Refuse storing a binary name that is not a registered, unmodified plugin.
+
+    `extra_config["binary"]` is agent-writable node data naming an executable,
+    so it is re-validated against the server-side allowlist
+    (`services.plugins.verified_plugin`) on every write that sets or changes
+    it. This is a SECURITY control, not a port check: a path can never be
+    storable (`_safe_name` refuses separators), and an unregistered name is
+    refused outright. Reads (`NodeOut`) stay unvalidated — a node must remain
+    readable regardless of catalog presence.
+    """
+    if not binary:
+        # A freshly added node may not name a binary yet; the name is checked
+        # whenever it is set.
+        return
+    from services.plugins import PluginError, verified_plugin
+
+    try:
+        verified_plugin(str(binary))
+    except PluginError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"binary {binary!r} is not usable here: {exc}",
+        )
+
+
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
 
@@ -96,6 +122,10 @@ def create_node(
         "component_type": component_type,
         "extra_config": config_data.get("extra_config", {}),
     }
+
+    # Binary nodes: the named binary must pass the server-side allowlist
+    if component_type in ("binary_op", "binary_auth"):
+        _verify_binary_allowlisted((config_data.get("extra_config") or {}).get("binary"))
 
     # AI config fields
     if component_type in ("agent", "categorizer", "router", "extractor"):
@@ -208,6 +238,11 @@ def update_node(
             elif k == "system_prompt":
                 cc.system_prompt = v
             elif k == "extra_config":
+                effective_type = data.get("component_type") or node.component_type
+                if effective_type in ("binary_op", "binary_auth"):
+                    new_binary = (v or {}).get("binary")
+                    if new_binary and new_binary != (cc.extra_config or {}).get("binary"):
+                        _verify_binary_allowlisted(new_binary)
                 cc.extra_config = v
             elif k == "input_template":
                 cc.input_template = v
@@ -463,15 +498,25 @@ def create_edge(
         src_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.source_node_id).first()
         tgt_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.target_node_id).first()
         if src_node and tgt_node:
-            from validation.edges import EdgeValidator
+            from validation.edges import UNRESOLVED_PORTS, EdgeValidator
             # "memory" was intentionally removed — memory nodes now connect via "tool" handle.
             # See migration 0d301d48b86a which converted all memory edges to tool edges.
             label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser", "skill": "skills"}
             target_handle = label_to_handle.get(payload.edge_label) if payload.edge_label else None
             errors = EdgeValidator.validate_edge(
-                src_node.component_type, tgt_node.component_type,
+                src_node, tgt_node,
                 target_handle=target_handle,
             )
+            # Sketch-first, deliberately: an edge touching a binary node whose
+            # ports cannot be resolved yet (no operation chosen, binary not
+            # registered here) is PERMITTED at creation — /validate/ reports
+            # the same condition with its specific reason. Only that one
+            # class is filtered, and it is filtered HERE, at the creation
+            # caller, never inside the validator: if the validator stopped
+            # emitting it, /validate/ would go silent too and the condition
+            # would be invisible from both paths. Type mismatches on
+            # resolvable nodes still refuse the edge, exactly as before.
+            errors = [e for e in errors if getattr(e, "code", None) != UNRESOLVED_PORTS]
             if errors:
                 raise HTTPException(status_code=422, detail={"validation_errors": errors})
 

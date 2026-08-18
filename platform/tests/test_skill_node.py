@@ -106,24 +106,31 @@ def test_non_ai_nodes_do_not_require_skills():
 # ── Edge validation tests ─────────────────────────────────────────────────────
 
 
+def _edge_stub(component_type):
+    """validate_edge takes node objects; only these attributes are consulted."""
+    from types import SimpleNamespace
+    return SimpleNamespace(component_type=component_type,
+                           component_config=SimpleNamespace(extra_config={}))
+
+
 def test_skill_edge_to_agent_valid():
     """A skill→agent edge with 'skills' handle should validate successfully."""
     from validation.edges import EdgeValidator
-    errors = EdgeValidator.validate_edge("skill", "agent", target_handle="skills")
+    errors = EdgeValidator.validate_edge(_edge_stub("skill"), _edge_stub("agent"), target_handle="skills")
     assert errors == []
 
 
 def test_skill_edge_to_deep_agent_valid():
     """A skill→deep_agent edge with 'skills' handle should validate successfully."""
     from validation.edges import EdgeValidator
-    errors = EdgeValidator.validate_edge("skill", "deep_agent", target_handle="skills")
+    errors = EdgeValidator.validate_edge(_edge_stub("skill"), _edge_stub("deep_agent"), target_handle="skills")
     assert errors == []
 
 
 def test_skill_edge_to_non_agent_invalid():
     """A skill→switch edge with 'skills' handle should fail (switch doesn't require skills)."""
     from validation.edges import EdgeValidator
-    errors = EdgeValidator.validate_edge("skill", "switch", target_handle="skills")
+    errors = EdgeValidator.validate_edge(_edge_stub("skill"), _edge_stub("switch"), target_handle="skills")
     assert len(errors) == 1
     assert "does not accept" in errors[0]
 
@@ -131,7 +138,7 @@ def test_skill_edge_to_non_agent_invalid():
 def test_skill_edge_to_categorizer_invalid():
     """categorizer doesn't accept skills connections."""
     from validation.edges import EdgeValidator
-    errors = EdgeValidator.validate_edge("skill", "categorizer", target_handle="skills")
+    errors = EdgeValidator.validate_edge(_edge_stub("skill"), _edge_stub("categorizer"), target_handle="skills")
     assert len(errors) == 1
     assert "does not accept" in errors[0]
 
