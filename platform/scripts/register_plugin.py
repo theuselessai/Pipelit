@@ -32,6 +32,7 @@ from services.plugins import (  # noqa: E402
     PLUGIN_DIR,
     PluginError,
     Registration,
+    detect_drift,
     installed,
     resolve,
     tree_checksum,
@@ -182,13 +183,15 @@ def main() -> int:
     if reg.dev_mode:
         print("  ⚠  DEV MODE: integrity is not verified at call time")
 
-    # Node types, and the mapped classes behind them, are built when a process
-    # imports — so a server or worker already running has no knowledge of what
-    # was just registered. It will refuse a node of the new type with "No such
-    # polymorphic_identity", which reads like a code fault rather than a stale
-    # process.
-    print("\n  ⚠  RESTART the server, the scheduler and the workers.")
-    print("     Node types are built at import; processes already running will not see these.")
+    # binary_op / binary_auth are STATIC component types (registered once, at
+    # models/node.py import) — no mapped class is built from a catalog, so no
+    # process needs restarting to recognise this binary. Ports are resolved
+    # PER NODE from the catalog FILE via schemas.binary_catalogs, cached only
+    # by that file's mtime: the server, the scheduler and every worker read it
+    # again — and see this registration — on their very next call.
+    print("\n  No restart needed: the catalog file is read on demand, per call, "
+          "cached only by its own mtime. Already-running processes see this "
+          "registration on their next call.")
 
     if previous and previous.get("catalog_hash") != catalog["catalog_hash"]:
         was = {op["id"] for op in previous.get("operations", [])}
@@ -198,6 +201,23 @@ def main() -> int:
             print(f"    removed  {op}")
         for op in sorted(now - was):
             print(f"    added    {op}")
+
+        # Drift protection lives HERE, at the registration boundary — not on
+        # the node (decision 2: ports are derived, never snapshotted). This is
+        # a REPORT, never a gate: re-registration is already a deliberate act,
+        # and the operator's fix for a bad catalog must not be blocked behind
+        # first fixing every workflow that referenced it.
+        from database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            drift = detect_drift(db, binary, previous, catalog)
+        finally:
+            db.close()
+        if drift:
+            print("\n  SAVED NODES AFFECTED — a port one of them depends on changed:")
+            for entry in drift:
+                print(f"    {entry.workflow_slug} / {entry.node_id}: {entry.detail}")
     return 0
 
 

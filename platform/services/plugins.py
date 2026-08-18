@@ -213,3 +213,93 @@ def verified_plugin(binary: str, plugin_dir: Path | None = None) -> tuple[Plugin
             f"passed conformance. Re-register it."
         )
     return plugin, reg
+
+
+@dataclass(frozen=True)
+class DriftEntry:
+    """One saved `binary_op` node whose configured operation was affected by a
+    catalog re-registration."""
+
+    workflow_slug: str
+    node_id: str
+    operation: str
+    change: str  # "operation_removed" | "output_ports_lost"
+    detail: str
+
+
+def saved_binary_op_nodes(db, binary: str) -> list[tuple[str, str, dict]]:
+    """Every saved `binary_op` node naming `binary`, as (workflow_slug, node_id, extra_config).
+
+    Ports are never snapshotted on the node (decision 2), so the only way to
+    know what a saved node is depending on is to look at what it configured —
+    its `extra_config["operation"]` — against the catalogs that come and go.
+    """
+    from models.node import BaseComponentConfig, WorkflowNode
+    from models.workflow import Workflow
+
+    rows = (
+        db.query(WorkflowNode, Workflow.slug, BaseComponentConfig)
+        .join(Workflow, Workflow.id == WorkflowNode.workflow_id)
+        .join(BaseComponentConfig, BaseComponentConfig.id == WorkflowNode.component_config_id)
+        .filter(WorkflowNode.component_type == "binary_op")
+        .all()
+    )
+    return [
+        (slug, wf_node.node_id, config.extra_config or {})
+        for wf_node, slug, config in rows
+        if (config.extra_config or {}).get("binary") == binary
+    ]
+
+
+def detect_drift(
+    db, binary: str, previous_catalog: dict | None, new_catalog: dict
+) -> list[DriftEntry]:
+    """Saved `binary_op` nodes whose configured operation was hit by re-registering `binary`.
+
+    Compares the catalog that is about to be REPLACED against the one that is
+    about to replace it, for every saved node naming this binary. Two ways a
+    node's configured operation is affected: it no longer exists at all, or it
+    still exists but no longer declares one of the output ports the node was
+    relying on (a strict subset check — new ports appearing is not drift).
+
+    This is a REPORT, not a gate — re-registration is already a deliberate act
+    (decision 2), and blocking it here would make an operator's fix for a bad
+    catalog contingent on first fixing every workflow that referenced it. The
+    pin that actually protects a running node is the catalog FILE itself: it
+    only changes here, on deliberate re-registration, never underneath a node
+    by a binary upgrade.
+    """
+    if not previous_catalog:
+        return []
+
+    old_ops = {op["id"]: op for op in previous_catalog.get("operations", []) if op.get("id")}
+    new_ops = {op["id"]: op for op in new_catalog.get("operations", []) if op.get("id")}
+
+    entries: list[DriftEntry] = []
+    for slug, node_id, extra in saved_binary_op_nodes(db, binary):
+        operation = extra.get("operation")
+        if not operation or operation not in old_ops:
+            # Nothing this node was actually relying on to compare — either it
+            # never had a resolvable operation, or it named one the OLD
+            # catalog didn't offer either (already broken before this call).
+            continue
+
+        if operation not in new_ops:
+            entries.append(DriftEntry(
+                workflow_slug=slug, node_id=node_id, operation=operation,
+                change="operation_removed",
+                detail=f"operation {operation!r} no longer exists in {binary}'s catalog",
+            ))
+            continue
+
+        old_outputs = {o["name"] for o in old_ops[operation].get("outputs", []) if o.get("name")}
+        new_outputs = {o["name"] for o in new_ops[operation].get("outputs", []) if o.get("name")}
+        lost = sorted(old_outputs - new_outputs)
+        if lost:
+            entries.append(DriftEntry(
+                workflow_slug=slug, node_id=node_id, operation=operation,
+                change="output_ports_lost",
+                detail=f"operation {operation!r} lost output port(s): {', '.join(lost)}",
+            ))
+
+    return entries
