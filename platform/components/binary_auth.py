@@ -89,7 +89,8 @@ def binary_auth_factory(node):
         if not envelope.get("ok"):
             err = envelope.get("error") or {}
             raise _error(str(err.get("code") or "BINARY_ERROR"),
-                         str(err.get("message") or f"{verb_id} failed"))
+                         str(err.get("message") or f"{verb_id} failed"),
+                         retryable=err.get("retryable"))
 
         # Every port the CONFIGURED VERB declares gets a value; an unemitted
         # port is None, never absent — an absent port becomes the literal

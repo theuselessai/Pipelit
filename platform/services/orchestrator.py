@@ -25,6 +25,23 @@ MAX_NODE_RETRIES = 3
 PUBSUB_CHANNEL_PREFIX = "execution:"
 
 
+def _config_forbids_retry(extra_config: dict | None) -> bool:
+    """True when the node's own config says it must never be retried.
+
+    `extra_config["retryable"] = false` marks a node whose failure may leave a
+    real-world side effect half-applied (an external write, a sent message) —
+    repeating it could apply the effect twice. This is the only guard that also
+    covers failures which produce no error verdict at all, such as a killed or
+    timed-out process. extra_config is hand-edited JSON, so the strings
+    "false"/"true" are accepted alongside real booleans; anything else means
+    "not stated" and keeps the default retry behaviour.
+    """
+    value = (extra_config or {}).get("retryable")
+    if isinstance(value, str):
+        return value.strip().lower() == "false"
+    return value is False
+
+
 def _redis() -> redis_lib.Redis:
     return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
 
@@ -524,6 +541,30 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                     "Checkpoints cleared automatically — please retry."
                 )
                 skip_retry = True
+
+            # Retry suppression: a failure may declare itself unsafe to repeat
+            # (the exception carries the binary's own `retryable` verdict), and
+            # a node may be marked never-retryable in its config. Either alone
+            # suppresses the retry — repeating a call whose first attempt may
+            # have applied a real-world write can apply it twice.
+            no_retry_reason = None
+            if getattr(exc, "retryable", None) is False:
+                no_retry_reason = (
+                    "the binary reported this failure as not retryable — "
+                    "whether the operation took effect is unknown, and "
+                    "repeating it could apply its side effect twice"
+                )
+            elif _config_forbids_retry(db_node.component_config.extra_config):
+                no_retry_reason = (
+                    'this node is marked non-retryable ("retryable": false in '
+                    "its config), so the failed attempt is never repeated"
+                )
+            if no_retry_reason:
+                skip_retry = True
+                logger.warning(
+                    "Node %s failed; retry suppressed: %s", node_id, no_retry_reason
+                )
+                error_msg += f"\n\nRetry suppressed: {no_retry_reason}"
 
             node_result = NodeResult.failed(
                 error_code=exc_type, message=error_msg, node_id=node_id,

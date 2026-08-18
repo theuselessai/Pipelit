@@ -38,7 +38,7 @@ class BinaryOperationError(RuntimeError):
 _error_classes: dict[str, type[BinaryOperationError]] = {}
 
 
-def _error(code: str, message: str) -> BinaryOperationError:
+def _error(code: str, message: str, *, retryable: object = None) -> BinaryOperationError:
     """Raise under a class named for the binary's own error code.
 
     The orchestrator records `type(exc).__name__` as a node's error_code, so
@@ -46,13 +46,23 @@ def _error(code: str, message: str) -> BinaryOperationError:
     to the execution log — rather than flattening every failure into one name and
     leaving the caller to string-match a message, which is exactly what the
     contract's error codes exist to avoid.
+
+    `retryable` carries the envelope's own verdict on whether the failed call is
+    safe to repeat; the orchestrator reads it off the exception when deciding
+    whether to retry. Only an explicit boolean travels — anything else means the
+    binary did not say, which must NOT be flattened into "yes": the contract
+    mandates false for any write whose side effects are unknown, so an absent
+    verdict keeps the platform's default behaviour rather than inventing one.
     """
     safe = "".join(c if c.isalnum() or c == "_" else "_" for c in code) or "BINARY_ERROR"
     cls = _error_classes.get(safe)
     if cls is None:
         cls = type(safe, (BinaryOperationError,), {})
         _error_classes[safe] = cls
-    return cls(message)
+    exc = cls(message)
+    if isinstance(retryable, bool):
+        exc.retryable = retryable
+    return exc
 
 
 def _operation_spec(binary: str, operation: str) -> dict:
@@ -164,7 +174,7 @@ def binary_op_factory(node):
                     " — the binary could not persist a slot change it made; "
                     "the stored identity may be stale"
                 )
-            raise _error(code, message)
+            raise _error(code, message, retryable=err.get("retryable"))
 
         proof = envelope.get("proof")
         if isinstance(proof, dict) and proof.get("discharged") is False:

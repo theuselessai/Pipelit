@@ -119,9 +119,9 @@ def ok(data=None, proof=None, slot_patch=None):
             "slot_patch": slot_patch, "error": None}
 
 
-def failed(code, message="it failed", slot_patch=None):
+def failed(code, message="it failed", slot_patch=None, retryable=False):
     return {"ok": False, "data": None, "proof": None, "slot_patch": slot_patch,
-            "error": {"code": code, "message": message, "retryable": False, "details": {}}}
+            "error": {"code": code, "message": message, "retryable": retryable, "details": {}}}
 
 
 def node(**extra):
@@ -203,6 +203,29 @@ class TestInvocation:
         with pytest.raises(Exception) as exc:
             run(plugin, session="s1")
         assert type(exc.value).__name__ == "WRITE_NOT_REFLECTED"
+
+    def test_a_failure_carries_the_binarys_retryable_verdict(self, plugin):
+        """The envelope's `retryable` rides the exception so the orchestrator
+        can refuse to repeat a write whose first attempt may have landed."""
+        respond(plugin, failed("WRITE_UNVERIFIED", retryable=False), exit_code=6)
+        with pytest.raises(Exception) as exc:
+            run(plugin, session="s1")
+        assert exc.value.retryable is False
+
+    def test_a_failure_the_binary_calls_repeatable_says_so(self, plugin):
+        respond(plugin, failed("BACKEND_BUSY", retryable=True), exit_code=6)
+        with pytest.raises(Exception) as exc:
+            run(plugin, session="s1")
+        assert exc.value.retryable is True
+
+    def test_a_failure_without_a_verdict_claims_none(self, plugin):
+        """Absent must not be flattened into 'yes, repeat me'."""
+        envelope = failed("MYSTERY")
+        del envelope["error"]["retryable"]
+        respond(plugin, envelope, exit_code=6)
+        with pytest.raises(Exception) as exc:
+            run(plugin, session="s1")
+        assert getattr(exc.value, "retryable", None) is None
 
     def test_an_undischarged_proof_is_a_failure_not_a_flag(self, plugin):
         respond(plugin, ok({"thing_id": "t"}, proof={
@@ -348,6 +371,13 @@ class TestIdentityNode:
         with pytest.raises(Exception) as exc:
             self._run("auth.login", env="e1", session="a1", username="u", password="p")
         assert type(exc.value).__name__ == "LOGIN_REJECTED"
+
+    def test_a_refusal_carries_the_retryable_verdict_too(self, plugin):
+        """binary_auth failures ride the same envelope contract as binary_op."""
+        respond(plugin, failed("STORE_LOCKED", retryable=False), exit_code=4)
+        with pytest.raises(Exception) as exc:
+            self._run("auth.login", env="e1", session="a1", username="u", password="p")
+        assert exc.value.retryable is False
 
 
 class TestCatalogEndpoint:
