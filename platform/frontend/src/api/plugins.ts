@@ -59,3 +59,26 @@ export function usePluginEnvironments(binary: string | undefined) {
     staleTime: 30_000,
   })
 }
+
+/**
+ * One registered binary's catalog, in the legacy config-schema shape the
+ * schema-driven form reads: an `operation` enum plus an `x-operations` sidecar
+ * whose entries carry summary, params, session_required, timeout_default_s,
+ * outputs and `domain`. `schema` is null for a registered binary whose pinned
+ * catalog file cannot be read — the listing never fails as a whole.
+ */
+export interface BinaryCatalog {
+  binary: string
+  plugin: string
+  schema: Record<string, unknown> | null
+}
+
+/** Catalogs of every registered binary. The pinned file is the source — no
+ * process restart is needed for a newly registered binary to appear here. */
+export function useBinaryCatalogs() {
+  return useQuery({
+    queryKey: ["plugins", "catalog"],
+    queryFn: () => apiFetch<{ items: BinaryCatalog[]; total: number }>("/plugins/catalog/"),
+    staleTime: 30_000,
+  })
+}

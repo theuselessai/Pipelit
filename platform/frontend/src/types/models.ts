@@ -50,6 +50,8 @@ export type BuiltinComponentType =
   | "mailbox_action"
   | "mailbox_parse"
   | "assertion"
+  | "binary_op"
+  | "binary_auth"
 
 /**
  * Any node type the backend will accept, including ones derived at runtime from

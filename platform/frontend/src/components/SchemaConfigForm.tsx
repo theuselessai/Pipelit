@@ -142,6 +142,11 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
   }), [sessions.data, environments.data])
 
   const selected = (value.operation as string) ?? ""
+  // The schema says whether an operation is required (it is, for every binary
+  // node). An innocent-looking empty select would hide that; the marker, the
+  // destructive border and the note below make the unset state say so.
+  const operationRequired = ((schema.required as string[] | undefined) ?? []).includes("operation")
+  const operationMissing = operationRequired && !selected
   const op = operations[selected]
   const params = (op?.params ?? {}) as Json
   const properties = (params.properties ?? {}) as Record<string, Json>
@@ -152,7 +157,10 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <Label className="text-xs font-semibold">Operation</Label>
+        <Label className="text-xs font-semibold">
+          Operation
+          {operationRequired && <span className="text-destructive ml-0.5">*</span>}
+        </Label>
         <Select
           value={selected}
           onValueChange={(next) => {
@@ -164,7 +172,7 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
             onChange(keep)
           }}
         >
-          <SelectTrigger className="text-xs h-7">
+          <SelectTrigger className={`text-xs h-7${operationMissing ? " border-destructive" : ""}`}>
             <SelectValue placeholder={`Choose an operation${binary ? ` from ${binary}` : ""}`} />
           </SelectTrigger>
           <SelectContent>
@@ -172,6 +180,12 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
           </SelectContent>
         </Select>
         {op?.summary && <p className="text-[10px] text-muted-foreground">{op.summary}</p>}
+        {operationMissing && (
+          <p className="text-[10px] text-destructive">
+            Required. Until an operation is chosen this node does nothing, offers no
+            output ports, and fails the workflow's validation.
+          </p>
+        )}
       </div>
 
       {selected && !isVerbNode && (

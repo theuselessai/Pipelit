@@ -7,31 +7,137 @@
  * component because a module that exports both a component and a function
  * cannot fast-refresh.
  */
-import type { NodeTypeSpec } from "@/types/nodeIO"
+import type { NodeTypeSpec, PortDefinition } from "@/types/nodeIO"
+import type { BinaryCatalog } from "@/api/plugins"
 
 type Json = Record<string, unknown>
 
 /**
+ * The operation schema that actually governs one NODE — resolved per node, not
+ * per type, because `binary_op` is a single static type whose operations live in
+ * whichever binary's catalog the node names in `extra_config.binary`.
+ *
+ * - A spec whose `config_schema` carries `x-operations` (mailbox_action,
+ *   binary_auth) governs every node of the type. For `binary_auth` the node's
+ *   binary is spread in as `x-binary`, which is where SchemaConfigForm's
+ *   session/environment pickers read it — the static spec cannot carry it
+ *   because the binary is node data now.
+ * - A `binary_op` node resolves to its binary's catalog schema. No binary, no
+ *   registered catalog, or an unreadable catalog file (`schema: null`) all
+ *   resolve to null: there is nothing truthful to render.
+ * - Everything else resolves to null — not operation-driven.
+ */
+export function operationSchemaForNode(
+  componentType: string,
+  extraConfig: Record<string, unknown> | undefined,
+  spec: NodeTypeSpec | undefined,
+  catalogs: BinaryCatalog[] | undefined,
+): Json | null {
+  const specSchema = spec?.config_schema as Json | undefined
+  if (specSchema && "x-operations" in specSchema) {
+    if (componentType === "binary_auth") {
+      return { ...specSchema, "x-binary": extraConfig?.binary }
+    }
+    return specSchema
+  }
+  if (componentType === "binary_op") {
+    const binary = extraConfig?.binary as string | undefined
+    if (!binary) return null
+    return catalogs?.find((c) => c.binary === binary)?.schema ?? null
+  }
+  return null
+}
+
+/**
+ * Restrict a catalog schema's operations to one domain — the palette creates a
+ * `binary_op` node per (binary, domain), and the panel's dropdown honours that.
+ *
+ * When the node carries no `domain` (created raw through the API, or migrated),
+ * it is derived from the configured operation's catalog entry; failing that,
+ * every operation shows. A domain naming no operation at all (the catalog moved
+ * on) also shows everything — an empty dropdown would leave the node
+ * unconfigurable, which hides the mismatch instead of surfacing it.
+ */
+export function filterOperationsToDomain(
+  schema: Json,
+  domain: string | undefined,
+  configuredOperation: string | undefined,
+): Json {
+  const operations = (schema["x-operations"] ?? {}) as Record<string, { domain?: string }>
+  const effective =
+    domain ?? (configuredOperation ? operations[configuredOperation]?.domain : undefined)
+  if (!effective) return schema
+  const kept = Object.entries(operations).filter(([, op]) => op.domain === effective)
+  if (!kept.length) return schema
+  const properties = { ...((schema.properties ?? {}) as Json) }
+  if (properties.operation) {
+    properties.operation = {
+      ...(properties.operation as Json),
+      enum: kept.map(([id]) => id).sort(),
+    }
+  }
+  return { ...schema, properties, "x-operations": Object.fromEntries(kept) }
+}
+
+/**
+ * The output ports one NODE truly offers — what the variable picker suggests.
+ *
+ * A `binary_op` type declares no outputs at all: its ports belong to the
+ * configured operation. With no binary or no recognised operation it offers NO
+ * ports — edges to it are still permitted (sketch-first), but there is nothing
+ * truthful to suggest until an operation is chosen. The catalog sidecar carries
+ * output names only, so those ports surface as `any`.
+ *
+ * Every other type starts from the spec's declared ports, narrowed to the
+ * configured operation where the schema is operation-driven (binary_auth,
+ * mailbox_action).
+ */
+export function effectiveOutputPorts(
+  componentType: string,
+  extraConfig: Record<string, unknown> | undefined,
+  spec: NodeTypeSpec | undefined,
+  catalogs: BinaryCatalog[] | undefined,
+): PortDefinition[] {
+  const schema = operationSchemaForNode(componentType, extraConfig, spec, catalogs)
+  if (componentType === "binary_op") {
+    const operations = (schema?.["x-operations"] ?? {}) as Record<string, { outputs?: string[] }>
+    const operation = extraConfig?.operation as string | undefined
+    const declared = operation ? operations[operation]?.outputs : undefined
+    return (declared ?? []).map((name) => ({
+      name,
+      data_type: "any" as const,
+      description: "",
+      required: false,
+      default: null,
+    }))
+  }
+  const base = spec?.outputs ?? []
+  const emitted = emittedPortNames(schema, extraConfig)
+  return emitted ? base.filter((p) => emitted.has(p.name)) : base
+}
+
+/**
  * Which ports a node actually fills, given the operation it is configured for.
  *
- * A node type derived from a binary covers several operations and declares the
- * UNION of their outputs, because ports belong to the type and the type is what
- * edge validation resolves. Any one run fills only its own operation's ports and
- * returns the rest as null — deliberately, since a missing key becomes the
- * literal string `{{ node.port }}` travelling downstream as though it were data.
+ * An operation-driven node type declares the UNION of its operations' outputs,
+ * because ports belong to the type and the type is what edge validation
+ * resolves. Any one run fills only its own operation's ports and returns the
+ * rest as null — deliberately, since a missing key becomes the literal string
+ * `{{ node.port }}` travelling downstream as though it were data.
  *
  * That is right for the value and wrong for the display: four nulls beside one
  * result reads as "these are empty" when it means "these belong to a different
  * operation". This narrows what is SHOWN; the value keeps every port.
  *
- * Returns null for a node type that is not operation-driven, meaning "all of
- * them" — every built-in node type takes that path.
+ * Takes the schema `operationSchemaForNode` resolved for the node. Returns null
+ * for a schema that is not operation-driven, meaning "all of them" — every
+ * plain built-in node type takes that path.
  */
 export function emittedPortNames(
-  spec: NodeTypeSpec | undefined,
+  schema: Json | null | undefined,
   extraConfig: Record<string, unknown> | undefined,
 ): Set<string> | null {
-  const operations = spec?.config_schema?.["x-operations"] as
+  const operations = schema?.["x-operations"] as
     | Record<string, { outputs?: string[] }>
     | undefined
   if (!operations) return null

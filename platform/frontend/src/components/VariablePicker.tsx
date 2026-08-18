@@ -1,10 +1,11 @@
 import { useMemo } from "react"
 import { useNodeTypes } from "@/api/workflows"
+import { useBinaryCatalogs, type BinaryCatalog } from "@/api/plugins"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import type { WorkflowDetail } from "@/types/models"
-import { emittedPortNames } from "@/lib/operationSchema"
-import type { PortDefinition } from "@/types/nodeIO"
+import { effectiveOutputPorts } from "@/lib/operationSchema"
+import type { NodeTypeSpec, PortDefinition } from "@/types/nodeIO"
 
 interface VariablePickerProps {
   slug?: string
@@ -23,7 +24,8 @@ interface UpstreamNode {
 function getUpstreamNodes(
   workflow: WorkflowDetail,
   currentNodeId: string,
-  nodeTypeRegistry: Record<string, { outputs: PortDefinition[]; config_schema?: Record<string, unknown> }>,
+  nodeTypeRegistry: Record<string, NodeTypeSpec>,
+  catalogs: BinaryCatalog[] | undefined,
 ): UpstreamNode[] {
   const visited = new Set<string>()
   const queue: string[] = []
@@ -45,17 +47,21 @@ function getUpstreamNodes(
     const node = workflow.nodes.find((n) => n.node_id === nid)
     if (!node) continue
 
-    const spec = nodeTypeRegistry[node.component_type]
-    if (spec?.outputs?.length) {
-      // Offer only what this node's configured operation fills. Suggesting
-      // `{{ node.envs }}` on a login node produces an expression that resolves
-      // to null on every run.
-      const emitted = emittedPortNames(
-        spec as never, node.config?.extra_config as Record<string, unknown> | undefined)
-      const outputs = emitted ? spec.outputs.filter((p) => emitted.has(p.name)) : spec.outputs
-      if (outputs.length) {
-        result.push({ nodeId: nid, componentType: node.component_type, outputs })
-      }
+    // Resolved per NODE, not per type: a binary_op type declares no outputs of
+    // its own — its ports belong to the operation its config names, read from
+    // its binary's catalog. Offer only what this node's configured operation
+    // fills: suggesting `{{ node.envs }}` on a login node produces an
+    // expression that resolves to null on every run, and a binary node with no
+    // binary or no recognised operation offers nothing at all — there is
+    // nothing truthful to offer until an operation is chosen.
+    const outputs = effectiveOutputPorts(
+      node.component_type,
+      node.config?.extra_config as Record<string, unknown> | undefined,
+      nodeTypeRegistry[node.component_type],
+      catalogs,
+    )
+    if (outputs.length) {
+      result.push({ nodeId: nid, componentType: node.component_type, outputs })
     }
 
     // Continue backward from this node
@@ -74,11 +80,12 @@ function getUpstreamNodes(
 
 export default function VariablePicker({ nodeId, workflow, onInsert }: VariablePickerProps) {
   const { data: nodeTypeRegistry } = useNodeTypes()
+  const { data: catalogs } = useBinaryCatalogs()
 
   const upstreamNodes = useMemo(() => {
     if (!nodeTypeRegistry) return []
-    return getUpstreamNodes(workflow, nodeId, nodeTypeRegistry)
-  }, [workflow, nodeId, nodeTypeRegistry])
+    return getUpstreamNodes(workflow, nodeId, nodeTypeRegistry, catalogs?.items)
+  }, [workflow, nodeId, nodeTypeRegistry, catalogs])
 
   // Find trigger nodes for trigger pseudo-variables
   const triggerNodes = useMemo(() => {

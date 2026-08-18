@@ -1,6 +1,7 @@
 import { useCallback } from "react"
 import { useCreateNode } from "@/api/nodes"
 import { useNodeTypes } from "@/api/workflows"
+import { useBinaryCatalogs } from "@/api/plugins"
 import { Button } from "@/components/ui/button"
 import type { BuiltinComponentType, ComponentType } from "@/types/models"
 import {
@@ -12,7 +13,7 @@ import {
   Code, UserCheck, ShieldAlert, FileText, CheckSquare, FileCheck,
   Database, DatabaseZap, UserSearch, UserPlus, Plug, Fingerprint, KeyRound,
   Rocket, PencilRuler, CalendarClock, HeartPulse,
-  Mail, MailSearch, Boxes,
+  Mail, MailSearch, Boxes, IdCard,
   type LucideIcon,
 } from "lucide-react"
 
@@ -59,6 +60,8 @@ const ICONS: Record<BuiltinComponentType, LucideIcon> = {
   assertion: ClipboardCheck,
   mailbox_action: Mail,
   mailbox_parse: MailSearch,
+  binary_op: Boxes,
+  binary_auth: IdCard,
 }
 
 const NODE_CATEGORIES = [
@@ -87,20 +90,19 @@ const NODE_CATEGORIES = [
  *
  * If this line errors, the type it names needs a home in a category above.
  *
- * Checked against BuiltinComponentType rather than ComponentType: types derived
- * from a binary catalog are not knowable at compile time and get their own
- * section below, driven by the registry.
+ * `binary_op` and `binary_auth` are excluded deliberately, NOT because they are
+ * unreachable: they have no category of their own because they are added
+ * through the per-binary plugin groups below — one entry per (binary, domain)
+ * plus an identity entry per binary, each preseeding extra_config.
  */
 type PalettedType = (typeof NODE_CATEGORIES)[number]["types"][number]
-const _everyTypeIsInThePalette: Exclude<BuiltinComponentType, PalettedType> extends never
+const _everyTypeIsInThePalette: Exclude<
+  BuiltinComponentType,
+  PalettedType | "binary_op" | "binary_auth"
+> extends never
   ? true
-  : Exclude<BuiltinComponentType, PalettedType> = true
+  : Exclude<BuiltinComponentType, PalettedType | "binary_op" | "binary_auth"> = true
 void _everyTypeIsInThePalette
-
-/** Types the compiler cannot know about: everything the registry offers that no
- * category above claims. Grouped by the binary that declared them, so a canvas
- * carrying two binaries does not present one undifferentiated list. */
-const PALETTED = new Set<string>(NODE_CATEGORIES.flatMap((c) => c.types as readonly string[]))
 
 function derivedLabel(type: ComponentType): string {
   return type.replace(/^trigger_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
@@ -117,20 +119,30 @@ export default function NodePalette({ slug }: { slug: string }) {
 
   // Grouped by binary rather than listed flat: `zc-portal-admin · verification`
   // and `zc-portal · funding` are different authorities, and a single "Binaries"
-  // heading would leave that difference to be read off the end of a label.
-  const derivedGroups = Object.entries(registry ?? {})
-    .filter(([type]) => !PALETTED.has(type))
-    .reduce<Record<string, string[]>>((acc, [type, spec]) => {
-      const binary = (spec.config_schema?.["x-binary"] as string) ?? "Other"
-      ;(acc[binary] ??= []).push(type)
-      return acc
-    }, {})
+  // heading would leave that difference to be read off the end of a label. One
+  // entry per (binary, domain) plus one identity entry per binary — NOT an
+  // operation list; the operation is chosen in the details panel, never here.
+  // A catalog whose file is unreadable (schema: null) still gets its identity
+  // entry: the auth verbs are static and need no catalog.
+  const { data: catalogs } = useBinaryCatalogs()
+  const binaryGroups = (catalogs?.items ?? []).map((cat) => {
+    const operations = (cat.schema?.["x-operations"] ?? {}) as Record<string, { domain?: string }>
+    const domains = [...new Set(
+      Object.values(operations).map((op) => op.domain).filter((d): d is string => Boolean(d)),
+    )].sort()
+    return { binary: cat.binary, domains }
+  })
 
-  const handleAdd = useCallback((type: ComponentType) => {
+  const handleAdd = useCallback((type: ComponentType, extraConfig?: Record<string, unknown>) => {
     createNode.mutate({
       component_type: type,
       position_x: 250,
       position_y: 150,
+      // Preseed the binary (and domain) so the node knows whose catalog governs
+      // it. Deliberately NO operation: 14 of zc-portal-admin's 15 operations
+      // write real customer state — a silently-defaulted operation is a loaded
+      // gun. The operation is chosen, visibly, in the details panel.
+      ...(extraConfig ? { config: { extra_config: extraConfig } } : {}),
     })
   }, [createNode])
 
@@ -160,23 +172,33 @@ export default function NodePalette({ slug }: { slug: string }) {
         </div>
       ))}
 
-      {Object.entries(derivedGroups).map(([binary, types]) => (
+      {binaryGroups.map(({ binary, domains }) => (
         <div key={binary}>
           <div className="text-xs font-semibold text-muted-foreground mb-1">{binary}</div>
           <div className="space-y-1">
-            {types.sort().map((type) => (
+            {domains.map((domain) => (
               <Button
-                key={type}
+                key={domain}
                 variant="ghost"
                 size="sm"
                 className="w-full justify-start text-xs gap-2"
-                onClick={() => handleAdd(type)}
+                onClick={() => handleAdd("binary_op", { binary, domain })}
                 disabled={createNode.isPending}
               >
                 <Boxes className="h-3.5 w-3.5 shrink-0" />
-                {registry?.[type]?.display_name ?? derivedLabel(type)}
+                {derivedLabel(domain)}
               </Button>
             ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs gap-2"
+              onClick={() => handleAdd("binary_auth", { binary })}
+              disabled={createNode.isPending}
+            >
+              <IdCard className="h-3.5 w-3.5 shrink-0" />
+              Identity
+            </Button>
           </div>
         </div>
       ))}

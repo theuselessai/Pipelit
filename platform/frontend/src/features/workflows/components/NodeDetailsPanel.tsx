@@ -5,8 +5,9 @@ import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
 import { useNodeTypes } from "@/api/workflows"
 import SchemaConfigForm from "@/components/SchemaConfigForm"
-import { coerceBySchema, isOperationSchema } from "@/lib/operationSchema"
+import { coerceBySchema, filterOperationsToDomain, isOperationSchema, operationSchemaForNode } from "@/lib/operationSchema"
 import { useWorkspaces } from "@/api/workspaces"
+import { useBinaryCatalogs, usePlugins } from "@/api/plugins"
 
 import { useManualExecute } from "@/api/executions"
 import { wsManager } from "@/lib/wsManager"
@@ -263,7 +264,27 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // the same treatment without this file changing.
   const { data: nodeTypeRegistry } = useNodeTypes()
   const nodeTypeSpec = nodeTypeRegistry?.[node.component_type]
-  const isSchemaDriven = isOperationSchema(nodeTypeSpec?.config_schema)
+  // Binary nodes resolve their schema per NODE: a binary_op's operations live
+  // in whichever binary's catalog extra_config.binary names, and a binary_auth
+  // needs that binary spread in as x-binary for the session/environment
+  // pickers. Reads live schemaConfig, not the saved node, so choosing a binary
+  // in the select below brings up its operations before saving. The dropdown
+  // is filtered to the node's domain — the palette entry that created it.
+  // Deliberately not memoized: cheap, and this file's hook-lint baseline is
+  // frozen at 8 problems.
+  const { data: binaryCatalogs } = useBinaryCatalogs()
+  const { data: plugins } = usePlugins()
+  const isBinaryNode = node.component_type === "binary_op" || node.component_type === "binary_auth"
+  const rawOperationSchema = operationSchemaForNode(
+    node.component_type, schemaConfig, nodeTypeSpec, binaryCatalogs?.items)
+  const effectiveSchema = rawOperationSchema && node.component_type === "binary_op"
+    ? filterOperationsToDomain(
+        rawOperationSchema,
+        schemaConfig.domain as string | undefined,
+        schemaConfig.operation as string | undefined,
+      )
+    : rawOperationSchema
+  const isSchemaDriven = isOperationSchema(effectiveSchema)
 
   const isLLMNode = node.component_type === "ai_model"
   const isAgentNode = node.component_type === "agent" || node.component_type === "deep_agent"
@@ -356,11 +377,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     if (node.component_type === "assertion") {
       parsedExtra = { ...parsedExtra, rules: assertionRules, use_llm_judge: assertionJudge, pass_threshold: assertionThreshold }
     }
-    if (isSchemaDriven && nodeTypeSpec) {
+    if (isSchemaDriven && effectiveSchema) {
       parsedExtra = {
         ...parsedExtra,
-        ...coerceBySchema(nodeTypeSpec.config_schema, schemaConfig.operation as string, schemaConfig),
+        ...coerceBySchema(effectiveSchema, schemaConfig.operation as string, schemaConfig),
       }
+    } else if (isBinaryNode) {
+      // No schema resolved (no binary chosen yet, or its catalog is
+      // unreadable) — still persist what the Binary select set.
+      parsedExtra = { ...parsedExtra, ...schemaConfig }
     }
     if (node.component_type === "merge") {
       parsedExtra = { ...parsedExtra, mode: mergeMode }
@@ -1464,11 +1489,51 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         </>
       )}
 
-      {isSchemaDriven && nodeTypeSpec && (
+      {isBinaryNode && (
+        <>
+          <Separator />
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">
+              Binary<span className="text-destructive ml-0.5">*</span>
+            </Label>
+            <Select
+              value={(schemaConfig.binary as string) ?? ""}
+              // Changing the binary drops domain, operation and parameters:
+              // they all belong to the previous binary's catalog and would be
+              // meaningless — or dangerous — carried across.
+              onValueChange={(v) => setSchemaConfig({ binary: v })}
+            >
+              <SelectTrigger className={`text-xs h-7${schemaConfig.binary ? "" : " border-destructive"}`}>
+                <SelectValue placeholder="Choose a registered binary" />
+              </SelectTrigger>
+              <SelectContent>
+                {(plugins?.items ?? []).filter((p) => p.registered).map((p) => (
+                  <SelectItem key={p.plugin} value={p.binary ?? p.plugin}>
+                    {p.binary ?? p.plugin}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!schemaConfig.binary && (
+              <p className="text-[10px] text-destructive">
+                Required. Operations come from the binary's catalog — nothing can be
+                configured until a binary is chosen.
+              </p>
+            )}
+            {Boolean(schemaConfig.binary) && node.component_type === "binary_op" && !isSchemaDriven && (
+              <p className="text-[10px] text-destructive">
+                This binary's catalog could not be read, so its operations cannot be
+                offered. Re-registering the plugin restores them.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+      {isSchemaDriven && effectiveSchema && (
         <>
           <Separator />
           <SchemaConfigForm
-            schema={nodeTypeSpec.config_schema}
+            schema={effectiveSchema}
             value={schemaConfig}
             onChange={setSchemaConfig}
           />
