@@ -3,6 +3,7 @@ import { useNodeTypes } from "@/api/workflows"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import type { WorkflowDetail } from "@/types/models"
+import { emittedPortNames } from "@/lib/binaryPorts"
 import type { PortDefinition } from "@/types/nodeIO"
 
 interface VariablePickerProps {
@@ -22,7 +23,7 @@ interface UpstreamNode {
 function getUpstreamNodes(
   workflow: WorkflowDetail,
   currentNodeId: string,
-  nodeTypeRegistry: Record<string, { outputs: PortDefinition[] }>,
+  nodeTypeRegistry: Record<string, { outputs: PortDefinition[]; config_schema?: Record<string, unknown> }>,
 ): UpstreamNode[] {
   const visited = new Set<string>()
   const queue: string[] = []
@@ -46,11 +47,15 @@ function getUpstreamNodes(
 
     const spec = nodeTypeRegistry[node.component_type]
     if (spec?.outputs?.length) {
-      result.push({
-        nodeId: nid,
-        componentType: node.component_type,
-        outputs: spec.outputs,
-      })
+      // Offer only what this node's configured operation fills. Suggesting
+      // `{{ node.envs }}` on a login node produces an expression that resolves
+      // to null on every run.
+      const emitted = emittedPortNames(
+        spec as never, node.config?.extra_config as Record<string, unknown> | undefined)
+      const outputs = emitted ? spec.outputs.filter((p) => emitted.has(p.name)) : spec.outputs
+      if (outputs.length) {
+        result.push({ nodeId: nid, componentType: node.component_type, outputs })
+      }
     }
 
     // Continue backward from this node

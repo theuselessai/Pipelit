@@ -42,6 +42,7 @@ import {
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import type { WorkflowDetail, ComponentType, EdgeLabel, SwitchRule } from "@/types/models"
+import { emittedPortNames, narrowOutput } from "@/lib/binaryPorts"
 import type { NodeStatus } from "@/types/nodeIO"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
@@ -453,7 +454,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id], operation: n.component_type === "mailbox_action" ? ((n.config?.extra_config?.operation as string) || "create_mailbox") : undefined },
+      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: narrowOutput(nodeOutputs[n.node_id], emittedPortNames(nodeTypeRegistry?.[n.component_type], n.config?.extra_config)), operation: (n.config?.extra_config?.operation as string) || (n.component_type === "mailbox_action" ? "create_mailbox" : undefined) },
       selected: n.node_id === selectedNodeId,
     }
   }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry])
