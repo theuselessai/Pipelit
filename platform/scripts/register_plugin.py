@@ -193,20 +193,46 @@ def main() -> int:
           "cached only by its own mtime. Already-running processes see this "
           "registration on their next call.")
 
-    if previous and previous.get("catalog_hash") != catalog["catalog_hash"]:
+    if previous:
+        # The alarming header is triggered on the COMPUTED DIFF of operation
+        # ids, never on catalog_hash inequality by itself. A binary's
+        # catalog_hash can cover things that are not the operation surface
+        # (e.g. its own build stamp), so a binary that hashes that way
+        # changes catalog_hash on every rebuild even when its operations are
+        # byte-for-byte identical. Gating the header on the hash alone would
+        # then fire it on every single registration with empty added/removed
+        # lists — a warning that cries wolf on every rebuild is worse than
+        # no warning at all, because it trains people to ignore the one time
+        # it matters. This guard must not depend on another binary's hashing
+        # discipline, so it depends on the id diff instead. Do not "restore"
+        # the hash trigger for the header below.
         was = {op["id"] for op in previous.get("operations", [])}
         now = {op["id"] for op in catalog["operations"]}
-        print("\n  SURFACE CHANGED — saved workflows may reference what is gone:")
-        for op in sorted(was - now):
-            print(f"    removed  {op}")
-        for op in sorted(now - was):
-            print(f"    added    {op}")
+        if was != now:
+            print("\n  SURFACE CHANGED — saved workflows may reference what is gone:")
+            for op in sorted(was - now):
+                print(f"    removed  {op}")
+            for op in sorted(now - was):
+                print(f"    added    {op}")
+        elif previous.get("catalog_hash") != catalog["catalog_hash"]:
+            # Hash differs, but no operation was added or removed — stay
+            # quiet instead of the alarming header above.
+            print("\n  catalog rebuilt; operation surface unchanged.")
 
         # Drift protection lives HERE, at the registration boundary — not on
         # the node (decision 2: ports are derived, never snapshotted). This is
         # a REPORT, never a gate: re-registration is already a deliberate act,
         # and the operator's fix for a bad catalog must not be blocked behind
-        # first fixing every workflow that referenced it.
+        # first fixing every workflow that referenced it. Unlike the header
+        # above, this does not look at operation ids at all: a port can change
+        # WITHIN an operation whose id is unchanged, and a saved node depending
+        # on that port still needs to be named regardless of whether the
+        # id-level header fired. It runs on every re-registration rather than
+        # behind a hash comparison, for the same reason the header does — a
+        # binary whose catalog_hash failed to move would otherwise silence
+        # BOTH reports at once, which is the failure this guard exists to
+        # survive. detect_drift compares content, so an unchanged catalog
+        # simply yields nothing.
         from database import SessionLocal
 
         db = SessionLocal()
