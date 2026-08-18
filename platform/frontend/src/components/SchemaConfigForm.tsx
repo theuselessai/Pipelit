@@ -167,8 +167,14 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
             // Parameters belong to the operation that declared them. Carrying
             // them across a change would leave the node holding fields the new
             // operation never accepts, which fails at call time rather than here.
+            //
+            // `binary` and `domain` are not parameters — they identify which
+            // catalog and which domain within it this node belongs to — so they
+            // must survive an operation change alongside `session` and `env`.
+            // Backend mirrors this exact set as RESERVED_CONFIG_KEYS
+            // (schemas/binary_catalogs.py).
             const keep: Record<string, unknown> = { operation: next }
-            for (const k of ["session", "env"]) if (value[k] !== undefined) keep[k] = value[k]
+            for (const k of ["binary", "domain", "session", "env"]) if (value[k] !== undefined) keep[k] = value[k]
             onChange(keep)
           }}
         >
