@@ -334,3 +334,83 @@ class TestIdentityNode:
         with pytest.raises(Exception) as exc:
             self._run("auth.login", env="e1", session="a1", username="u", password="p")
         assert type(exc.value).__name__ == "LOGIN_REJECTED"
+
+
+class TestCatalogEndpoint:
+    """GET /api/v1/plugins/catalog/ — each REGISTERED binary's legacy-shaped
+    config schema, read from the pinned catalog file via the Wave 1 access
+    layer. Never by running the binary: the file is the pin."""
+
+    @pytest.fixture
+    def app(self, db):
+        from database import get_db
+        from main import app as _app
+
+        def _override_get_db():
+            try:
+                yield db
+            finally:
+                pass
+
+        _app.dependency_overrides[get_db] = _override_get_db
+        yield _app
+        _app.dependency_overrides.clear()
+
+    @pytest.fixture
+    def client(self, app):
+        from fastapi.testclient import TestClient
+        return TestClient(app)
+
+    @pytest.fixture
+    def auth_client(self, client, api_key):
+        client.headers["Authorization"] = f"Bearer {api_key.key}"
+        return client
+
+    def test_a_registered_plugin_appears_with_operation_enum_and_domains(self, plugin, auth_client):
+        resp = auth_client.get("/api/v1/plugins/catalog/")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == len(body["items"])
+        items = {item["binary"]: item for item in body["items"]}
+        entry = items["fake-bin"]
+        assert entry["plugin"] == "fake-bin"
+        assert entry["schema"]["properties"]["operation"]["enum"] == ["things.doThing"]
+        assert entry["schema"]["required"] == ["operation"]
+        assert entry["schema"]["x-binary"] == "fake-bin"
+        assert entry["schema"]["x-operations"]["things.doThing"]["domain"] == "things"
+
+    def test_an_unregistered_plugin_directory_is_absent(self, plugin, auth_client):
+        """Installed (a directory with a plugin.json) is not the same as
+        registered (has passed conformance and has a registration record)."""
+        other = plugin.parent / "other-bin"
+        other.mkdir()
+        (other / "plugin.json").write_text(json.dumps({"exec": ["python3", "bin.py"]}))
+
+        resp = auth_client.get("/api/v1/plugins/catalog/")
+        binaries = {item["binary"] for item in resp.json()["items"]}
+        assert binaries == {"fake-bin"}
+        assert "other-bin" not in binaries
+
+    def test_auth_is_required(self, plugin, client):
+        resp = client.get("/api/v1/plugins/catalog/")
+        assert resp.status_code in (401, 403)
+
+    def test_an_invalid_bearer_token_is_rejected(self, plugin, client):
+        client.headers["Authorization"] = "Bearer not-a-real-key"
+        resp = client.get("/api/v1/plugins/catalog/")
+        assert resp.status_code == 401
+
+    def test_a_registered_binary_with_an_unreadable_catalog_yields_schema_null(self, plugin, auth_client):
+        """A missing/unreadable catalog disables just that one entry — it must
+        not take down the rest of the listing."""
+        plugins.write_registration(Registration(
+            binary="ghost-bin", plugin="fake-bin", argv=["python3", "bin.py"],
+            checksum="sha256:" + "0" * 64, fingerprint="fp:whatever",
+            catalog_hash="x", registered_at="2026-08-18T00:00:00+00:00",
+        ))
+
+        resp = auth_client.get("/api/v1/plugins/catalog/")
+        assert resp.status_code == 200
+        items = {item["binary"]: item for item in resp.json()["items"]}
+        assert items["ghost-bin"]["schema"] is None
+        assert items["fake-bin"]["schema"] is not None

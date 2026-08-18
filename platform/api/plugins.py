@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
 from models.user import UserProfile
+from schemas.binary_catalogs import config_schema_for
 from services.plugins import PluginError, installed, read_registration, verified_plugin
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,39 @@ def list_plugins(profile: UserProfile = Depends(get_current_user)):
         except PluginError:
             pass
         items.append(entry)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/catalog/")
+def list_catalog(profile: UserProfile = Depends(get_current_user)):
+    """Every REGISTERED binary's legacy-shaped config schema.
+
+    Read from the pinned catalog file via the access layer in
+    `schemas.binary_catalogs` — NEVER by running the binary. The catalog file is
+    the pin; answering an HTTP request by shelling out would defeat that. A
+    binary registered mid-process (no restart) is visible on the next call
+    because `config_schema_for` re-reads and re-caches by mtime, not at import.
+
+    Unregistered plugin directories are absent. A registered binary whose
+    catalog is unreadable still appears, with `schema: null`, rather than
+    failing the whole listing.
+    """
+    # Imported locally, like list_plugins() above, so a REGISTRATION_DIR
+    # monkeypatched onto the services.plugins module after this module was
+    # imported is still honoured.
+    from services.plugins import REGISTRATION_DIR
+
+    items = []
+    for path in sorted(REGISTRATION_DIR.glob("*.plugin.json")):
+        try:
+            reg = read_registration(path.name.removesuffix(".plugin.json"))
+        except PluginError:
+            continue
+        items.append({
+            "binary": reg.binary,
+            "plugin": reg.plugin,
+            "schema": config_schema_for(reg.binary),
+        })
     return {"items": items, "total": len(items)}
 
 
