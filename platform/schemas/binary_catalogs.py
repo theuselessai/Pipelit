@@ -155,6 +155,12 @@ def _operation_entry(op: dict[str, Any]) -> dict[str, Any]:
         "timeout_default_s": op.get("timeout_default_s"),
         "outputs": [out.get("name") for out in op.get("outputs", [])],
         "domain": op.get("domain"),
+        # Whether invoking this operation changes state observable outside the
+        # binary. Passed through exactly as the catalog declares it — `True`,
+        # `False`, or absent (`None`) if the catalog omits it. None is NOT the
+        # same as False: the retry guard that reads this must treat "the
+        # catalog didn't say" as mutating, never as safe.
+        "mutates": op.get("mutates"),
     }
 
 

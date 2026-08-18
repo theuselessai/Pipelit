@@ -27,6 +27,18 @@ from schemas.node_types import DataType, NodeTypeSpec, PortDefinition
 # Marks a node type as driven by this table rather than by a catalog.
 VERB_MARKER = "x-verbs"
 
+# Whether each verb changes state observable outside the binary. Unlike an
+# operation's `mutates`, which comes from the binary's own catalog, verbs are
+# fixed by the protocol rather than declared per-binary — so their mutation
+# status is fixed here too, in this one place, rather than being re-derived or
+# guessed at each call site. `auth.login`, `auth.refresh` and
+# `auth.sessionRemove` change what identity the binary holds; `env.add` and
+# `env.remove` change what environments it knows. `auth.sessionList` and
+# `env.list` only read that state back.
+MUTATING_VERBS = frozenset({
+    "auth.login", "auth.refresh", "auth.sessionRemove", "env.add", "env.remove",
+})
+
 # argv shape per verb.
 #   globals     flags that precede the verb, from node config
 #   verb        the literal argv words
