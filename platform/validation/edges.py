@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from schemas.binary_catalogs import catalog_for, operation_output_ports, operations_for
-from schemas.binary_verbs import VERBS
+from schemas.binary_verbs import VERBS, verb_operations, verbs_for
 from schemas.node_types import DataType, PortDefinition, get_node_type
 
 # Node types whose output ports are derived per node — from the configured
@@ -311,7 +311,8 @@ def _binary_operation_errors(node, spec) -> list[str]:
     The table is resolved PER NODE: a built-in whose spec declares
     `x-operations` (mailbox_action) uses that, unchanged; `binary_op` uses the
     configured binary's catalog (`operations_for`); `binary_auth` uses the
-    protocol's static verb table, which its spec carries as `x-operations`. A
+    protocol's verb table composed for its binary (`verbs_for`), since a
+    catalog may declare what `auth login` and `env add` carry. A
     binary node whose table cannot be resolved — no binary set, no readable
     catalog registered here — gets an explicit error, never a silent skip.
 
@@ -334,7 +335,12 @@ def _binary_operation_errors(node, spec) -> list[str]:
     elif node.component_type == "binary_auth":
         if not config.get("binary"):
             return [f"{label} has no binary set"]
-        operations = spec.config_schema.get("x-operations")
+        # Composed for this node's binary, exactly as the component composes it
+        # at run time: what `auth login` and `env add` require is partly the
+        # binary's to declare, and validating against the static fallback would
+        # demand fields a declaring binary never asked for. An unresolvable
+        # binary composes nothing and validates against the fallback.
+        operations = verb_operations(verbs_for(config["binary"]))
     else:
         operations = spec.config_schema.get("x-operations")
         if not operations:

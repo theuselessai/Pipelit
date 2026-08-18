@@ -212,6 +212,43 @@ def operation_output_ports(
     return None
 
 
+def _declared_schema(binary: str, key: str, catalog_dir: Path | None) -> dict[str, Any] | None:
+    """One of the catalog's declared top-level JSON Schemas, or None.
+
+    None means absent or unresolvable — and for `credential_schema` absence
+    never means "no credential needed", only that the binary is not describing
+    one. The caller falls back to its own defaults; it must not skip the form.
+    """
+    doc = catalog_for(binary, catalog_dir)
+    if doc is None:
+        return None
+    schema = doc.get(key)
+    return schema if isinstance(schema, dict) else None
+
+
+def credential_schema_for(binary: str, catalog_dir: Path | None = None) -> dict[str, Any] | None:
+    """The JSON Schema for the `credential` object this binary's `auth login`
+    reads on stdin, or None.
+
+    The contract deliberately keeps `credential` opaque — what establishes an
+    identity differs per binary — so this is the binary's own description of
+    what it wants, not something the platform can know. Optional in the
+    contract: both readings of None (declared nothing / unresolvable) send the
+    caller to the platform's fallback fields.
+    """
+    return _declared_schema(binary, "credential_schema", catalog_dir)
+
+
+def env_schema_for(binary: str, catalog_dir: Path | None = None) -> dict[str, Any] | None:
+    """The JSON Schema for this binary's environment record (`env add`), or None.
+
+    Required at registration, so a registered binary normally has one — but a
+    catalog handed over by other means may not, and None then means the same
+    thing as for `credential_schema_for`: fall back, don't skip.
+    """
+    return _declared_schema(binary, "env_schema", catalog_dir)
+
+
 def config_schema_for(binary: str, catalog_dir: Path | None = None) -> dict[str, Any] | None:
     """A legacy-shaped config schema covering ALL of the binary's operations.
 

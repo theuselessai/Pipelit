@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
 from models.user import UserProfile
-from schemas.binary_catalogs import config_schema_for
+from schemas.binary_catalogs import config_schema_for, credential_schema_for, env_schema_for
 from services.plugins import PluginError, installed, read_registration, verified_plugin
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,14 @@ def list_catalog(profile: UserProfile = Depends(get_current_user)):
             "binary": reg.binary,
             "plugin": reg.plugin,
             "schema": config_schema_for(reg.binary),
+            # The catalog's own descriptions of the two objects the protocol
+            # keeps opaque: what `auth login` reads as `credential`, and what
+            # an environment record holds. Raw, so the frontend can compose the
+            # identity node's form from them; null when the binary declares
+            # nothing — which for credentials never means "none needed", only
+            # that the form falls back to the platform's default fields.
+            "credential_schema": credential_schema_for(reg.binary),
+            "env_schema": env_schema_for(reg.binary),
         })
     return {"items": items, "total": len(items)}
 

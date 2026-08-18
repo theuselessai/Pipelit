@@ -1,8 +1,43 @@
-"""The shared verb surface, and design-time checks on binary nodes."""
+"""The shared verb surface, and design-time checks on binary nodes.
+
+Schemas here are invented, like the catalogs in test_binary_catalogs.py: the
+real ones describe one organisation's operations and are gitignored.
+"""
+
+import json
 
 import pytest
 
-from schemas.binary_verbs import VERBS, auth_spec, build_argv
+from schemas.binary_verbs import VERBS, auth_spec, build_argv, compose_verbs, verbs_for
+
+# What a binary might declare its `auth login` credential to be. The contract
+# keeps `credential` opaque precisely because this varies: one binary wants a
+# username and password plus a tenant, another a bare token.
+TENANT_LOGIN = {
+    "type": "object",
+    "required": ["username", "password", "tenant"],
+    "properties": {
+        "username": {"type": "string"},
+        "password": {"type": "string", "secret": True},
+        "tenant": {"type": "string", "description": "Which tenant to log into."},
+    },
+}
+
+TOKEN_LOGIN = {
+    "type": "object",
+    "required": ["api_token"],
+    "properties": {"api_token": {"type": "string", "secret": True}},
+}
+
+WIDE_ENV = {
+    "type": "object",
+    "required": ["url", "region"],
+    "properties": {
+        "url": {"type": "string"},
+        "region": {"type": "string"},
+        "insecure": {"type": "boolean"},
+    },
+}
 
 
 class TestArgv:
@@ -37,6 +72,127 @@ class TestArgv:
     def test_remove_passes_the_handle_positionally(self):
         argv, _ = build_argv("auth.sessionRemove", {"session": "a1"})
         assert argv == ["auth", "session", "remove", "a1"]
+
+
+class TestComposedLogin:
+    """`auth login`'s form is composed, not guessed.
+
+    The fixed parts (`env`, `session`) are protocol-level; the credential
+    fields are the binary's own to declare. A hardcoded list here was more
+    restrictive than the contract it implements — the contract keeps
+    `credential` opaque deliberately — and a host that guesses renders a form
+    with no field for the thing the binary requires.
+    """
+
+    def test_a_declared_extra_field_appears_in_the_form(self):
+        params = compose_verbs(TENANT_LOGIN)["auth.login"]["params"]
+        assert "tenant" in params["properties"]
+        assert params["required"] == ["env", "session", "username", "password", "tenant"]
+
+    def test_a_declared_extra_field_travels_on_stdin_not_argv(self):
+        verbs = compose_verbs(TENANT_LOGIN)
+        argv, credential = build_argv("auth.login", {
+            "env": "e1", "session": "a1",
+            "username": "u", "password": "hunter2", "tenant": "t-42",
+        }, verbs)
+        assert credential == {"username": "u", "password": "hunter2", "tenant": "t-42"}
+        joined = " ".join(argv)
+        assert "hunter2" not in joined and "t-42" not in joined
+        assert argv == ["--env", "e1", "--session", "a1", "auth", "login"]
+
+    def test_a_binary_may_replace_the_fields_wholesale(self):
+        """A bare-token binary asks for a token, not for a username it ignores."""
+        entry = compose_verbs(TOKEN_LOGIN)["auth.login"]
+        assert entry["credential"] == ["api_token"]
+        assert "username" not in entry["params"]["properties"]
+        assert entry["params"]["required"] == ["env", "session", "api_token"]
+
+    def test_a_declared_secret_stays_secret(self):
+        params = compose_verbs(TOKEN_LOGIN)["auth.login"]["params"]
+        assert params["properties"]["api_token"]["secret"] is True
+
+    def test_the_fixed_parts_survive_composition(self):
+        """`env` keeps its picker and `session` stays free text: those are
+        protocol-level, not the binary's to redefine."""
+        props = compose_verbs(TENANT_LOGIN)["auth.login"]["params"]["properties"]
+        assert props["env"]["picker"] == "environments"
+        assert "picker" not in props["session"]
+
+    def test_a_binary_declaring_nothing_keeps_todays_fields(self):
+        """The regression guard: neither installed binary declares a
+        credential_schema yet, so this fallback is what actually runs."""
+        entry = compose_verbs()["auth.login"]
+        assert entry == VERBS["auth.login"]
+        assert entry["credential"] == ["username", "password", "totp_seed"]
+        assert entry["params"]["properties"]["password"]["secret"] is True
+
+    def test_a_colliding_declared_field_is_skipped(self):
+        declared = {
+            "type": "object",
+            "required": ["session", "tenant"],
+            "properties": {"session": {"type": "string"}, "tenant": {"type": "string"}},
+        }
+        entry = compose_verbs(declared)["auth.login"]
+        assert entry["credential"] == ["tenant"]
+        # The protocol's own `session` definition survives, not the declared one.
+        assert entry["params"]["properties"]["session"]["title"] == "Session handle"
+        assert entry["params"]["required"] == ["env", "session", "tenant"]
+
+    def test_a_schema_declaring_only_platform_keys_falls_back(self):
+        declared = {"type": "object", "properties": {"env": {}, "session": {}}}
+        assert compose_verbs(declared)["auth.login"] == VERBS["auth.login"]
+
+    def test_the_other_verbs_pass_through_untouched(self):
+        composed = compose_verbs(TOKEN_LOGIN, WIDE_ENV)
+        assert composed["auth.refresh"] == VERBS["auth.refresh"]
+        assert sorted(composed) == sorted(VERBS)
+
+
+class TestComposedEnvAdd:
+    """Same defect one field over: the catalog has always carried a per-binary
+    `env_schema`, required at registration, and the form ignored it."""
+
+    def test_declared_fields_become_flags_after_the_positional(self):
+        verbs = compose_verbs(env_schema=WIDE_ENV)
+        argv, credential = build_argv("env.add", {
+            "name": "uat1", "url": "https://x", "region": "ap",
+        }, verbs)
+        assert argv == ["env", "add", "uat1", "--url", "https://x", "--region", "ap"]
+        assert credential == {}
+
+    def test_required_composes_from_the_declaration(self):
+        params = compose_verbs(env_schema=WIDE_ENV)["env.add"]["params"]
+        assert params["required"] == ["name", "url", "region"]
+        assert set(params["properties"]) == {"name", "url", "region", "insecure"}
+
+    def test_a_binary_declaring_nothing_keeps_todays_fields(self):
+        entry = compose_verbs()["env.add"]
+        assert entry == VERBS["env.add"]
+        assert entry["flags"] == {"url": "--url", "kind": "--kind"}
+
+    def test_the_positional_name_is_not_the_binarys_to_redeclare(self):
+        declared = {"type": "object", "properties": {"name": {"enum": ["x"]}, "url": {}}}
+        props = compose_verbs(env_schema=declared)["env.add"]["params"]["properties"]
+        assert props["name"] == VERBS["env.add"]["params"]["properties"]["name"]
+
+
+class TestVerbsForBinary:
+    """Composition keyed by the pinned catalog file, like every other catalog
+    question — per call, so a registration needs no restart."""
+
+    @staticmethod
+    def _write(directory, **extra):
+        doc = {"protocol": 1, "binary": "demo-bin", "operations": [], **extra}
+        (directory / "demo-bin.json").write_text(json.dumps(doc))
+
+    def test_a_declaring_catalog_drives_the_table(self, tmp_path):
+        self._write(tmp_path, credential_schema=TOKEN_LOGIN, env_schema=WIDE_ENV)
+        verbs = verbs_for("demo-bin", tmp_path)
+        assert verbs["auth.login"]["credential"] == ["api_token"]
+        assert "--region" == verbs["env.add"]["flags"]["region"]
+
+    def test_an_unresolvable_binary_gets_the_fallback_table(self, tmp_path):
+        assert verbs_for("ghost-bin", tmp_path) == compose_verbs()
 
 
 class TestSpec:
@@ -117,3 +273,39 @@ class TestDesignTimeChecks:
         from validation.edges import _binary_operation_errors
         plain = NodeTypeSpec(component_type="agent", display_name="Agent")
         assert _binary_operation_errors(self._node(), plain) == []
+
+
+class TestDesignTimeComposition:
+    """Validation demands what the node's binary declares, composed exactly as
+    the component composes it at run time — not the fallback fields a declaring
+    binary never asked for."""
+
+    @staticmethod
+    def _node(**extra):
+        from types import SimpleNamespace
+        return SimpleNamespace(node_id="n1", component_type="binary_auth",
+                               component_config=SimpleNamespace(extra_config=extra))
+
+    @pytest.fixture
+    def token_bin(self, tmp_path, monkeypatch):
+        import schemas.binary_catalogs as binary_catalogs
+        (tmp_path / "token-bin.json").write_text(json.dumps(
+            {"protocol": 1, "binary": "token-bin", "operations": [],
+             "credential_schema": TOKEN_LOGIN}))
+        monkeypatch.setattr(binary_catalogs, "CATALOG_DIR", tmp_path)
+
+    def test_a_declared_required_field_is_demanded(self, token_bin):
+        from validation.edges import _binary_operation_errors
+        errors = _binary_operation_errors(
+            self._node(binary="token-bin", operation="auth.login", env="e", session="s"),
+            auth_spec())
+        assert any("api_token" in e for e in errors)
+
+    def test_the_fallback_fields_are_not_demanded_of_a_declaring_binary(self, token_bin):
+        """The static spec would demand username and password here — fields
+        this binary's login has no use for."""
+        from validation.edges import _binary_operation_errors
+        assert _binary_operation_errors(
+            self._node(binary="token-bin", operation="auth.login",
+                       env="e", session="s", api_token="t"),
+            auth_spec()) == []

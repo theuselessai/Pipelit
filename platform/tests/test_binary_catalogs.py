@@ -19,6 +19,8 @@ import pytest
 from schemas.binary_catalogs import (
     catalog_for,
     config_schema_for,
+    credential_schema_for,
+    env_schema_for,
     operation_output_ports,
     operations_for,
 )
@@ -231,3 +233,43 @@ class TestReservedKeys:
         params = operations_for("demo-bin", tmp_path)["things.doThing"]["params"]
         assert sorted(params["properties"]) == ["n"]
         assert params["required"] == ["n"]
+
+
+class TestDeclaredSchemas:
+    """The two objects the contract keeps opaque, as the binary describes them.
+
+    `env_schema` has always been in the catalog (registration requires it);
+    `credential_schema` is optional. Both are served raw — composition into the
+    verb table is `schemas.binary_verbs`' job, and there must not be a second
+    way to read a catalog.
+    """
+
+    def test_a_declared_credential_schema_is_returned(self, tmp_path):
+        write(tmp_path, _catalog(credential_schema={
+            "type": "object",
+            "required": ["api_token"],
+            "properties": {"api_token": {"type": "string", "secret": True}},
+        }))
+        schema = credential_schema_for("demo-bin", tmp_path)
+        assert schema["properties"]["api_token"]["secret"] is True
+
+    def test_absence_is_none_not_an_empty_schema(self, tmp_path):
+        """Absent means the binary is not DESCRIBING a credential, never that
+        none is needed — the caller falls back to its default fields rather
+        than skipping the form."""
+        write(tmp_path, _catalog())
+        assert credential_schema_for("demo-bin", tmp_path) is None
+
+    def test_the_env_schema_rides_the_same_accessor(self, tmp_path):
+        write(tmp_path, _catalog(env_schema={
+            "type": "object", "properties": {"url": {"type": "string"}},
+        }))
+        assert "url" in env_schema_for("demo-bin", tmp_path)["properties"]
+
+    def test_a_non_object_declaration_is_none(self, tmp_path):
+        write(tmp_path, _catalog(credential_schema="username and password"))
+        assert credential_schema_for("demo-bin", tmp_path) is None
+
+    def test_an_unresolvable_binary_is_none_for_both(self, tmp_path):
+        assert credential_schema_for("ghost-bin", tmp_path) is None
+        assert env_schema_for("ghost-bin", tmp_path) is None

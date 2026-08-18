@@ -71,6 +71,15 @@ export interface BinaryCatalog {
   binary: string
   plugin: string
   schema: Record<string, unknown> | null
+  /** JSON Schema for the `credential` object this binary's `auth login` reads
+   * on stdin. The contract keeps `credential` opaque — what establishes an
+   * identity differs per binary — so this is the binary's own description.
+   * Null means it declared nothing, which NEVER means "no credential needed":
+   * the identity node's form then falls back to the platform's default fields. */
+  credential_schema?: Record<string, unknown> | null
+  /** JSON Schema for this binary's environment record — what `env add` takes
+   * beyond the protocol-fixed name. Null falls back the same way. */
+  env_schema?: Record<string, unknown> | null
 }
 
 /** Catalogs of every registered binary. The pinned file is the source — no

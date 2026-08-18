@@ -9,6 +9,7 @@ everything else.
 """
 
 import json
+import os
 import subprocess
 
 import pytest
@@ -47,8 +48,8 @@ raise SystemExit(code)
 '''
 
 
-def _catalog(binary="fake-bin"):
-    return {
+def _catalog(binary="fake-bin", **overrides):
+    doc = {
         "protocol": 1,
         "binary": binary,
         "version": "1.0.0",
@@ -69,6 +70,22 @@ def _catalog(binary="fake-bin"):
             "timeout_default_s": 5,
         }],
     }
+    doc.update(overrides)
+    return doc
+
+
+def declare(catalog_dir_module, **overrides):
+    """Rewrite the pinned catalog with per-binary declarations.
+
+    The components read the catalog per call through the mtime cache, so a
+    rewrite is visible on the very next call — the same property registration
+    relies on.
+    """
+    path = catalog_dir_module.CATALOG_DIR / "fake-bin.json"
+    path.write_text(json.dumps(_catalog(**overrides)))
+    # Two quick writes may share an mtime tick, and the cache is mtime-keyed.
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
 
 
 @pytest.fixture
@@ -379,6 +396,54 @@ class TestIdentityNode:
             self._run("auth.login", env="e1", session="a1", username="u", password="p")
         assert exc.value.retryable is False
 
+    def test_a_declared_credential_travels_on_stdin_and_not_on_argv(self, plugin):
+        """The keys on stdin are the keys the BINARY declares, not a fixed
+        list: a bare-token binary gets its token, is not asked for a username,
+        and the secret still never touches the command line."""
+        declare(binary_catalogs, credential_schema={
+            "type": "object",
+            "required": ["api_token"],
+            "properties": {"api_token": {"type": "string", "secret": True}},
+        })
+        respond(plugin, ok({"session": {"id": "a1"}}))
+        self._run("auth.login", env="e1", session="a1", api_token="sekrit-9")
+        argv = json.loads((io_dir(plugin) / "last_argv.json").read_text())
+        stdin = json.loads((io_dir(plugin) / "last_stdin.json").read_text())
+        assert stdin["credential"] == {"api_token": "sekrit-9"}
+        assert "sekrit-9" not in " ".join(argv)
+        assert argv[:4] == ["--env", "e1", "--session", "a1"]
+
+    def test_a_declared_required_field_is_caught_before_spawning(self, plugin):
+        """The reported bug, inverted: a login the binary cannot accept — a
+        declared required field left empty — must fail here, not at the
+        backend."""
+        declare(binary_catalogs, credential_schema={
+            "type": "object",
+            "required": ["username", "password", "tenant"],
+            "properties": {"username": {"type": "string"},
+                           "password": {"type": "string", "secret": True},
+                           "tenant": {"type": "string"}},
+        })
+        respond(plugin, ok())
+        with pytest.raises(Exception) as exc:
+            self._run("auth.login", env="e1", session="a1", username="u", password="p")
+        assert type(exc.value).__name__ == "MISSING_PARAM"
+        assert "tenant" in str(exc.value)
+        assert not (io_dir(plugin) / "last_argv.json").exists()
+
+    def test_declared_env_fields_are_passed_as_flags(self, plugin):
+        """`env add` composes from the env_schema the catalog has ALWAYS
+        carried — required at registration, and unread until now."""
+        declare(binary_catalogs, env_schema={
+            "type": "object",
+            "required": ["url", "region"],
+            "properties": {"url": {"type": "string"}, "region": {"type": "string"}},
+        })
+        respond(plugin, ok({"environment": {"name": "uat1"}}))
+        self._run("env.add", name="uat1", url="https://x", region="ap")
+        argv = json.loads((io_dir(plugin) / "last_argv.json").read_text())
+        assert argv == ["env", "add", "uat1", "--url", "https://x", "--region", "ap"]
+
 
 class TestCatalogEndpoint:
     """GET /api/v1/plugins/catalog/ — each REGISTERED binary's legacy-shaped
@@ -422,6 +487,27 @@ class TestCatalogEndpoint:
         assert entry["schema"]["required"] == ["operation"]
         assert entry["schema"]["x-binary"] == "fake-bin"
         assert entry["schema"]["x-operations"]["things.doThing"]["domain"] == "things"
+
+    def test_the_declared_schemas_ride_along_raw(self, plugin, auth_client):
+        """The two objects the contract keeps opaque — what `auth login` reads
+        as `credential`, and the environment record — are served as the binary
+        declared them, so the frontend can compose the identity node's form."""
+        declare(binary_catalogs, credential_schema={
+            "type": "object",
+            "properties": {"api_token": {"type": "string", "secret": True}},
+        })
+        resp = auth_client.get("/api/v1/plugins/catalog/")
+        entry = {item["binary"]: item for item in resp.json()["items"]}["fake-bin"]
+        assert entry["credential_schema"]["properties"]["api_token"]["secret"] is True
+        assert entry["env_schema"] == {"type": "object"}
+
+    def test_a_binary_declaring_no_credential_schema_serves_null(self, plugin, auth_client):
+        """Null means "not describing one", never "none needed" — the form
+        falls back to the platform's default fields."""
+        resp = auth_client.get("/api/v1/plugins/catalog/")
+        entry = {item["binary"]: item for item in resp.json()["items"]}["fake-bin"]
+        assert entry["credential_schema"] is None
+        assert entry["env_schema"] == {"type": "object"}
 
     def test_an_unregistered_plugin_directory_is_absent(self, plugin, auth_client):
         """Installed (a directory with a plugin.json) is not the same as

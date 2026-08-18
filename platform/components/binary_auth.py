@@ -24,7 +24,7 @@ import subprocess
 
 from components import register
 from components.binary_op import TIMEOUT_GRACE_S, _error
-from schemas.binary_verbs import VERBS, build_argv
+from schemas.binary_verbs import VERBS, build_argv, verbs_for
 from services.plugins import verified_plugin
 
 logger = logging.getLogger(__name__)
@@ -50,8 +50,14 @@ def binary_auth_factory(node):
 
         plugin, _registration = verified_plugin(binary)
 
+        # The verb surface is protocol-fixed, but what `auth login` and
+        # `env add` carry is partly this binary's to declare (its catalog's
+        # `credential_schema` and `env_schema`) — so the table is composed for
+        # this binary, per call, and the declared keys are what travels.
+        verbs = verbs_for(binary)
+
         missing = [
-            key for key in (VERBS[verb_id]["params"].get("required") or [])
+            key for key in (verbs[verb_id]["params"].get("required") or [])
             if not str(extra.get(key) or "").strip()
         ]
         if missing:
@@ -60,7 +66,7 @@ def binary_auth_factory(node):
                 f"{verb_id} needs {', '.join(missing)}; none supplied on this node.",
             )
 
-        fragment, credential = build_argv(verb_id, extra)
+        fragment, credential = build_argv(verb_id, extra, verbs)
         argv = [*plugin.argv, *fragment]
         stdin = json.dumps({"params": {}, "credential": credential}) if credential else json.dumps({"params": {}})
 
@@ -96,7 +102,7 @@ def binary_auth_factory(node):
         # port is None, never absent — an absent port becomes the literal
         # string "{{ node.port }}" downstream.
         data = envelope.get("data") or {}
-        ports: dict = {name: None for name, _, _ in VERBS[verb_id]["outputs"]}
+        ports: dict = {name: None for name, _, _ in verbs[verb_id]["outputs"]}
         ports.update({k: v for k, v in data.items() if k in ports})
         return ports
 

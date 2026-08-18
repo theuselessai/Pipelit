@@ -13,6 +13,69 @@ import type { BinaryCatalog } from "@/api/plugins"
 type Json = Record<string, unknown>
 
 /**
+ * The parts of `auth login` and `env add` a binary may declare for itself.
+ *
+ * The verb surface is protocol-fixed, but the protocol deliberately keeps two
+ * of the objects it carries opaque: what establishes an identity (`credential`)
+ * and what an environment record holds differ per binary, and its catalog may
+ * describe them (`credential_schema`, `env_schema`). A host that hardcodes a
+ * guess renders a form with no field for the thing the binary requires — so
+ * the static verb entries are FALLBACKS, and these rules splice a binary's
+ * declared fields in beside the protocol-fixed parameters. Mirrors
+ * `compose_verbs` in the backend (schemas/binary_verbs.py); the `fixed` lists
+ * and reserved keys are the backend's `_FIXED_PARAMS` and
+ * `RESERVED_CONFIG_KEYS`.
+ */
+const VERB_DECLARED_SCHEMA: Record<
+  string,
+  { key: "credential_schema" | "env_schema"; fixed: string[] }
+> = {
+  "auth.login": { key: "credential_schema", fixed: ["env", "session"] },
+  "env.add": { key: "env_schema", fixed: ["name"] },
+}
+
+const RESERVED_KEYS = ["binary", "domain", "operation", "session", "env"]
+
+function composeVerbOperations(
+  operations: Json,
+  catalog: BinaryCatalog | undefined,
+): Json {
+  const out: Json = { ...operations }
+  for (const [verbId, rule] of Object.entries(VERB_DECLARED_SCHEMA)) {
+    const entry = out[verbId] as Json | undefined
+    const declared = catalog?.[rule.key] as Json | null | undefined
+    const declaredProps = declared?.properties as Record<string, Json> | undefined
+    if (!entry || !declaredProps) continue
+    const reserved = new Set([...RESERVED_KEYS, ...rule.fixed])
+    // A declared property colliding with a platform key is skipped, as the
+    // backend skips it; declaring ONLY collisions falls back entirely, since
+    // an empty form would leave the operator nothing to fill in.
+    const props = Object.fromEntries(
+      Object.entries(declaredProps).filter(([name]) => !reserved.has(name)),
+    )
+    if (!Object.keys(props).length) continue
+    const baseProps = ((entry.params as Json | undefined)?.properties ?? {}) as Record<string, Json>
+    out[verbId] = {
+      ...entry,
+      params: {
+        type: "object",
+        required: [
+          ...rule.fixed,
+          ...((declared?.required as string[] | undefined) ?? []).filter((r) => r in props),
+        ],
+        // Declared property specs pass through untouched, so `secret: true`
+        // still masks and still raises the plain-text storage notice.
+        properties: {
+          ...Object.fromEntries(rule.fixed.map((k) => [k, baseProps[k]])),
+          ...props,
+        },
+      },
+    }
+  }
+  return out
+}
+
+/**
  * The operation schema that actually governs one NODE — resolved per node, not
  * per type, because `binary_op` is a single static type whose operations live in
  * whichever binary's catalog the node names in `extra_config.binary`.
@@ -21,7 +84,8 @@ type Json = Record<string, unknown>
  *   binary_auth) governs every node of the type. For `binary_auth` the node's
  *   binary is spread in as `x-binary`, which is where SchemaConfigForm's
  *   session/environment pickers read it — the static spec cannot carry it
- *   because the binary is node data now.
+ *   because the binary is node data now — and the login/env.add entries are
+ *   re-composed from whatever that binary's catalog declares for them.
  * - A `binary_op` node resolves to its binary's catalog schema. No binary, no
  *   registered catalog, or an unreadable catalog file (`schema: null`) all
  *   resolve to null: there is nothing truthful to render.
@@ -36,7 +100,19 @@ export function operationSchemaForNode(
   const specSchema = spec?.config_schema as Json | undefined
   if (specSchema && "x-operations" in specSchema) {
     if (componentType === "binary_auth") {
-      return { ...specSchema, "x-binary": extraConfig?.binary }
+      // The static spec's login and env.add entries are fallbacks; whatever
+      // this node's binary declares for them is composed in per node, exactly
+      // as the component composes it at run time.
+      const binary = extraConfig?.binary as string | undefined
+      const catalog = binary ? catalogs?.find((c) => c.binary === binary) : undefined
+      return {
+        ...specSchema,
+        "x-binary": binary,
+        "x-operations": composeVerbOperations(
+          (specSchema["x-operations"] ?? {}) as Json,
+          catalog,
+        ),
+      }
     }
     return specSchema
   }
