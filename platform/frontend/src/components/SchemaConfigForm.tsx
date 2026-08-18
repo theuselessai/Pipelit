@@ -49,6 +49,29 @@ function FieldLabel({ name, spec, required }: { name: string; spec: Json; requir
   )
 }
 
+/** A human-readable rendering of the bounds a parameter schema declares.
+ *
+ * Display only, deliberately. The bound is NOT enforced here and the input is
+ * NOT switched to `type="number"`: a parameter may legitimately carry a
+ * `{{ expression }}` that is not resolved until the node runs, and a number
+ * input would refuse to accept one. So this removes the surprise — the rule
+ * was always in the catalog, it just was not on screen — without being able to
+ * false-positive on a template it cannot evaluate.
+ */
+function boundsLabel(spec: Json): string | undefined {
+  const num = (k: string) => (typeof spec[k] === "number" ? (spec[k] as number) : undefined)
+  const min = num("minimum"), max = num("maximum")
+  if (min !== undefined && max !== undefined) return `${min}–${max}`
+  if (min !== undefined) return `${min} or more`
+  if (max !== undefined) return `at most ${max}`
+
+  const lmin = num("minLength"), lmax = num("maxLength")
+  if (lmin !== undefined && lmax !== undefined) return `${lmin}–${lmax} characters`
+  if (lmin !== undefined) return `at least ${lmin} character${lmin === 1 ? "" : "s"}`
+  if (lmax !== undefined) return `at most ${lmax} character${lmax === 1 ? "" : "s"}`
+  return undefined
+}
+
 function ScalarField({
   name, spec, required, value, onChange, options,
 }: {
@@ -72,6 +95,9 @@ function ScalarField({
   // A parameter may declare a default. It matters beyond convenience: a guard
   // like a dry-run flag has to be the value you get without deciding.
   const effective = value === undefined ? spec.default : value
+  // The catalog often states a bound the form never showed, so the rule was
+  // discovered by a failed run instead of being read off the field.
+  const bounds = boundsLabel(spec)
 
   return (
     <div className="space-y-1">
@@ -110,6 +136,7 @@ function ScalarField({
         </>
       )}
       {description && <p className="text-[10px] text-muted-foreground">{description}</p>}
+      {bounds && <p className="text-[10px] text-muted-foreground tabular-nums">{bounds}</p>}
     </div>
   )
 }
