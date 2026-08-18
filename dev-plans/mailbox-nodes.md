@@ -1,6 +1,6 @@
 # Plan: Mailbox nodes — temp-mail driver as Pipelit actions
 
-**Status:** in progress
+**Status:** done — merged 2026-08-17 via #198, #199, #200
 **Branch:** `feat/mailbox-nodes`
 
 ## Why
@@ -8,7 +8,7 @@
 Automations against the Gen2 stack begin with registration, and registration
 needs a disposable mailbox: create an address, wait for the verification email,
 read the token out of it. That capability exists today as TypeScript in
-`test-hub/src/drivers/mail` (~746 lines incl. tests), and test-hub is being
+an internal TypeScript driver (~746 lines incl. tests), and that repo is being
 abandoned. This ports it to Python and exposes it as workflow actions.
 
 The driver's own framing is worth keeping: **use this for transitions, never for
@@ -103,11 +103,10 @@ driver's 60s default sits exactly where it flakes. That stays inside Pipelit's
 
 353 addresses exist on the instance; 322 start with `tmpe2e`, and nothing has
 ever cleaned up. But **the prefix carries no ownership**: `e2e` is
-portal-client's `e2eId()`, shared across repos, so a prefix match sweeps up
-every mailbox any suite has created — including the permanent fixtures in
-`portal-client/docs/funded-entity-handover.md`. `tmpe2e178623933674lfew@mcp.kiwi`
-belongs to the only funded, vendor-ready entity, described there as
-irreplaceable, and it matches.
+a shared id generator used across several repos, so a prefix match sweeps up
+every mailbox any suite has created — including the permanent fixtures listed in
+the team's fixture inventory. One of those belongs to the only funded,
+vendor-ready entity, described there as irreplaceable, and it matches.
 
 The damage would be irreversible in an unusual way: nothing in the portal API
 deletes a user, so the account outlives its mailbox with no channel for password
@@ -151,5 +150,5 @@ watching tsc name it.
 
 - Where the credential store lives on disk, its permissions, and whether any of
   this is mounted into the agent sandbox — parked by decision.
-- The portal-client bin and its session/account model — separate track, under
+- The upstream client's bin and its session/account model — separate track, under
   discussion with the peer working in that repo.

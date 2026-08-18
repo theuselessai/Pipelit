@@ -135,7 +135,7 @@ class MemoryFact(Base):
     # - world_knowledge: "API endpoint is X"
     # - self_knowledge: "my success rate for X is 73%"
     # - correction: "don't do X, do Y instead"
-    # - relationship: "user works at Zerocap"
+    # - relationship: "user works at Acme Corp"
     fact_type: Mapped[str] = mapped_column(String(50))
 
     # Confidence tracking

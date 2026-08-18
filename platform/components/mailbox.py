@@ -150,13 +150,12 @@ def mailbox_action_factory(node):
 def _prune(cfg: mb.MailboxConfig, extra: dict) -> dict:
     """Delete mailboxes matching a name prefix. Dry-run unless told otherwise.
 
-    🔴 THE PREFIX CARRIES NO OWNERSHIP. `e2e` belongs to portal-client's
-    `e2eId()` and is shared across repos, so a prefix match sweeps up every
-    mailbox any suite has ever created on that instance — including the
-    mailboxes of the permanent UAT fixtures in
-    `portal-client/docs/funded-entity-handover.md`. One of those,
-    `tmpe2e178623933674lfew@mcp.kiwi`, belongs to the only funded, vendor-ready
-    entity and is described there as irreplaceable.
+    🔴 THE PREFIX CARRIES NO OWNERSHIP. The conventional `e2e` prefix comes from
+    a shared id generator used across several repos, so a prefix match sweeps up
+    every mailbox any suite has ever created on that instance — including the
+    mailboxes of permanent UAT fixtures. At least one of those belongs to the
+    only funded, vendor-ready entity in the environment, and its own
+    documentation describes it as irreplaceable.
 
     The damage would be irreversible in a way mailbox deletion usually isn't:
     nothing in the portal API deletes a user, so the account survives its
@@ -184,8 +183,8 @@ def _prune(cfg: mb.MailboxConfig, extra: dict) -> dict:
     if not prefix:
         raise mb.MailboxError(
             "prune_mailboxes needs an explicit `prefix`. There is deliberately no default: "
-            "'tmpe2e' matches every mailbox portal-client's suites have ever created, including "
-            "permanent fixtures listed in portal-client/docs/funded-entity-handover.md."
+            "the conventional e2e prefix matches every mailbox any suite has ever created on "
+            "the instance, including the permanent fixtures your team's inventory lists."
         )
 
     matched: list[dict] = []
@@ -224,8 +223,8 @@ def _prune(cfg: mb.MailboxConfig, extra: dict) -> dict:
         elif not protect:
             refused = (
                 "a non-empty `protect` list is required to delete. The prefix cannot tell our "
-                "disposable mailboxes from the permanent fixtures — reconcile against "
-                "portal-client/docs/funded-entity-handover.md and pass them here"
+                "disposable mailboxes from the permanent fixtures — reconcile against your "
+                "team's permanent-fixture inventory and pass them here"
             )
         elif len(candidates) > PRUNE_MAX_DELETE:
             refused = (

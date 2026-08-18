@@ -10,6 +10,8 @@ checkpoints.db-wal
 *.sqlite3-shm
 *.sqlite3-wal
 *.db
+*.bak
+dump.rdb
 
 # Python
 __pycache__/

@@ -340,11 +340,11 @@ export default function CredentialsPage() {
                   <>
                     <div className="space-y-2">
                       <Label>Base URL</Label>
-                      <Input value={toolBaseUrl} onChange={(e) => setToolBaseUrl(e.target.value)} placeholder="https://api.mcp.kiwi" required />
+                      <Input value={toolBaseUrl} onChange={(e) => setToolBaseUrl(e.target.value)} placeholder="https://api.mail.example" required />
                     </div>
                     <div className="space-y-2">
                       <Label>Domain</Label>
-                      <Input value={toolDomain} onChange={(e) => setToolDomain(e.target.value)} placeholder="mcp.kiwi" required />
+                      <Input value={toolDomain} onChange={(e) => setToolDomain(e.target.value)} placeholder="mail.example" required />
                     </div>
                     <div className="space-y-2">
                       <Label>Admin Auth</Label>

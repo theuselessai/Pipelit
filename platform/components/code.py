@@ -59,7 +59,7 @@ def code_factory(node):
         backend = _build_backend(extra)
         workspace_dir = str(backend.cwd)
     except Exception:
-        logger.warning("Code node %s: failed to build sandbox backend, falling back to /tmp", node.node_id)
+        logger.warning("Code node %s: failed to build sandbox backend, code execution will be rejected", node.node_id)
         backend = None
         workspace_dir = None
 

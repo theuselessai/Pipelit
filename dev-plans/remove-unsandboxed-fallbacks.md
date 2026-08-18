@@ -1,9 +1,16 @@
 # Dev Plan: Remove Unsandboxed Fallbacks (run_command, code)
 
-**Status:** Planned for Phase 1.6 (v0.2.0)
+**Status:** done — verified on master 2026-08-17
 **Effort:** 1-2 days
 **Priority:** Critical security hardening
 **Architect:** Deep Agent
+
+> **Closed out 2026-08-17.** Neither fallback survives. `components/run_command.py:82`
+> returns an error string when no backend could be built, and `components/code.py:70`
+> raises `RuntimeError`; `SandboxedShellBackend.execute()` resolves a mode via
+> `resolve_sandbox_mode()` and raises when no sandbox is available
+> (`components/sandboxed_backend.py:307`). The only remaining `subprocess` calls in
+> `components/` are inside `sandboxed_backend.py` itself, which is the sandbox.
 
 ---
 
