@@ -49,6 +49,27 @@ function FieldLabel({ name, spec, required }: { name: string; spec: Json; requir
   )
 }
 
+/** Remote list data, defensively.
+ *
+ * The API types say these are arrays and a binary returned an OBJECT instead:
+ * the contract does not pin the output shape of `env list`, so two conformant
+ * implementations diverged — one answers with a list, one with a map. `?? []`
+ * guards null and undefined but NOT `{}`, which is truthy, so `.map()` threw
+ * inside a useMemo and took the whole panel to a blank screen.
+ *
+ * A wrong shape must degrade to the free-text fallback, never crash and never
+ * silently render an empty picker that looks authoritative — an operator who
+ * sees no environments should be able to tell "there are none" from "the
+ * binary answered in a shape this form cannot read".
+ */
+function asList<T>(items: T[] | undefined): T[] {
+  return Array.isArray(items) ? items : []
+}
+
+function isUnreadableShape(items: unknown): boolean {
+  return items !== undefined && items !== null && !Array.isArray(items)
+}
+
 /** A human-readable rendering of the bounds a parameter schema declares.
  *
  * Display only, deliberately. The bound is NOT enforced here and the input is
@@ -159,11 +180,11 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
   const environments = usePluginEnvironments(binary)
 
   const pickerOptions = useMemo(() => ({
-    sessions: (sessions.data?.items ?? []).map((s) => ({
+    sessions: asList(sessions.data?.items).map((s) => ({
       value: s.id,
       label: `${s.id}${s.subject ? ` — ${s.subject}` : ""} (${s.env})`,
     })),
-    environments: (environments.data?.items ?? []).map((e) => ({
+    environments: asList(environments.data?.items).map((e) => ({
       value: e.name, label: `${e.name} (${e.kind})`,
     })),
   }), [sessions.data, environments.data])
@@ -228,11 +249,11 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
               Session
               {op?.session_required && <span className="text-destructive ml-0.5">*</span>}
             </Label>
-            {sessions.data?.items?.length ? (
+            {asList(sessions.data?.items).length ? (
               <Select value={(value.session as string) ?? ""} onValueChange={(v) => set("session", v)}>
                 <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Choose an identity" /></SelectTrigger>
                 <SelectContent>
-                  {sessions.data.items.map((s) => (
+                  {asList(sessions.data?.items).map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.id}{s.subject ? ` — ${s.subject}` : ""} ({s.env})
                     </SelectItem>
@@ -264,11 +285,11 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
           {!op?.session_required && (
             <div className="space-y-1">
               <Label className="text-xs">Environment</Label>
-              {environments.data?.items?.length ? (
+              {asList(environments.data?.items).length ? (
                 <Select value={(value.env as string) ?? ""} onValueChange={(v) => set("env", v)}>
                   <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Choose an environment" /></SelectTrigger>
                   <SelectContent>
-                    {environments.data.items.map((e) => (
+                    {asList(environments.data?.items).map((e) => (
                       <SelectItem key={e.name} value={e.name}>{e.name} ({e.kind})</SelectItem>
                     ))}
                   </SelectContent>
@@ -283,6 +304,13 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
               <p className="text-[10px] text-muted-foreground">
                 This operation needs no identity, so it names an environment directly.
               </p>
+              {isUnreadableShape(environments.data?.items) && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-500">
+                  This binary listed its environments in a shape this form cannot
+                  read, so there is nothing to choose from — type the name instead.
+                  That is not the same as having no environments.
+                </p>
+              )}
             </div>
           )}
 
