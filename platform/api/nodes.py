@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -80,6 +81,44 @@ def _verify_binary_allowlisted(binary) -> None:
         )
 
 
+# `extra_config["session"]` is passed straight to the binary as `--session
+# <value>` (components/binary_op.py) and used by the binary DIRECTLY AS A
+# FILENAME inside its credential store. Per the bin-contract slot schema this
+# pattern is "path-traversal defence, not cosmetics", and the credential store
+# root is SHARED ACROSS ALL BINARIES by design ("naming, not isolation") — so a
+# crafted handle here would not just corrupt one binary's own store, it could
+# read or clobber ANOTHER binary's stored identities. Enforced on write here as
+# defence in depth on top of whatever the binary itself does on read.
+SESSION_HANDLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _verify_session_handle(session) -> None:
+    """Refuse a session handle shaped so it could escape the credential store.
+
+    Absent/empty stays allowed: `session` is optional, and `binary_op.py`
+    already raises its own MISSING_SESSION error when an operation requires
+    one and none is set.
+    """
+    if not session:
+        return
+    session = str(session)
+    # The regex already excludes "..", but check it independently too — belt
+    # and braces on a control that guards a shared credential store.
+    if not SESSION_HANDLE_RE.match(session) or ".." in session:
+        shown = session if len(session) <= 80 else session[:80] + "…"
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"session {shown!r} is not usable here: it is passed straight to "
+                f"the binary and used directly as a filename in its credential "
+                f"store, which is shared across all binaries. It must match "
+                f"^[A-Za-z0-9][A-Za-z0-9._-]{{0,63}}$ (starts with a letter or "
+                f"digit; letters, digits, '.', '_', '-' only; 1-64 characters; "
+                f"no '..')."
+            ),
+        )
+
+
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
 
@@ -123,9 +162,11 @@ def create_node(
         "extra_config": config_data.get("extra_config", {}),
     }
 
-    # Binary nodes: the named binary must pass the server-side allowlist
+    # Binary nodes: the named binary must pass the server-side allowlist, and
+    # any session handle must be safe to use as a filename in a shared store.
     if component_type in ("binary_op", "binary_auth"):
         _verify_binary_allowlisted((config_data.get("extra_config") or {}).get("binary"))
+        _verify_session_handle((config_data.get("extra_config") or {}).get("session"))
 
     # AI config fields
     if component_type in ("agent", "categorizer", "router", "extractor"):
@@ -243,6 +284,7 @@ def update_node(
                     new_binary = (v or {}).get("binary")
                     if new_binary and new_binary != (cc.extra_config or {}).get("binary"):
                         _verify_binary_allowlisted(new_binary)
+                    _verify_session_handle((v or {}).get("session"))
                 cc.extra_config = v
             elif k == "input_template":
                 cc.input_template = v
