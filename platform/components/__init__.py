@@ -20,6 +20,13 @@ def register(component_type: str):
 def get_component_factory(component_type: str):
     """Look up a registered component factory by type."""
     if component_type not in COMPONENT_REGISTRY:
+        # Node types derived from a binary catalog are registered when
+        # components.binary_op imports, which may be before the catalogs have
+        # been read. Rather than depend on that ordering, re-derive on a miss.
+        from components.binary_op import register_derived_types
+
+        register_derived_types()
+    if component_type not in COMPONENT_REGISTRY:
         raise KeyError(
             f"Unknown component type: '{component_type}'. "
             f"Registered types: {sorted(COMPONENT_REGISTRY.keys())}"
@@ -32,6 +39,7 @@ from components import (  # noqa: E402, F401
     agent,
     ai_model,
     assertion,
+    binary_op,
     categorizer,
     code,
     control_flow,

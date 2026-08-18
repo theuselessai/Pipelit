@@ -152,14 +152,24 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
             </p>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs">Environment</Label>
-            <Input
-              className="text-xs h-7"
-              value={(value.env as string) ?? ""}
-              onChange={(e) => set("env", e.target.value)}
-            />
-          </div>
+          {/* An environment is bound to an identity when that identity is
+              established, so it is selectable only where there is no identity to
+              carry the binding. Offering it beside a session would suggest
+              "this identity, that environment" is expressible; it is not, and
+              binaries refuse the combination. */}
+          {!op?.session_required && (
+            <div className="space-y-1">
+              <Label className="text-xs">Environment</Label>
+              <Input
+                className="text-xs h-7"
+                value={(value.env as string) ?? ""}
+                onChange={(e) => set("env", e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                This operation needs no identity, so it names an environment directly.
+              </p>
+            </div>
+          )}
 
           {Object.entries(properties).map(([name, spec]) => (
             <ScalarField
