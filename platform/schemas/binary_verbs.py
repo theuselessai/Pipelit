@@ -33,6 +33,13 @@ VERB_MARKER = "x-verbs"
 #   positional  config keys appended after the verb, in order
 #   flags       config key -> flag name, appended after the positionals
 #   credential  config keys that travel on stdin instead of argv
+#
+# A parameter may also carry `"picker"`, naming a list the host can offer:
+# "environments" or "sessions". It marks a parameter that names something which
+# must ALREADY EXIST, as against one that creates it — `auth login` writes a
+# session handle and so takes free text, while `auth refresh` selects one that is
+# already there. Getting that backwards produces a picker with nothing in it on
+# the very operation whose job is to fill the list.
 VERBS: dict[str, dict[str, Any]] = {
     "auth.login": {
         "summary": "Establish an identity and bind it to an environment. Always overwrites the slot.",
@@ -43,10 +50,10 @@ VERBS: dict[str, dict[str, Any]] = {
             "type": "object",
             "required": ["env", "session", "username", "password"],
             "properties": {
-                "env": {"type": "string", "title": "Environment",
+                "env": {"type": "string", "title": "Environment", "picker": "environments",
                         "description": "A registered environment name. Bound to this identity at login and nowhere else."},
                 "session": {"type": "string", "title": "Session handle",
-                            "description": "What to call this identity. An existing handle is overwritten wholesale."},
+                            "description": "What to call this identity. An existing handle is overwritten wholesale, so this is free text rather than a picker."},
                 "username": {"type": "string", "title": "Username"},
                 "password": {"type": "string", "title": "Password", "secret": True},
                 "totp_seed": {"type": "string", "title": "TOTP seed", "secret": True,
@@ -62,7 +69,8 @@ VERBS: dict[str, dict[str, Any]] = {
         "params": {
             "type": "object",
             "required": ["session"],
-            "properties": {"session": {"type": "string", "title": "Session handle"}},
+            "properties": {"session": {"type": "string", "title": "Session handle",
+                                       "picker": "sessions"}},
         },
         "outputs": [("session", DataType.OBJECT, "The refreshed identity.")],
     },
@@ -79,7 +87,8 @@ VERBS: dict[str, dict[str, Any]] = {
         "params": {
             "type": "object",
             "required": ["session"],
-            "properties": {"session": {"type": "string", "title": "Session handle"}},
+            "properties": {"session": {"type": "string", "title": "Session handle",
+                                       "picker": "sessions"}},
         },
         "outputs": [("removed", DataType.STRING, "The handle that was forgotten.")],
     },
@@ -113,7 +122,7 @@ VERBS: dict[str, dict[str, Any]] = {
         "params": {
             "type": "object",
             "required": ["name"],
-            "properties": {"name": {"type": "string", "title": "Name"}},
+            "properties": {"name": {"type": "string", "title": "Name", "picker": "environments"}},
         },
         "outputs": [("removed", DataType.STRING, "The environment that was forgotten.")],
     },

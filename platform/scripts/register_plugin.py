@@ -182,6 +182,14 @@ def main() -> int:
     if reg.dev_mode:
         print("  ⚠  DEV MODE: integrity is not verified at call time")
 
+    # Node types, and the mapped classes behind them, are built when a process
+    # imports — so a server or worker already running has no knowledge of what
+    # was just registered. It will refuse a node of the new type with "No such
+    # polymorphic_identity", which reads like a code fault rather than a stale
+    # process.
+    print("\n  ⚠  RESTART the server, the scheduler and the workers.")
+    print("     Node types are built at import; processes already running will not see these.")
+
     if previous and previous.get("catalog_hash") != catalog["catalog_hash"]:
         was = {op["id"] for op in previous.get("operations", [])}
         now = {op["id"] for op in catalog["operations"]}

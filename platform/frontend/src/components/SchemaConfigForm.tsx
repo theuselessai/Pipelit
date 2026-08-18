@@ -55,13 +55,20 @@ function FieldLabel({ name, spec, required }: { name: string; spec: Json; requir
 }
 
 function ScalarField({
-  name, spec, required, value, onChange,
+  name, spec, required, value, onChange, options,
 }: {
   name: string; spec: Json; required: boolean
   value: unknown; onChange: (v: unknown) => void
+  options?: { value: string; label: string }[]
 }) {
   const type = spec.type as string | undefined
-  const enumValues = spec.enum as string[] | undefined
+  // A parameter may name something that must already exist — an environment to
+  // bind to, an identity to refresh. Those get a picker. A parameter that
+  // CREATES the thing does not: `auth login` writes a session handle, and
+  // offering a list there would show only handles it is about to overwrite.
+  const enumValues = (spec.enum as string[] | undefined)
+    ?? (options?.length ? options.map((o) => o.value) : undefined)
+  const labels = new Map((options ?? []).map((o) => [o.value, o.label]))
   const description = spec.description as string | undefined
   // Masked in the panel, but NOT secret at rest: the value lives in the node's
   // extra_config, so it reaches the database and the nodes API like any other
@@ -81,7 +88,9 @@ function ScalarField({
           <Select value={(value as string) ?? ""} onValueChange={onChange}>
             <SelectTrigger className="text-xs h-7"><SelectValue placeholder="—" /></SelectTrigger>
             <SelectContent>
-              {enumValues.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              {enumValues.map((v) => (
+                <SelectItem key={v} value={v}>{labels.get(v) ?? v}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </>
@@ -111,8 +120,21 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
   // as well would show two fields for one value, one of them wrong.
   const isVerbNode = schema["x-verbs"] === true
   const ids = useMemo(() => Object.keys(operations).sort(), [operations])
-  const sessions = usePluginSessions(isVerbNode ? undefined : binary)
-  const environments = usePluginEnvironments(isVerbNode ? undefined : binary)
+  // Fetched for every binary node. Operation nodes use them for the session and
+  // environment selectors below; identity nodes use them for whichever of their
+  // own parameters names something that already exists.
+  const sessions = usePluginSessions(binary)
+  const environments = usePluginEnvironments(binary)
+
+  const pickerOptions = useMemo(() => ({
+    sessions: (sessions.data?.items ?? []).map((s) => ({
+      value: s.id,
+      label: `${s.id}${s.subject ? ` — ${s.subject}` : ""} (${s.env})`,
+    })),
+    environments: (environments.data?.items ?? []).map((e) => ({
+      value: e.name, label: `${e.name} (${e.kind})`,
+    })),
+  }), [sessions.data, environments.data])
 
   const selected = (value.operation as string) ?? ""
   const op = operations[selected]
@@ -225,6 +247,7 @@ export default function SchemaConfigForm({ schema, value, onChange }: SchemaConf
               required={required.has(name)}
               value={value[name]}
               onChange={(v) => set(name, v)}
+              options={pickerOptions[(spec.picker as "sessions" | "environments") ?? ""]}
             />
           ))}
 
