@@ -263,6 +263,20 @@ class TestStaticTypes:
         assert get_component_factory("binary_op") is binary_op_factory
         assert get_component_factory("binary_auth") is binary_auth_factory
 
+    def test_the_config_mapping_pins_the_static_identities(self):
+        """COMPONENT_TYPE_TO_CONFIG is the registry of mapped component
+        types. Loading happens to survive via `__mapper_args__` polymorphic
+        identity if an entry vanishes, so no production path pins these two
+        lines — only this assertion does."""
+        from models.node import (
+            COMPONENT_TYPE_TO_CONFIG,
+            _BinaryAuthConfig,
+            _BinaryOpConfig,
+        )
+
+        assert COMPONENT_TYPE_TO_CONFIG["binary_op"] is _BinaryOpConfig
+        assert COMPONENT_TYPE_TO_CONFIG["binary_auth"] is _BinaryAuthConfig
+
     def test_a_node_naming_no_binary_is_refused(self, plugin):
         with pytest.raises(Exception) as exc:
             run(plugin, binary="", session="s1")

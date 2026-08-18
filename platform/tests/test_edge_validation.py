@@ -69,7 +69,12 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import schemas.binary_catalogs as binary_catalogs
-from schemas.node_types import get_node_type
+from schemas.node_types import (
+    NODE_TYPE_REGISTRY,
+    NodeTypeSpec,
+    PortDefinition,
+    get_node_type,
+)
 from services import plugins as plugins_module
 from services.plugins import Registration, resolve, tree_checksum, tree_fingerprint
 from validation.edges import UNRESOLVED_PORTS, _binary_operation_errors
@@ -347,6 +352,110 @@ class TestBinaryPortResolution:
         assert len(matching) == 1
         assert "no operation selected" in matching[0]
         assert getattr(matching[0], "code", None) == UNRESOLVED_PORTS
+
+
+def _clashing_catalog(binary="clash-bin"):
+    """ONE domain, TWO operations declaring the SAME output port name with
+    DIFFERENT types — exactly the shape that used to make the now-deleted
+    `_ports_for()` union widen the port to ANY across the whole domain."""
+    return {
+        "protocol": 1,
+        "binary": binary,
+        "version": "1.0.0",
+        "operations": [
+            {
+                "id": "things.readLabel",
+                "domain": "things",
+                "summary": "Read a thing's label.",
+                "session": {"required": False},
+                "params": {"type": "object", "properties": {}},
+                "outputs": [{"name": "x", "type": "string", "description": ""}],
+                "timeout_default_s": 5,
+            },
+            {
+                "id": "things.countThings",
+                "domain": "things",
+                "summary": "Count the things.",
+                "session": {"required": False},
+                "params": {"type": "object", "properties": {}},
+                "outputs": [{"name": "x", "type": "number", "description": ""}],
+                "timeout_default_s": 5,
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def clashing_catalog_dir(tmp_path, monkeypatch):
+    """A catalog directory holding clash-bin's catalog (invented fixture —
+    catalogs are gitignored, so tests must not depend on a real one)."""
+    catalogs = tmp_path / "catalogs"
+    catalogs.mkdir()
+    (catalogs / "clash-bin.json").write_text(json.dumps(_clashing_catalog()))
+    monkeypatch.setattr(binary_catalogs, "CATALOG_DIR", catalogs)
+    return catalogs
+
+
+@pytest.fixture
+def number_sink(monkeypatch):
+    """A fixture target type whose input accepts NUMBER but not STRING.
+
+    No built-in node type has a NUMBER first input, and the regression below
+    needs one: a target that ANY would satisfy but STRING must not."""
+    monkeypatch.setitem(NODE_TYPE_REGISTRY, "number_sink", NodeTypeSpec(
+        component_type="number_sink",
+        display_name="Number sink",
+        inputs=[PortDefinition(name="n", data_type=DataType.NUMBER)],
+    ))
+
+
+class TestNoAnyWideningAcrossOperations:
+    """Regression: the deleted `_ports_for()` built ports as the UNION across
+    all operations of a (binary, domain) pair, and when two operations in the
+    same domain declared the same output port with different types it widened
+    that port to ANY — so edges that were never type-safe passed validation
+    in BOTH directions. Per-operation resolution removed the widening; these
+    tests exercise the binary node as an edge SOURCE, the direction a node
+    that is only ever a target never covers."""
+
+    def test_port_shared_across_operations_keeps_its_per_operation_type(
+            self, clashing_catalog_dir):
+        ports, issue = EdgeValidator._output_ports(
+            _node("binary_op", binary="clash-bin", operation="things.readLabel"))
+        assert issue is None
+        assert [p.name for p in ports] == ["x"]
+        assert ports[0].data_type == DataType.STRING
+        assert ports[0].data_type != DataType.ANY
+
+        # The sibling operation keeps ITS type too — resolution is per
+        # operation, not a domain-wide union.
+        ports, issue = EdgeValidator._output_ports(
+            _node("binary_op", binary="clash-bin", operation="things.countThings"))
+        assert issue is None
+        assert [p.name for p in ports] == ["x"]
+        assert ports[0].data_type == DataType.NUMBER
+        assert ports[0].data_type != DataType.ANY
+
+    def test_edge_into_a_number_only_input_is_rejected(
+            self, clashing_catalog_dir, number_sink):
+        # Under ANY-widening the STRING output was ANY, ANY is compatible
+        # with everything, and this edge was accepted. It must not be.
+        errors = EdgeValidator.validate_edge(
+            _node("binary_op", binary="clash-bin", operation="things.readLabel"),
+            _node("number_sink"))
+        assert len(errors) == 1
+        assert "Type mismatch" in errors[0]
+        assert "'string'" in errors[0] and "'number'" in errors[0]
+
+    def test_edge_into_a_string_compatible_input_is_accepted(
+            self, clashing_catalog_dir):
+        # Discriminating half: run_command's first input is STRING, so the
+        # same node's edge is valid — a validator that rejected everything
+        # would fail here.
+        errors = EdgeValidator.validate_edge(
+            _node("binary_op", binary="clash-bin", operation="things.readLabel"),
+            _node("run_command"))
+        assert errors == []
 
 
 class TestBinaryDesignTimeChecks:
