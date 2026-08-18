@@ -2,7 +2,7 @@ import { useCallback } from "react"
 import { useCreateNode } from "@/api/nodes"
 import { useNodeTypes } from "@/api/workflows"
 import { Button } from "@/components/ui/button"
-import type { ComponentType } from "@/types/models"
+import type { BuiltinComponentType, ComponentType } from "@/types/models"
 import {
   MessageSquare, Send, Clock, Hand, Workflow, AlertTriangle, Compass,
   Cpu, Bot, Brain, GraduationCap,
@@ -12,11 +12,11 @@ import {
   Code, UserCheck, ShieldAlert, FileText, CheckSquare, FileCheck,
   Database, DatabaseZap, UserSearch, UserPlus, Plug, Fingerprint, KeyRound,
   Rocket, PencilRuler, CalendarClock, HeartPulse,
-  Mail, MailSearch,
+  Mail, MailSearch, Boxes,
   type LucideIcon,
 } from "lucide-react"
 
-const ICONS: Record<ComponentType, LucideIcon> = {
+const ICONS: Record<BuiltinComponentType, LucideIcon> = {
   trigger_chat: MessageSquare,
   trigger_telegram: Send,
   trigger_schedule: Clock,
@@ -86,12 +86,21 @@ const NODE_CATEGORIES = [
  * these two on the frontend.
  *
  * If this line errors, the type it names needs a home in a category above.
+ *
+ * Checked against BuiltinComponentType rather than ComponentType: types derived
+ * from a binary catalog are not knowable at compile time and get their own
+ * section below, driven by the registry.
  */
 type PalettedType = (typeof NODE_CATEGORIES)[number]["types"][number]
-const _everyTypeIsInThePalette: Exclude<ComponentType, PalettedType> extends never
+const _everyTypeIsInThePalette: Exclude<BuiltinComponentType, PalettedType> extends never
   ? true
-  : Exclude<ComponentType, PalettedType> = true
+  : Exclude<BuiltinComponentType, PalettedType> = true
 void _everyTypeIsInThePalette
+
+/** Types the compiler cannot know about: everything the registry offers that no
+ * category above claims. Grouped by the binary that declared them, so a canvas
+ * carrying two binaries does not present one undifferentiated list. */
+const PALETTED = new Set<string>(NODE_CATEGORIES.flatMap((c) => c.types as readonly string[]))
 
 function derivedLabel(type: ComponentType): string {
   return type.replace(/^trigger_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
@@ -105,6 +114,17 @@ export default function NodePalette({ slug }: { slug: string }) {
   // duplication that let NODE_CATEGORIES drift. Fall back to the derived form
   // only while the registry is still loading.
   const { data: registry } = useNodeTypes()
+
+  // Grouped by binary rather than listed flat: `zc-portal-admin · verification`
+  // and `zc-portal · funding` are different authorities, and a single "Binaries"
+  // heading would leave that difference to be read off the end of a label.
+  const derivedGroups = Object.entries(registry ?? {})
+    .filter(([type]) => !PALETTED.has(type))
+    .reduce<Record<string, string[]>>((acc, [type, spec]) => {
+      const binary = (spec.config_schema?.["x-binary"] as string) ?? "Other"
+      ;(acc[binary] ??= []).push(type)
+      return acc
+    }, {})
 
   const handleAdd = useCallback((type: ComponentType) => {
     createNode.mutate({
@@ -136,6 +156,27 @@ export default function NodePalette({ slug }: { slug: string }) {
                 </Button>
               )
             })}
+          </div>
+        </div>
+      ))}
+
+      {Object.entries(derivedGroups).map(([binary, types]) => (
+        <div key={binary}>
+          <div className="text-xs font-semibold text-muted-foreground mb-1">{binary}</div>
+          <div className="space-y-1">
+            {types.sort().map((type) => (
+              <Button
+                key={type}
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-xs gap-2"
+                onClick={() => handleAdd(type)}
+                disabled={createNode.isPending}
+              >
+                <Boxes className="h-3.5 w-3.5 shrink-0" />
+                {registry?.[type]?.display_name ?? derivedLabel(type)}
+              </Button>
+            ))}
           </div>
         </div>
       ))}

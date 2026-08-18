@@ -180,11 +180,10 @@ class TestRegistration:
         assert "workflow_create" in SUB_COMPONENT_TYPES
 
     def test_spawn_and_await_also_registered(self):
-        """spawn_and_await was missing from ComponentTypeStr — verify it's now included."""
-        from schemas.node import ComponentTypeStr
-        # ComponentTypeStr is a Literal — check its args
-        import typing
-        args = typing.get_args(ComponentTypeStr)
+        """spawn_and_await was missing from the accepted types — verify it's now included."""
+        # Was a Literal's args; node types are now also derived from binary
+        # catalogs at import, so the built-in list stands on its own.
+        from schemas.node import STATIC_COMPONENT_TYPES as args
         assert "spawn_and_await" in args
         assert "workflow_create" in args
 

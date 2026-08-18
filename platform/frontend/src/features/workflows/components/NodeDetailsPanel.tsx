@@ -3,6 +3,8 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
+import { useNodeTypes } from "@/api/workflows"
+import SchemaConfigForm, { isOperationSchema } from "@/components/SchemaConfigForm"
 import { useWorkspaces } from "@/api/workspaces"
 
 import { useManualExecute } from "@/api/executions"
@@ -158,6 +160,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
   const [systemPrompt, setSystemPrompt] = useState(node.config.system_prompt)
   const [extraConfig, setExtraConfig] = useState(JSON.stringify(node.config.extra_config, null, 2))
+  // Config for node types whose form comes from their schema rather than from a
+  // branch in this file. Seeded from extra_config because that is where it
+  // lives — this form edits the same object the JSON editor below does.
+  const [schemaConfig, setSchemaConfig] = useState<Record<string, unknown>>(
+    () => ({ ...(node.config.extra_config ?? {}) })
+  )
   const [llmCredentialId, setLlmCredentialId] = useState<string>(node.config.llm_credential_id?.toString() ?? "")
   const [modelName, setModelName] = useState(node.config.model_name ?? "")
   const [temperature, setTemperature] = useState<string>(node.config.temperature?.toString() ?? "")
@@ -345,6 +353,14 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   const credId = llmCredentialId ? Number(llmCredentialId) : undefined
   const { data: availableModels } = useCredentialModels(credId)
 
+  // Any node type that ships an operation schema gets its form rendered from
+  // that schema. Deliberately not a list of component types: the derived ones
+  // are not knowable here, and a built-in that grows a config_schema should get
+  // the same treatment without this file changing.
+  const { data: nodeTypeRegistry } = useNodeTypes()
+  const nodeTypeSpec = nodeTypeRegistry?.[node.component_type]
+  const isSchemaDriven = isOperationSchema(nodeTypeSpec?.config_schema)
+
   const isLLMNode = node.component_type === "ai_model"
   const isAgentNode = node.component_type === "agent" || node.component_type === "deep_agent"
   const isDeepAgent = node.component_type === "deep_agent"
@@ -435,6 +451,9 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     }
     if (node.component_type === "assertion") {
       parsedExtra = { ...parsedExtra, rules: assertionRules, use_llm_judge: assertionJudge, pass_threshold: assertionThreshold }
+    }
+    if (isSchemaDriven) {
+      parsedExtra = { ...parsedExtra, ...schemaConfig }
     }
     if (node.component_type === "mailbox_action") {
       parsedExtra = { ...parsedExtra, operation: mailboxOperation }
@@ -1555,6 +1574,16 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         </>
       )}
 
+      {isSchemaDriven && nodeTypeSpec && (
+        <>
+          <Separator />
+          <SchemaConfigForm
+            schema={nodeTypeSpec.config_schema}
+            value={schemaConfig}
+            onChange={setSchemaConfig}
+          />
+        </>
+      )}
       {node.component_type === "mailbox_action" && (
         <>
           <Separator />

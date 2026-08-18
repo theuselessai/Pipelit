@@ -1,11 +1,16 @@
 """Node and Edge schemas."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
-ComponentTypeStr = Literal[
+# The built-in types. This is no longer the whole set: node types are also
+# derived at import from binary catalogs (schemas/binary_catalogs.py), which are
+# operator-supplied and therefore unknowable here. So the validator below checks
+# the live registry and falls back to this tuple, rather than the tuple being a
+# Literal that would reject every derived type.
+STATIC_COMPONENT_TYPES = (
     "categorizer",
     "router",
     "extractor",
@@ -48,7 +53,22 @@ ComponentTypeStr = Literal[
     "validate_topology",
     "mailbox_action",
     "mailbox_parse",
-]
+)
+
+
+def _known_component_type(value: str) -> str:
+    from schemas.node_types import NODE_TYPE_REGISTRY
+
+    if value in NODE_TYPE_REGISTRY or value in STATIC_COMPONENT_TYPES:
+        return value
+    raise ValueError(
+        f"unknown component_type {value!r}. Derived types need their binary's "
+        f"catalog present in platform/catalogs/ — see that directory's README."
+    )
+
+
+ComponentTypeStr = Annotated[str, AfterValidator(_known_component_type)]
+
 EdgeTypeStr = Literal["direct", "conditional"]
 # "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
 EdgeLabelStr = Literal["", "llm", "tool", "output_parser", "loop_body", "loop_return", "skill"]
@@ -128,7 +148,11 @@ class NodeOut(BaseModel):
     id: int
     node_id: str
     label: str | None = None
-    component_type: ComponentTypeStr
+    # Deliberately unvalidated on the way OUT. A node whose binary catalog is
+    # absent must still be readable — otherwise one missing file makes an entire
+    # workflow unloadable, which is a far worse failure than showing a type the
+    # palette cannot offer.
+    component_type: str
     is_entry_point: bool
     interrupt_before: bool
     interrupt_after: bool

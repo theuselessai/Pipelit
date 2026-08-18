@@ -392,3 +392,17 @@ class WorkflowEdge(Base):
 
     def __repr__(self):
         return f"<Edge {self.source_node_id} -> {self.target_node_id}>"
+
+
+# Binary-derived node types need config classes too: `component_type` is the
+# polymorphic discriminator, and SQLAlchemy raises when it loads a row whose
+# identity has no mapped class. These are created from whatever catalogs are
+# present rather than declared here, so this file stays free of any particular
+# organisation's node types.
+from schemas.binary_catalogs import (  # noqa: E402
+    load_specs as _load_binary_specs,
+    register_config_classes as _register_binary_config_classes,
+)
+
+_load_binary_specs()
+_register_binary_config_classes(BaseComponentConfig, COMPONENT_TYPE_TO_CONFIG)

@@ -59,14 +59,14 @@ class TestRegistration:
         from typing import get_args
 
         from models.node import COMPONENT_TYPE_TO_CONFIG
-        from schemas.node import ComponentTypeStr
+        from schemas.node import STATIC_COMPONENT_TYPES
         from schemas.node_types import NODE_TYPE_REGISTRY
 
         for name in ("mailbox_action", "mailbox_parse"):
             assert name in COMPONENT_REGISTRY, f"{name} has no component factory"
             assert name in COMPONENT_TYPE_TO_CONFIG, f"{name} has no polymorphic config"
             assert name in NODE_TYPE_REGISTRY, f"{name} is not in the node type registry"
-            assert name in get_args(ComponentTypeStr), f"{name} is not an accepted API literal"
+            assert name in STATIC_COMPONENT_TYPES, f"{name} is not an accepted built-in type"
 
     def test_parse_node_is_not_executable(self):
         """It is a sub-component tool, not a flow node."""

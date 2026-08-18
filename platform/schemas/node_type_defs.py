@@ -603,3 +603,11 @@ NON_EXECUTABLE_TYPES = {"ai_model", "output_parser", "skill"}
 for _ct, _spec in NODE_TYPE_REGISTRY.items():
     if _ct.startswith("trigger_") or _ct in NON_EXECUTABLE_TYPES:
         _spec.executable = False
+
+
+# Node types derived from binary catalogs, if any are present. Registered last so
+# the built-ins above are already in place, and separately so that a malformed or
+# missing catalog cannot stop the built-in types from loading.
+from schemas.binary_catalogs import load_specs  # noqa: E402
+
+load_specs()
