@@ -262,6 +262,36 @@ export function isOperationSchema(schema: unknown): boolean {
  * A number carrying a {{ }} expression stays a string: it is resolved upstream
  * of the component and is not a number yet.
  */
+/** Whether a parameter's value is STRUCTURED — an object, a map, or an array of
+ * objects — rather than a scalar or an array of scalars.
+ *
+ * This exists because the alternative was silent corruption. The coercion below
+ * branches on `spec.type`, and anything it did not recognise fell through to
+ * `String(raw)`. So a parameter expecting an object received a STRING, and one
+ * expecting an array of objects received an array of comma-split strings — the
+ * form accepted plausible input, and the wrong type went on the wire with
+ * nothing anywhere saying so. Two installed operations that write real customer
+ * state had exactly that shape.
+ *
+ * Note what is deliberately NOT structured: a bare `enum` with no `type`. Those
+ * render as a select and pass their chosen string through, which is correct —
+ * counting them as structured would break working fields to fix a different bug.
+ */
+export function isStructuredParam(spec: Json): boolean {
+  const t = spec.type as string | undefined
+  if (t === "object") return true
+  if (t === "array") {
+    const items = (spec.items ?? {}) as Json
+    return items.type === "object"
+      || items.properties !== undefined
+      || items.additionalProperties !== undefined
+  }
+  if (t === undefined) {
+    return spec.properties !== undefined || spec.additionalProperties !== undefined
+  }
+  return false
+}
+
 export function coerceBySchema(
   schema: Json, operation: string | undefined, value: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -283,6 +313,21 @@ export function coerceBySchema(
       continue
     }
     const text = String(raw)
+    if (isStructuredParam(spec)) {
+      // An expression is not resolved until the node runs, so it cannot be
+      // parsed here — it travels as the template string, exactly as a number
+      // carrying one does.
+      if (text.includes("{{")) { out[name] = text; continue }
+      try {
+        out[name] = JSON.parse(text)
+      } catch {
+        // Keep what was typed rather than discarding it. The form marks the
+        // field invalid, so this is visible rather than silent — which is the
+        // whole point of the branch.
+        out[name] = text
+      }
+      continue
+    }
     if (spec.type === "array") {
       out[name] = text.split(",").map((s) => s.trim()).filter(Boolean)
     } else if (spec.type === "number" && !text.includes("{{")) {

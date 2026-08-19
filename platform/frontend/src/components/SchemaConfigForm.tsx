@@ -1,6 +1,8 @@
 import { useMemo } from "react"
 import { usePluginEnvironments, usePluginSessions } from "@/api/plugins"
+import { isStructuredParam } from "@/lib/operationSchema"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -119,6 +121,20 @@ function ScalarField({
   // The catalog often states a bound the form never showed, so the rule was
   // discovered by a failed run instead of being read off the field.
   const bounds = boundsLabel(spec)
+  // An object, a map, or an array of objects cannot be typed into a one-line
+  // box and coerced by guesswork — that produced a string where an object
+  // belonged. It gets a JSON field that is PARSED before sending, and says so.
+  const structured = isStructuredParam(spec)
+  const structuredText =
+    effective === undefined || effective === null ? ""
+      : typeof effective === "string" ? effective
+      : JSON.stringify(effective, null, 2)
+  const structuredInvalid = (() => {
+    if (!structured) return false
+    const t = structuredText.trim()
+    if (t === "" || t.includes("{{")) return false
+    try { JSON.parse(t); return false } catch { return true }
+  })()
 
   return (
     <div className="space-y-1">
@@ -142,6 +158,15 @@ function ScalarField({
       ) : (
         <>
           <FieldLabel name={name} spec={spec} required={required} />
+          {structured ? (
+            <Textarea
+              className={`text-xs font-mono min-h-16 ${structuredInvalid ? "border-destructive" : ""}`}
+              value={structuredText}
+              spellCheck={false}
+              placeholder={(spec.type as string) === "array" ? "[ … ]" : "{ … }"}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          ) : (
           <Input
             className="text-xs h-7"
             type={secret ? "password" : undefined}
@@ -154,10 +179,23 @@ function ScalarField({
             placeholder={(spec.placeholder as string | undefined) ?? (type && type !== "string" ? type : undefined)}
             onChange={(e) => onChange(e.target.value)}
           />
+          )}
         </>
       )}
       {description && <p className="text-[10px] text-muted-foreground">{description}</p>}
       {bounds && <p className="text-[10px] text-muted-foreground tabular-nums">{bounds}</p>}
+      {structured && (
+        structuredInvalid ? (
+          <p className="text-[10px] text-destructive">
+            Not valid JSON. This field is sent as {(spec.type as string) === "array" ? "an array" : "an object"},
+            so it is parsed before sending — as written it would go out as plain text.
+          </p>
+        ) : (
+          <p className="text-[10px] text-muted-foreground">
+            JSON — parsed before sending, not sent as text.
+          </p>
+        )
+      )}
     </div>
   )
 }
