@@ -176,6 +176,24 @@ def binary_op_factory(node):
                 )
             raise _error(code, message, retryable=err.get("retryable"))
 
+        # 🔴 THE `isinstance` CHECK IS LOAD-BEARING, NOT DEFENSIVE. Only an
+        # EXPLICIT `discharged: false` fails the node. A null proof — which is
+        # what an operation whose write is unprovable by design emits — must
+        # pass, and a binary already depends on that: one installed catalog has
+        # 75 mutating operations with no read-back, every one emitting
+        # `proof: null`.
+        #
+        # Do NOT "tidy" this to `proof.get("discharged") is not True`. It reads
+        # stricter and better, it is a plausible hardening pass, and it would
+        # silently fail most of that binary's write surface — a node reporting
+        # failure for a write that succeeded, whose obvious next action is to
+        # run it again. On an irreversible external write that is the worst
+        # outcome available.
+        #
+        # Null means "there is no proof to give", which is NOT the same as
+        # "verification ran and failed". The contract makes exactly this
+        # distinction for `slot_patch` and has not yet made it for `proof`, so
+        # today the meaning lives here rather than in the schema.
         proof = envelope.get("proof")
         if isinstance(proof, dict) and proof.get("discharged") is False:
             raise _error(

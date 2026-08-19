@@ -252,6 +252,29 @@ class TestInvocation:
         assert type(exc.value).__name__ == "PROOF_NOT_DISCHARGED"
         assert "the row did not change" in str(exc.value)
 
+    def test_a_null_proof_is_not_a_failure(self, plugin):
+        """🔴 LOAD-BEARING, not defensive. Do not "tidy" the guard to
+        `is not True`.
+
+        An operation whose write cannot be read back has no honest way to claim
+        a proof: `discharged: true` would assert a verification that never ran,
+        and `discharged: false` would report a failure that did not occur — on
+        an irreversible write, whose obvious next action is to run it again. So
+        such operations emit `proof: null`, and one installed binary has 75
+        mutating operations that all do.
+
+        Only an EXPLICIT `discharged: false` may fail the node. If this test
+        starts failing, the guard was rephrased and most of that binary's write
+        surface now reports failure for writes that succeeded.
+        """
+        respond(plugin, ok({"thing_id": "t"}, proof=None))
+        assert run(plugin, session="s1")["thing_id"] == "t"
+
+    def test_a_discharged_proof_is_not_a_failure(self, plugin):
+        respond(plugin, ok({"thing_id": "t"}, proof={
+            "discharged": True, "via": "readBack", "detail": "observed"}))
+        assert run(plugin, session="s1")["thing_id"] == "t"
+
     def test_a_failure_carrying_a_slot_patch_says_the_identity_may_be_stale(self, plugin):
         """The recovery case: the operation ran and its state could not be written."""
         respond(plugin, failed("STORE_UNAVAILABLE", slot_patch={"session": {"evicted": True}}),
