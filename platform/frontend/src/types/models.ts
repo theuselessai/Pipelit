@@ -1,5 +1,13 @@
 // Component types
-export type ComponentType =
+/**
+ * The node types built into this platform.
+ *
+ * Closed on purpose: NodePalette keys an exhaustive icon map and an exhaustive
+ * category check off this, and both exist to catch a built-in type that has no
+ * home in the palette — the drift that left `router` unreachable from the UI
+ * until 2026-08-16.
+ */
+export type BuiltinComponentType =
   | "categorizer"
   | "router"
   | "extractor"
@@ -42,6 +50,17 @@ export type ComponentType =
   | "mailbox_action"
   | "mailbox_parse"
   | "assertion"
+  | "binary_op"
+  | "binary_auth"
+
+/**
+ * Any node type the backend will accept, including ones derived at runtime from
+ * a binary catalog (see platform/catalogs/README.md). Those names are not
+ * knowable here — they come from a file this repository does not contain — so
+ * this is deliberately open. Use BuiltinComponentType where exhaustiveness is
+ * the point, and this where a value merely travels through.
+ */
+export type ComponentType = BuiltinComponentType | (string & {})
 export type EdgeType = "direct" | "conditional"
 // "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
 export type EdgeLabel = "" | "llm" | "tool" | "output_parser" | "loop_body" | "loop_return" | "skill"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -54,6 +55,70 @@ def _unlink_sub_component(
             setattr(tgt_cfg, config_field, None)
 
 
+def _verify_binary_allowlisted(binary) -> None:
+    """Refuse storing a binary name that is not a registered, unmodified plugin.
+
+    `extra_config["binary"]` is agent-writable node data naming an executable,
+    so it is re-validated against the server-side allowlist
+    (`services.plugins.verified_plugin`) on every write that sets or changes
+    it. This is a SECURITY control, not a port check: a path can never be
+    storable (`_safe_name` refuses separators), and an unregistered name is
+    refused outright. Reads (`NodeOut`) stay unvalidated — a node must remain
+    readable regardless of catalog presence.
+    """
+    if not binary:
+        # A freshly added node may not name a binary yet; the name is checked
+        # whenever it is set.
+        return
+    from services.plugins import PluginError, verified_plugin
+
+    try:
+        verified_plugin(str(binary))
+    except PluginError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"binary {binary!r} is not usable here: {exc}",
+        )
+
+
+# `extra_config["session"]` is passed straight to the binary as `--session
+# <value>` (components/binary_op.py) and used by the binary DIRECTLY AS A
+# FILENAME inside its credential store. Per the bin-contract slot schema this
+# pattern is "path-traversal defence, not cosmetics", and the credential store
+# root is SHARED ACROSS ALL BINARIES by design ("naming, not isolation") — so a
+# crafted handle here would not just corrupt one binary's own store, it could
+# read or clobber ANOTHER binary's stored identities. Enforced on write here as
+# defence in depth on top of whatever the binary itself does on read.
+SESSION_HANDLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _verify_session_handle(session) -> None:
+    """Refuse a session handle shaped so it could escape the credential store.
+
+    Absent/empty stays allowed: `session` is optional, and `binary_op.py`
+    already raises its own MISSING_SESSION error when an operation requires
+    one and none is set.
+    """
+    if not session:
+        return
+    session = str(session)
+    # The regex already excludes "..", but check it independently too — belt
+    # and braces on a control that guards a shared credential store.
+    if not SESSION_HANDLE_RE.match(session) or ".." in session:
+        shown = session if len(session) <= 80 else session[:80] + "…"
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"session {shown!r} is not usable here: it is passed straight to "
+                f"the binary and used directly as a filename in its credential "
+                f"store, which is shared across all binaries. It must match "
+                f"^[A-Za-z0-9][A-Za-z0-9._-]{{0,63}}$ (starts with a letter or "
+                f"digit; letters, digits, '.', '_', '-' only; 1-64 characters; "
+                f"no '..')."
+            ),
+        )
+
+
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
 
@@ -96,6 +161,12 @@ def create_node(
         "component_type": component_type,
         "extra_config": config_data.get("extra_config", {}),
     }
+
+    # Binary nodes: the named binary must pass the server-side allowlist, and
+    # any session handle must be safe to use as a filename in a shared store.
+    if component_type in ("binary_op", "binary_auth"):
+        _verify_binary_allowlisted((config_data.get("extra_config") or {}).get("binary"))
+        _verify_session_handle((config_data.get("extra_config") or {}).get("session"))
 
     # AI config fields
     if component_type in ("agent", "categorizer", "router", "extractor"):
@@ -208,6 +279,12 @@ def update_node(
             elif k == "system_prompt":
                 cc.system_prompt = v
             elif k == "extra_config":
+                effective_type = data.get("component_type") or node.component_type
+                if effective_type in ("binary_op", "binary_auth"):
+                    new_binary = (v or {}).get("binary")
+                    if new_binary and new_binary != (cc.extra_config or {}).get("binary"):
+                        _verify_binary_allowlisted(new_binary)
+                    _verify_session_handle((v or {}).get("session"))
                 cc.extra_config = v
             elif k == "input_template":
                 cc.input_template = v
@@ -463,15 +540,25 @@ def create_edge(
         src_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.source_node_id).first()
         tgt_node = db.query(WorkflowNode).filter_by(workflow_id=wf.id, node_id=payload.target_node_id).first()
         if src_node and tgt_node:
-            from validation.edges import EdgeValidator
+            from validation.edges import UNRESOLVED_PORTS, EdgeValidator
             # "memory" was intentionally removed — memory nodes now connect via "tool" handle.
             # See migration 0d301d48b86a which converted all memory edges to tool edges.
             label_to_handle = {"llm": "model", "tool": "tools", "output_parser": "output_parser", "skill": "skills"}
             target_handle = label_to_handle.get(payload.edge_label) if payload.edge_label else None
             errors = EdgeValidator.validate_edge(
-                src_node.component_type, tgt_node.component_type,
+                src_node, tgt_node,
                 target_handle=target_handle,
             )
+            # Sketch-first, deliberately: an edge touching a binary node whose
+            # ports cannot be resolved yet (no operation chosen, binary not
+            # registered here) is PERMITTED at creation — /validate/ reports
+            # the same condition with its specific reason. Only that one
+            # class is filtered, and it is filtered HERE, at the creation
+            # caller, never inside the validator: if the validator stopped
+            # emitting it, /validate/ would go silent too and the condition
+            # would be invisible from both paths. Type mismatches on
+            # resolvable nodes still refuse the edge, exactly as before.
+            errors = [e for e in errors if getattr(e, "code", None) != UNRESOLVED_PORTS]
             if errors:
                 raise HTTPException(status_code=422, detail={"validation_errors": errors})
 

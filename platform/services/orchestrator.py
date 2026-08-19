@@ -25,6 +25,93 @@ MAX_NODE_RETRIES = 3
 PUBSUB_CHANNEL_PREFIX = "execution:"
 
 
+def _config_forbids_retry(extra_config: dict | None) -> bool:
+    """True when the node's own config says it must never be retried.
+
+    `extra_config["retryable"] = false` marks a node whose failure may leave a
+    real-world side effect half-applied (an external write, a sent message) —
+    repeating it could apply the effect twice. This is the only guard that also
+    covers failures which produce no error verdict at all, such as a killed or
+    timed-out process. extra_config is hand-edited JSON, so the strings
+    "false"/"true" are accepted alongside real booleans; anything else means
+    "not stated" and keeps the default retry behaviour.
+    """
+    value = (extra_config or {}).get("retryable")
+    if isinstance(value, str):
+        return value.strip().lower() == "false"
+    return value is False
+
+
+# Component types whose extra_config names a binary operation, per the
+# bin-contract protocol — see schemas/binary_catalogs.py and
+# schemas/binary_verbs.py.
+_BINARY_COMPONENT_TYPES = ("binary_op", "binary_auth")
+
+
+def _binary_no_retry_reason(component_type: str | None, extra_config: dict | None) -> str | None:
+    """None, or the reason a binary node's configured operation forbids retry.
+
+    Only `binary_op` / `binary_auth` nodes are examined here — every other
+    component type is untouched by this guard.
+
+    🔴 Absent or unresolvable information is treated as mutating. This is the
+    whole point of the guard, not an edge case of it: the two failure
+    directions are NOT symmetric. Wrongly refusing to retry only costs a retry
+    that would have been safe. Wrongly retrying can repeat a real-world write
+    whose first attempt may already have landed — and the most dangerous case
+    (a timeout, a killed process) produces no envelope to consult at all, so
+    there is nothing to fall back on except the operation's own declared
+    default. A binary node is therefore NEVER retried unless its configured
+    operation explicitly declares `mutates: false`.
+
+    🔴 A BINARY DELIBERATELY RELIES ON THIS BRANCH. `mutates` is optional in the
+    contract, and at least one binary has decided — deliberately, having
+    considered it — to declare NOTHING, on the grounds that absent already means
+    mutating and so silence is the safe reading. Omitting the field is a
+    legitimate conservative state, not an incomplete one.
+
+    So the following would each be a change of contract with the binaries, not a
+    Pipelit-internal decision, and they must be told BEFORE it ships:
+      - absent ceasing to mean mutating
+      - surfacing an undeclared operation as defective, incomplete, or as a
+        warning that reads like one
+      - any ingest friction for a catalog that omits the field
+      - rendering "unknown" and "does not mutate" identically anywhere in the UI,
+        which would show an operator a measurement where a binary only declined
+        to guess
+    """
+    if component_type not in _BINARY_COMPONENT_TYPES:
+        return None
+
+    extra = extra_config or {}
+    binary = str(extra.get("binary") or "")
+    operation = str(extra.get("operation") or "")
+    mutates: object = None
+
+    if component_type == "binary_op":
+        from schemas.binary_catalogs import operations_for
+
+        operations = operations_for(binary) if binary else None
+        op_entry = operations.get(operation) if operations else None
+        if op_entry is not None:
+            mutates = op_entry.get("mutates")
+    else:  # binary_auth
+        from schemas.binary_verbs import MUTATING_VERBS, VERBS
+
+        if operation in VERBS:
+            mutates = operation in MUTATING_VERBS
+
+    if mutates is True:
+        return "this operation is declared mutating"
+    if mutates is False:
+        return None
+    return (
+        "this operation's mutation status could not be determined "
+        "(unregistered binary, unreadable catalog, or unknown operation), "
+        "so it is assumed mutating"
+    )
+
+
 def _redis() -> redis_lib.Redis:
     return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
 
@@ -524,6 +611,37 @@ def execute_node_job(execution_id: str, node_id: str, retry_count: int = 0) -> N
                     "Checkpoints cleared automatically — please retry."
                 )
                 skip_retry = True
+
+            # Retry suppression: a failure may declare itself unsafe to repeat
+            # (the exception carries the binary's own `retryable` verdict), a
+            # node may be marked never-retryable in its config, or — for a
+            # binary node — the configured operation's own catalog entry may
+            # declare itself mutating (or fail to declare anything at all, which
+            # is treated the same way). Any one of the three suppresses the
+            # retry — repeating a call whose first attempt may have applied a
+            # real-world write can apply it twice.
+            no_retry_reason = None
+            if getattr(exc, "retryable", None) is False:
+                no_retry_reason = (
+                    "the binary reported this failure as not retryable — "
+                    "whether the operation took effect is unknown, and "
+                    "repeating it could apply its side effect twice"
+                )
+            elif _config_forbids_retry(db_node.component_config.extra_config):
+                no_retry_reason = (
+                    'this node is marked non-retryable ("retryable": false in '
+                    "its config), so the failed attempt is never repeated"
+                )
+            else:
+                no_retry_reason = _binary_no_retry_reason(
+                    node_info.get("component_type"), db_node.component_config.extra_config
+                )
+            if no_retry_reason:
+                skip_retry = True
+                logger.warning(
+                    "Node %s failed; retry suppressed: %s", node_id, no_retry_reason
+                )
+                error_msg += f"\n\nRetry suppressed: {no_retry_reason}"
 
             node_result = NodeResult.failed(
                 error_code=exc_type, message=error_msg, node_id=node_id,

@@ -1,11 +1,15 @@
 """Node and Edge schemas."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
-ComponentTypeStr = Literal[
+# The built-in types. Binary plugins do not add to this set: every plugin node
+# is one of the two static types below (binary_op / binary_auth), with the
+# binary itself carried in the node's extra_config. The validator checks the
+# live registry and falls back to this tuple.
+STATIC_COMPONENT_TYPES = (
     "categorizer",
     "router",
     "extractor",
@@ -48,7 +52,21 @@ ComponentTypeStr = Literal[
     "validate_topology",
     "mailbox_action",
     "mailbox_parse",
-]
+    "binary_op",
+    "binary_auth",
+)
+
+
+def _known_component_type(value: str) -> str:
+    from schemas.node_types import NODE_TYPE_REGISTRY
+
+    if value in NODE_TYPE_REGISTRY or value in STATIC_COMPONENT_TYPES:
+        return value
+    raise ValueError(f"unknown component_type {value!r}")
+
+
+ComponentTypeStr = Annotated[str, AfterValidator(_known_component_type)]
+
 EdgeTypeStr = Literal["direct", "conditional"]
 # "memory" was removed — migration 0d301d48b86a converts all memory edges to tool edges.
 EdgeLabelStr = Literal["", "llm", "tool", "output_parser", "loop_body", "loop_return", "skill"]
@@ -128,7 +146,11 @@ class NodeOut(BaseModel):
     id: int
     node_id: str
     label: str | None = None
-    component_type: ComponentTypeStr
+    # Deliberately unvalidated on the way OUT. A node whose binary catalog is
+    # absent must still be readable — otherwise one missing file makes an entire
+    # workflow unloadable, which is a far worse failure than showing a type the
+    # palette cannot offer.
+    component_type: str
     is_entry_point: bool
     interrupt_before: bool
     interrupt_after: bool

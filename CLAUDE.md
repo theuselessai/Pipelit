@@ -14,7 +14,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Milestones use **PROJECT version** (from `plit/VERSION`), not Pipelit's own semver. The GitHub project board at https://github.com/orgs/theuselessai/projects/1 tracks project-level milestones. See `plit/ROADMAP.md` for the full milestone → component mapping.
 
-Current focus: **v0.5.0** — Workflow Creation & API Client (Pipelit issues: #163, #164, #165, #166, #167, #127)
+Current focus: **v0.5.0** — Pipelit issues: #128 Human Confirmation (interrupt_before), #129 Meta Agent, #131 Memory Tables, #132 Memory Nodes, #133 TOTP Verification Node, #202 Binary nodes.
+
+Note the two milestone namespaces are independent: the issues above carry the **Pipelit repo** milestone `v0.5.0`. The repo's `v0.4.0` milestone is still open with #163 (Workflow DSL format spec) and #127 (Skill to Workflow) outstanding — the rest of that set is closed.
 
 ## Project Overview
 

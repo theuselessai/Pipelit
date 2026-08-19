@@ -1,13 +1,13 @@
-Received: from e234-51.smtp-out.ap-northeast-1.amazonses.com (23.251.234.51)
-        by cloudflare-email.net (cloudflare) id Zcqp3wyyTXtw
-        for <tmpzcmsk6p64j@mcp.kiwi>; Sat, 08 Aug 2026 09:41:34 +0000
-ARC-Seal: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; cv=none;
+Received: from mta-01.smtp-out.mail.invalid (192.0.2.51)
+        by relay.mail.invalid (relay) id Zcqp3wyyTXtw
+        for <tmpprobe7x2k9@mail.invalid>; Sat, 08 Aug 2026 09:41:34 +0000
+ARC-Seal: i=1; a=rsa-sha256; s=cf2024-1; d=relay.mail.invalid; cv=none;
 	b=KLqkAjJqWutXdxQ1KXPszmL9jhu13SFAQakvY5k4SontVVpnXlrINxV8oHEkNnAGX3GoUaiBQ
 	KbswnhNlzOXs4wwatZexZ+S2O26ZI2ejGY0NZecyML0Kwjhnj//K2ifwApccokqHYx0VvdzWiOm
 	ahu39SPe9FP5IH+Hqw+KGXDAmqoAt0WVmz8EmnMr7Ss/sy8FxmfoOCRv9Khjw6FBA86GIFRXwhr
 	xvLGCXVlKe1UusdAR3lL8+Xr8KlOfcKw0vo3aBvuit8UMxXR37judG4SWznOhhB6RPXoNGNMplW
 	FvTxxTx27s09XzWzIcFLEvBzcQ8TyONDiEJ0KmgkDGCA==;
-ARC-Message-Signature: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; c=relaxed/relaxed;
+ARC-Message-Signature: i=1; a=rsa-sha256; s=cf2024-1; d=relay.mail.invalid; c=relaxed/relaxed;
 	h=Date:Subject:To:From:from:reply-to:cc:resent-date:resent-from:resent-to
 	:resent-cc:in-reply-to:references:list-id:list-help:list-subscribe
 	:list-post:list-owner:list-archive; t=1786182094; x=1786786894; bh=Wusbi3Os
@@ -17,76 +17,76 @@ ARC-Message-Signature: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; c=
 	VgEySTzzuJWHq/tU+2xIHi1HZuRHdKcStFU7Kbnbe6VqKu4pbbgv0jKn7Y+ISVeR4af612EU/wf
 	CALyj1mH2TsmxsFE5xprUq6tyxvcKgS8VDvKEUVflQxGt+86rEBgw8nDoJw1T/5eFUY1r9oZzQG
 	0XAvFcw==;
-ARC-Authentication-Results: i=1; mx.cloudflare.net;
-	dkim=pass header.d=uat.icecap.me header.s=resend header.b=gfMmx88c;
-	dkim=pass header.d=amazonses.com header.s=zh4gjftm6etwoq6afzugpky45synznly header.b=OvzUGjZJ;
-	dmarc=pass header.from=uat.icecap.me policy.dmarc=none;
-	spf=pass (mx.cloudflare.net: domain of postmaster@e234-51.smtp-out.ap-northeast-1.amazonses.com designates 23.251.234.51 as permitted sender) smtp.helo=e234-51.smtp-out.ap-northeast-1.amazonses.com;
-	spf=pass (mx.cloudflare.net: domain of 0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me designates 23.251.234.51 as permitted sender) smtp.mailfrom=0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me;
-	arc=none smtp.remote-ip=23.251.234.51
-Received-SPF: pass (mx.cloudflare.net: domain of 0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me designates 23.251.234.51 as permitted sender)
-	receiver=mx.cloudflare.net; client-ip=23.251.234.51; envelope-from="0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me"; helo=e234-51.smtp-out.ap-northeast-1.amazonses.com;
-Authentication-Results: mx.cloudflare.net;
-	dkim=pass header.d=uat.icecap.me header.s=resend header.b=gfMmx88c;
-	dkim=pass header.d=amazonses.com header.s=zh4gjftm6etwoq6afzugpky45synznly header.b=OvzUGjZJ;
-	dmarc=pass header.from=uat.icecap.me policy.dmarc=none;
-	spf=pass (mx.cloudflare.net: domain of postmaster@e234-51.smtp-out.ap-northeast-1.amazonses.com designates 23.251.234.51 as permitted sender) smtp.helo=e234-51.smtp-out.ap-northeast-1.amazonses.com;
-	spf=pass (mx.cloudflare.net: domain of 0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me designates 23.251.234.51 as permitted sender) smtp.mailfrom=0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@send.uat.icecap.me;
-	arc=none smtp.remote-ip=23.251.234.51
+ARC-Authentication-Results: i=1; mx.mail.invalid;
+	dkim=pass header.d=uat.example.invalid header.s=resend header.b=gfMmx88c;
+	dkim=pass header.d=mail.invalid header.s=zh4gjftm6etwoq6afzugpky45synznly header.b=OvzUGjZJ;
+	dmarc=pass header.from=uat.example.invalid policy.dmarc=none;
+	spf=pass (mx.mail.invalid: domain of postmaster@mta-01.smtp-out.mail.invalid designates 192.0.2.51 as permitted sender) smtp.helo=mta-01.smtp-out.mail.invalid;
+	spf=pass (mx.mail.invalid: domain of 0100000000000000-00000000-0000-4000-a000-000000000000-000000@send.uat.example.invalid designates 192.0.2.51 as permitted sender) smtp.mailfrom=0100000000000000-00000000-0000-4000-a000-000000000000-000000@send.uat.example.invalid;
+	arc=none smtp.remote-ip=192.0.2.51
+Received-SPF: pass (mx.mail.invalid: domain of 0100000000000000-00000000-0000-4000-a000-000000000000-000000@send.uat.example.invalid designates 192.0.2.51 as permitted sender)
+	receiver=mx.mail.invalid; client-ip=192.0.2.51; envelope-from="0100000000000000-00000000-0000-4000-a000-000000000000-000000@send.uat.example.invalid"; helo=mta-01.smtp-out.mail.invalid;
+Authentication-Results: mx.mail.invalid;
+	dkim=pass header.d=uat.example.invalid header.s=resend header.b=gfMmx88c;
+	dkim=pass header.d=mail.invalid header.s=zh4gjftm6etwoq6afzugpky45synznly header.b=OvzUGjZJ;
+	dmarc=pass header.from=uat.example.invalid policy.dmarc=none;
+	spf=pass (mx.mail.invalid: domain of postmaster@mta-01.smtp-out.mail.invalid designates 192.0.2.51 as permitted sender) smtp.helo=mta-01.smtp-out.mail.invalid;
+	spf=pass (mx.mail.invalid: domain of 0100000000000000-00000000-0000-4000-a000-000000000000-000000@send.uat.example.invalid designates 192.0.2.51 as permitted sender) smtp.mailfrom=0100000000000000-00000000-0000-4000-a000-000000000000-000000@send.uat.example.invalid;
+	arc=none smtp.remote-ip=192.0.2.51
 X-CF-SpamH-Score: 1
 DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/simple; s=resend;
-	d=uat.icecap.me; t=1786182094;
+	d=uat.example.invalid; t=1786182094;
 	h=From:To:Subject:Message-ID:Date:MIME-Version:Content-Type;
 	bh=RnA2HAO5Uni693crDOtUS2gO11YuFQ51eUjZzItORQc=;
 	b=gfMmx88cRYoDsQzVzK2UT+Te0eM7dEVcT1zdVa3Hf+aNfQmJW7iPeUO2P6+n8ghW
 	wKfqMjXT1/FB2IMabD1uMtaAe3O10s62uonMcmnAR/VqkH4TrCIPKowwqwJrQLwBnRP
 	LBevfXTaNkymcqBa6Vu13TIqzwfhMK0C0UwQ2/Bo=
 DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/simple;
-	s=zh4gjftm6etwoq6afzugpky45synznly; d=amazonses.com; t=1786182094;
+	s=zh4gjftm6etwoq6afzugpky45synznly; d=mail.invalid; t=1786182094;
 	h=From:To:Subject:Message-ID:Date:MIME-Version:Content-Type:Feedback-ID;
 	bh=RnA2HAO5Uni693crDOtUS2gO11YuFQ51eUjZzItORQc=;
 	b=OvzUGjZJLEPgWjBM9Sbfex6eWumAo6ENjQw+r9VmaY83S846mOZGOwTPp04EzPGa
 	lNWVRpGxYyAAiDCbn1u6sn/8LOwzDTxHGoaYrLDpQHWmfWIBTW6CCxF/Qsf6TATjTjW
 	4r4qNVTC7kffjKjLhT30MQRHKim7FrOE5wxpd6OM=
-From: no-reply@uat.icecap.me
-To: tmpzcmsk6p64j@mcp.kiwi
+From: no-reply@uat.example.invalid
+To: tmpprobe7x2k9@mail.invalid
 Subject: Please Confirm Your Email Address
-Message-ID: <0106019fe0bfcc1a-d881ebd5-198f-497c-a947-906af7c7db7b-000000@ap-northeast-1.amazonses.com>
+Message-ID: <0100000000000000-00000000-0000-4000-a000-000000000000-000000@smtp.mail.invalid>
 Date: Sat, 8 Aug 2026 09:41:33 +0000
 MIME-Version: 1.0
 Content-Type: multipart/alternative;
  boundary="--_NmP-f2d9fc94578eda37-Part_1"
-Feedback-ID: :1.ap-northeast-1.TOZUjv4D32rHKpTSttYRlhQwVctvKB2ZQXlAVetnc4Ud0qeEVqTelq4MdLmWOAcEm9RE/3lj0WbaV0QHkOdcGzf/U2tMWmGR/g0o89BYSfuIXYjr16kn0u/hO8YjPJkLVJMCAk1JfSHVNFeTCWhcl/bTBW40FanOspIfm+Y+WliKHThmzfhqxqXvMVhXoAX9:1.ap-northeast-1.TOS0vxEE3Ar6ai29fkp2i/jb+l2iigajCGeLfF7S3sk=:AmazonSES
-X-SES-Outgoing: 2026.08.08-23.251.234.51
+Feedback-ID: :1.test-region.OPAQUE:TestMailer
+X-SES-Outgoing: 2026.08.08-192.0.2.51
 
 ----_NmP-f2d9fc94578eda37-Part_1
 Content-Type: text/plain; charset=utf-8
 Content-Transfer-Encoding: quoted-printable
 
-ZEROCAP
+EXAMPLE CO
 
-Hello Journey Probe,
+Hello Test Probe,
 
-Welcome to Zerocap.
+Welcome to Example Co.
 
 To complete your registration, please confirm your email address by =
 clicking the link below:
 
-Confirm Email https://fe1-stv.uat.icecap.=
-me/verify-email/JKQG7CQWI66J5KKV5UYP3MECTA7FMQQ2
+Confirm Email https://fe1-stv.uat.example.=
+invalid/verify-email/A7HK2QMXR4TB9WVZ6NDJ3PLC5FGS8YE1
 
 If you did not request =
 this, you can safely ignore this message.
 
 Best regards,
 
-The Zerocap Support Team
+The Example Co Support Team
 
 
 
-Zerocap PTY LTD, 412 St Kilda Rd, Melbourne, =
-Victoria 3004, Australia, 1800 937 622
-=C2=A9 2025 Zerocap PTY LTD. All =
+Example Co Pty Ltd, 1 Test Street, Somewhere, =
+State 0000, Country, 0000 000 000
+=C2=A9 2025 Example Co Pty Ltd. All =
 Rights Reserved.
 ----_NmP-f2d9fc94578eda37-Part_1
 Content-Type: text/html; charset=utf-8
@@ -209,7 +209,7 @@ stroke=3D"#E8E8E8" stroke-width=3D"0.3"></path>
 d=3D"M12.0242 3.76076L20.73 8.81834L24.0054 6.91635L12.0242 0L0 6.91635L3.=
 27542 8.81834L12.0242 3.76076Z" fill=3D"#A83031"></path></svg>
                             <span style=3D"margin-left:8px; =
-vertical-align:middle;">ZEROCAP</span>
+vertical-align:middle;">EXAMPLE CO</span>
                           </td>
                         </tr>
                       </tbody></table>
@@ -222,7 +222,7 @@ Inter, Segoe UI, Arial, sans-serif;font-size: 16px;line-height: 24px;color:=
  #0b0c0c">
     <p style=3D"margin:0 0 16px 0;">Hello <strong>Journey =
 Probe</strong>,</p>
-    <p style=3D"margin:0 0 16px 0;">Welcome to Zerocap.=
+    <p style=3D"margin:0 0 16px 0;">Welcome to Example Co.=
 </p>
     <p style=3D"margin:0 0 8px 0;">To complete your registration, =
 please confirm your email address by clicking the link below:</p>
@@ -236,8 +236,8 @@ align=3D"left">
         <td bgcolor=3D"#0B0B0B" =
 style=3D"border-radius:6px;">
           <a class=3D"btn" =
-href=3D"https://fe1-stv.uat.icecap.me/verify-email/JKQG7CQWI66J5KKV5UYP3MEC=
-TA7FMQQ2" target=3D"_blank" style=3D"display:inline-block; padding:10px =
+href=3D"https://fe1-stv.uat.example.invalid/verify-email/A7HK2QMXR4TB9WVZ6NDJ3PLC=
+5FGS8YE1" target=3D"_blank" style=3D"display:inline-block; padding:10px =
 18px; font-family:Inter, Segoe UI, Arial, sans-serif; font-size:14px; =
 line-height:20px; color:#ffffff; background:#0b0b0b; border-radius:6px; =
 font-weight:600;">Confirm Email</a>
@@ -260,7 +260,7 @@ safely ignore this message.</p>
 style=3D"padding:8px 28px 24px 28px; font-family:Inter, Segoe UI, Arial, =
 sans-serif; font-size:13px; line-height:20px; color:#4a4f55;">
     <p style=3D"margin:0 0 2px 0;">Best regards,</p>
-    <p style=3D"margin:0;">The Zerocap Support Team</p>
+    <p style=3D"margin:0;">The Example Co Support Team</p>
   </td>
 </tr>
 
@@ -280,9 +280,9 @@ width=3D"100%">
                           <td class=3D"muted" style=3D"font-family:Inter, =
 Segoe UI, Arial, sans-serif; font-size:11px; line-height:16px; =
 color:#6b7177;">
-                            Zerocap PTY LTD, 412 St Kilda =
-Rd, Melbourne, Victoria 3004, Australia, 1800 937 622<br>
-                            =C2=A9 2025 Zerocap PTY LTD. All Rights =
+                            Example Co Pty Ltd, 1 Test =
+Street, Somewhere, State 0000, Country, 0000 000 000<br>
+                            =C2=A9 2025 Example Co Pty Ltd. All Rights =
 Reserved.
                           </td>
                           <td =

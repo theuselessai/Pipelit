@@ -59,14 +59,14 @@ class TestRegistration:
         from typing import get_args
 
         from models.node import COMPONENT_TYPE_TO_CONFIG
-        from schemas.node import ComponentTypeStr
+        from schemas.node import STATIC_COMPONENT_TYPES
         from schemas.node_types import NODE_TYPE_REGISTRY
 
         for name in ("mailbox_action", "mailbox_parse"):
             assert name in COMPONENT_REGISTRY, f"{name} has no component factory"
             assert name in COMPONENT_TYPE_TO_CONFIG, f"{name} has no polymorphic config"
             assert name in NODE_TYPE_REGISTRY, f"{name} is not in the node type registry"
-            assert name in get_args(ComponentTypeStr), f"{name} is not an accepted API literal"
+            assert name in STATIC_COMPONENT_TYPES, f"{name} is not an accepted built-in type"
 
     def test_parse_node_is_not_executable(self):
         """It is a sub-component tool, not a flow node."""
@@ -202,18 +202,21 @@ class TestOperations:
 
 class TestPrune:
     """Prune is the one destructive operation, and the prefix it matches on is
-    NOT ours — `e2e` belongs to portal-client's e2eId() and is shared across
-    repos. `tmpe2e178623933674lfew@mcp.kiwi` is the only funded, vendor-ready UAT
-    fixture and matches it. Nothing in the portal API deletes a user, so removing
+    NOT ours — the conventional `e2e` prefix comes from a shared id generator
+    used across several repos. A permanent, funded, vendor-ready UAT fixture
+    matches it too, and nothing in the upstream API deletes a user, so removing
     that mailbox strands an account that cannot be recreated.
+
+    The address below is a stand-in; the real one lives in the fixture inventory
+    and deliberately does not appear in this repo.
     """
 
-    FUNDED_FIXTURE = "tmpe2e178623933674lfew@mcp.kiwi"
+    FUNDED_FIXTURE = "tmpe2ekeepme0000@mail.invalid"
 
     def _addresses(self):
         return [
-            {"id": 1, "name": "tmpe2eaaa@mcp.kiwi", "created_at": "2020-01-01 00:00:00"},
-            {"id": 2, "name": "tmpsomeoneelse@mcp.kiwi", "created_at": "2020-01-01 00:00:00"},
+            {"id": 1, "name": "tmpe2eaaa@mail.invalid", "created_at": "2020-01-01 00:00:00"},
+            {"id": 2, "name": "tmpsomeoneelse@mail.invalid", "created_at": "2020-01-01 00:00:00"},
             {"id": 3, "name": self.FUNDED_FIXTURE, "created_at": "2020-01-01 00:00:00"},
         ]
 
@@ -269,7 +272,7 @@ class TestPrune:
         threshold separates junk from treasure."""
         with patch(CONFIG_PATCH), \
                 patch("components.mailbox.mb.list_addresses",
-                      side_effect=[[{"id": 9, "name": "tmpe2enew@mcp.kiwi",
+                      side_effect=[[{"id": 9, "name": "tmpe2enew@mail.invalid",
                                      "created_at": "2999-01-01 00:00:00"}], []]), \
                 patch("components.mailbox.mb.delete_mailbox") as delete:
             out = _build(_node("prune_mailboxes", prefix="tmpe2e", dry_run=False,
@@ -279,7 +282,7 @@ class TestPrune:
         delete.assert_not_called()
 
     def test_refuses_a_sweep_above_the_ceiling(self):
-        many = [{"id": i, "name": f"tmpe2e{i}@mcp.kiwi", "created_at": "2020-01-01 00:00:00"}
+        many = [{"id": i, "name": f"tmpe2e{i}@mail.invalid", "created_at": "2020-01-01 00:00:00"}
                 for i in range(60)]
         with patch(CONFIG_PATCH), \
                 patch("components.mailbox.mb.list_addresses", side_effect=[many, []]), \

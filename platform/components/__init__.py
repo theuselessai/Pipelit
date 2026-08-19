@@ -32,6 +32,8 @@ from components import (  # noqa: E402, F401
     agent,
     ai_model,
     assertion,
+    binary_auth,
+    binary_op,
     categorizer,
     code,
     control_flow,

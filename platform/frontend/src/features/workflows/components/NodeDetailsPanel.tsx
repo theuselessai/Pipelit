@@ -3,7 +3,11 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useUpdateNode, useDeleteNode, useScheduleStart, useSchedulePause, useScheduleStop } from "@/api/nodes"
 import { useWorkflows } from "@/api/workflows"
 import { useCredentials, useCredentialModels } from "@/api/credentials"
+import { useNodeTypes } from "@/api/workflows"
+import SchemaConfigForm from "@/components/SchemaConfigForm"
+import { coerceBySchema, filterOperationsToDomain, isOperationSchema, operationSchemaForNode } from "@/lib/operationSchema"
 import { useWorkspaces } from "@/api/workspaces"
+import { useBinaryCatalogs, usePlugins } from "@/api/plugins"
 
 import { useManualExecute } from "@/api/executions"
 import { wsManager } from "@/lib/wsManager"
@@ -56,85 +60,6 @@ function formatTimestamp(ts: string | undefined): string {
   }
 }
 
-type MailboxField = {
-  key: string
-  label: string
-  type: "text" | "number" | "boolean"
-  placeholder?: string
-  help?: string
-}
-
-/**
- * The parameters each mailbox operation reads from extra_config.
- *
- * Data-driven rather than a block of conditionals per operation: the node
- * carries eight operations and the set will grow, and this is the shape
- * NodeTypeSpec.config_schema would take if anything consumed it yet.
- *
- * Text fields accept {{ }} expressions, which is how an address reaches a
- * downstream node — so nothing here is validated as a literal.
- */
-const MAILBOX_ADDRESS: MailboxField = {
-  key: "address", label: "Address", type: "text",
-  placeholder: "{{ create_mailbox_1.address }}",
-  help: "Use the address the service returned, never one rebuilt from the name.",
-}
-const MAILBOX_JWT: MailboxField = {
-  key: "jwt", label: "Mailbox JWT", type: "text",
-  placeholder: "{{ create_mailbox_1.jwt }}",
-  help: "Optional. Supplying it keeps the full-service admin secret out of this call.",
-}
-const MAILBOX_TIMEOUT: MailboxField = {
-  key: "timeout_seconds", label: "Timeout (seconds)", type: "number",
-  placeholder: "150", help: "Verification mail has been observed at 60-120s.",
-}
-
-const MAILBOX_OPERATION_FIELDS: Record<string, MailboxField[]> = {
-  create_mailbox: [
-    { key: "name", label: "Name", type: "text", placeholder: "(random, e2e-prefixed)",
-      help: "Alphanumeric only — the service silently strips everything else." },
-  ],
-  delete_mailbox: [
-    { key: "address_id", label: "Address ID", type: "text",
-      placeholder: "{{ create_mailbox_1.address_id }}",
-      help: "The numeric id, not the address. This is what revokes the mailbox JWT." },
-  ],
-  list_mails: [MAILBOX_ADDRESS, MAILBOX_JWT],
-  wait_for_mail: [
-    MAILBOX_ADDRESS, MAILBOX_JWT,
-    { key: "contains", label: "Body contains", type: "text",
-      help: "Optional. Without it the first message that arrives matches." },
-    MAILBOX_TIMEOUT,
-    { key: "poll_seconds", label: "Poll interval (seconds)", type: "number", placeholder: "2" },
-  ],
-  wait_for_verification_email: [MAILBOX_ADDRESS, MAILBOX_JWT, MAILBOX_TIMEOUT],
-  wait_for_reset_password_email: [MAILBOX_ADDRESS, MAILBOX_JWT, MAILBOX_TIMEOUT],
-  list_unknown_mails: [],
-  prune_mailboxes: [
-    { key: "prefix", label: "Prefix", type: "text", placeholder: "tmpe2e",
-      help: "Required, no default: this prefix is shared across repos and matches other suites' mailboxes." },
-    { key: "protect", label: "Protect (comma separated)", type: "text",
-      placeholder: "tmpe2e178623933674lfew@mcp.kiwi",
-      help: "Required to delete. Reconcile against portal-client/docs/funded-entity-handover.md first." },
-    { key: "older_than_days", label: "Only older than (days)", type: "number",
-      help: "Secondary guard. Measured: it cannot separate junk from the permanent fixtures." },
-    { key: "limit", label: "Scan limit", type: "number", placeholder: "100" },
-    { key: "dry_run", label: "Dry run", type: "boolean" },
-    { key: "confirm", label: "Confirm deletion", type: "boolean" },
-  ],
-}
-
-const MAILBOX_OPERATION_HELP: Record<string, string> = {
-  create_mailbox: "Creates a disposable address. Emits address, address_id and a mailbox-scoped jwt.",
-  wait_for_verification_email: "Polls for the confirmation mail, then extracts its token. Needs address; jwt optional but avoids using the admin secret.",
-  wait_for_reset_password_email: "Same, for the password-reset token.",
-  wait_for_mail: "Polls until any message arrives, or one matching `contains`.",
-  list_mails: "Lists what is currently in the mailbox.",
-  delete_mailbox: "Deletes by address_id. This is what revokes the mailbox jwt.",
-  list_unknown_mails: "Mail sent to addresses that do not exist — use when a wait times out.",
-  prune_mailboxes: "Bulk delete by prefix. Dry-run unless confirm=true, and requires an explicit protect list.",
-}
-
 export default function NodeDetailsPanel({ slug, node, workflow, onClose }: Props) {
   // key={node.node_id} causes React to fully remount when switching nodes,
   // so all useState initializers run fresh — no stale state across nodes.
@@ -158,6 +83,12 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
   const [systemPrompt, setSystemPrompt] = useState(node.config.system_prompt)
   const [extraConfig, setExtraConfig] = useState(JSON.stringify(node.config.extra_config, null, 2))
+  // Config for node types whose form comes from their schema rather than from a
+  // branch in this file. Seeded from extra_config because that is where it
+  // lives — this form edits the same object the JSON editor below does.
+  const [schemaConfig, setSchemaConfig] = useState<Record<string, unknown>>(
+    () => ({ ...(node.config.extra_config ?? {}) })
+  )
   const [llmCredentialId, setLlmCredentialId] = useState<string>(node.config.llm_credential_id?.toString() ?? "")
   const [modelName, setModelName] = useState(node.config.model_name ?? "")
   const [temperature, setTemperature] = useState<string>(node.config.temperature?.toString() ?? "")
@@ -282,24 +213,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
   // Not trigger-specific: credential_id is one column on component_configs,
   // shared by triggers and by any node in CREDENTIALED_NODE_TYPES.
   const [credentialId, setCredentialId] = useState<string>(node.config.credential_id?.toString() ?? "")
-  const [mailboxOperation, setMailboxOperation] = useState<string>(
-    (node.config.extra_config?.operation as string) ?? "create_mailbox"
-  )
-  const [mailboxParams, setMailboxParams] = useState<Record<string, string | boolean>>(() => {
-    const extra = (node.config.extra_config ?? {}) as Record<string, unknown>
-    const seeded: Record<string, string | boolean> = {}
-    for (const fields of Object.values(MAILBOX_OPERATION_FIELDS)) {
-      for (const f of fields) {
-        if (extra[f.key] === undefined) continue
-        seeded[f.key] = f.type === "boolean"
-          ? Boolean(extra[f.key])
-          : Array.isArray(extra[f.key]) ? (extra[f.key] as unknown[]).join(", ") : String(extra[f.key])
-      }
-    }
-    // dry_run defaults on: prune deletes real mailboxes on a shared instance
-    if (seeded.dry_run === undefined) seeded.dry_run = true
-    return seeded
-  })
   const [triggerIsActive, setTriggerIsActive] = useState(node.config.is_active ?? true)
   const [triggerPriority, setTriggerPriority] = useState<string>(node.config.priority?.toString() ?? "0")
   const [triggerConfig, setTriggerConfig] = useState(JSON.stringify(node.config.trigger_config ?? {}, null, 2))
@@ -344,6 +257,34 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
 
   const credId = llmCredentialId ? Number(llmCredentialId) : undefined
   const { data: availableModels } = useCredentialModels(credId)
+
+  // Any node type that ships an operation schema gets its form rendered from
+  // that schema. Deliberately not a list of component types: the derived ones
+  // are not knowable here, and a built-in that grows a config_schema should get
+  // the same treatment without this file changing.
+  const { data: nodeTypeRegistry } = useNodeTypes()
+  const nodeTypeSpec = nodeTypeRegistry?.[node.component_type]
+  // Binary nodes resolve their schema per NODE: a binary_op's operations live
+  // in whichever binary's catalog extra_config.binary names, and a binary_auth
+  // needs that binary spread in as x-binary for the session/environment
+  // pickers. Reads live schemaConfig, not the saved node, so choosing a binary
+  // in the select below brings up its operations before saving. The dropdown
+  // is filtered to the node's domain — the palette entry that created it.
+  // Deliberately not memoized: cheap, and this file's hook-lint baseline is
+  // frozen at 8 problems.
+  const { data: binaryCatalogs } = useBinaryCatalogs()
+  const { data: plugins } = usePlugins()
+  const isBinaryNode = node.component_type === "binary_op" || node.component_type === "binary_auth"
+  const rawOperationSchema = operationSchemaForNode(
+    node.component_type, schemaConfig, nodeTypeSpec, binaryCatalogs?.items)
+  const effectiveSchema = rawOperationSchema && node.component_type === "binary_op"
+    ? filterOperationsToDomain(
+        rawOperationSchema,
+        schemaConfig.domain as string | undefined,
+        schemaConfig.operation as string | undefined,
+      )
+    : rawOperationSchema
+  const isSchemaDriven = isOperationSchema(effectiveSchema)
 
   const isLLMNode = node.component_type === "ai_model"
   const isAgentNode = node.component_type === "agent" || node.component_type === "deep_agent"
@@ -436,22 +377,15 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
     if (node.component_type === "assertion") {
       parsedExtra = { ...parsedExtra, rules: assertionRules, use_llm_judge: assertionJudge, pass_threshold: assertionThreshold }
     }
-    if (node.component_type === "mailbox_action") {
-      parsedExtra = { ...parsedExtra, operation: mailboxOperation }
-      for (const f of MAILBOX_OPERATION_FIELDS[mailboxOperation] ?? []) {
-        const v = mailboxParams[f.key]
-        if (f.type === "boolean") {
-          parsedExtra[f.key] = Boolean(v)
-        } else if (typeof v === "string" && v.trim() !== "") {
-          // `protect` is a list; everything else is a scalar. Numbers stay
-          // strings when they carry a {{ }} expression rather than a literal.
-          parsedExtra[f.key] = f.key === "protect"
-            ? v.split(",").map((x) => x.trim()).filter(Boolean)
-            : f.type === "number" && !v.includes("{{") ? Number(v) : v
-        } else {
-          delete parsedExtra[f.key]
-        }
+    if (isSchemaDriven && effectiveSchema) {
+      parsedExtra = {
+        ...parsedExtra,
+        ...coerceBySchema(effectiveSchema, schemaConfig.operation as string, schemaConfig),
       }
+    } else if (isBinaryNode) {
+      // No schema resolved (no binary chosen yet, or its catalog is
+      // unreadable) — still persist what the Binary select set.
+      parsedExtra = { ...parsedExtra, ...schemaConfig }
     }
     if (node.component_type === "merge") {
       parsedExtra = { ...parsedExtra, mode: mergeMode }
@@ -1555,27 +1489,64 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
         </>
       )}
 
+      {isBinaryNode && (
+        <>
+          <Separator />
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">
+              Binary<span className="text-destructive ml-0.5">*</span>
+            </Label>
+            <Select
+              value={(schemaConfig.binary as string) ?? ""}
+              // Changing the binary drops domain, operation and parameters:
+              // they all belong to the previous binary's catalog and would be
+              // meaningless — or dangerous — carried across.
+              onValueChange={(v) => setSchemaConfig({ binary: v })}
+            >
+              <SelectTrigger className={`text-xs h-7${schemaConfig.binary ? "" : " border-destructive"}`}>
+                <SelectValue placeholder="Choose a registered binary" />
+              </SelectTrigger>
+              <SelectContent>
+                {(plugins?.items ?? []).filter((p) => p.registered).map((p) => (
+                  <SelectItem key={p.plugin} value={p.binary ?? p.plugin}>
+                    {p.binary ?? p.plugin}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!schemaConfig.binary && (
+              <p className="text-[10px] text-destructive">
+                Required. Operations come from the binary's catalog — nothing can be
+                configured until a binary is chosen.
+              </p>
+            )}
+            {Boolean(schemaConfig.binary) && node.component_type === "binary_op" && !isSchemaDriven && (
+              <p className="text-[10px] text-destructive">
+                This binary's catalog could not be read, so its operations cannot be
+                offered. Re-registering the plugin restores them.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+      {isSchemaDriven && effectiveSchema && (
+        <>
+          <Separator />
+          <SchemaConfigForm
+            schema={effectiveSchema}
+            value={schemaConfig}
+            onChange={setSchemaConfig}
+          />
+        </>
+      )}
       {node.component_type === "mailbox_action" && (
         <>
           <Separator />
+          {/* Operation and parameters render from this node type's own
+              config_schema, like every other schema-driven node. The credential
+              stays here: it lives on the config row rather than in extra_config,
+              so the shared form has no way to reach it. */}
           <div className="space-y-3">
-            <Label className="text-xs font-semibold">Mailbox Operation</Label>
-            <Select value={mailboxOperation} onValueChange={setMailboxOperation}>
-              <SelectTrigger className="text-xs h-7"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="create_mailbox">Create mailbox</SelectItem>
-                <SelectItem value="wait_for_verification_email">Wait for verification email</SelectItem>
-                <SelectItem value="wait_for_reset_password_email">Wait for password-reset email</SelectItem>
-                <SelectItem value="wait_for_mail">Wait for any mail</SelectItem>
-                <SelectItem value="list_mails">List mail</SelectItem>
-                <SelectItem value="delete_mailbox">Delete mailbox</SelectItem>
-                <SelectItem value="list_unknown_mails">List unknown mail (diagnostic)</SelectItem>
-                <SelectItem value="prune_mailboxes">Prune mailboxes</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground">
-              {MAILBOX_OPERATION_HELP[mailboxOperation] ?? ""}
-            </p>
             <Label className="text-xs font-semibold">Credential</Label>
             <Select value={credentialId || "none"} onValueChange={(v) => setCredentialId(v === "none" ? "" : v)}>
               <SelectTrigger className="text-xs h-7"><SelectValue placeholder="Select mailbox credential" /></SelectTrigger>
@@ -1586,34 +1557,6 @@ function NodeConfigPanel({ slug, node, workflow, onClose }: Props) {
                 ))}
               </SelectContent>
             </Select>
-            {(MAILBOX_OPERATION_FIELDS[mailboxOperation] ?? []).map((f) => (
-              <div key={f.key} className="space-y-1">
-                {f.type === "boolean" ? (
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">{f.label}</Label>
-                    <Switch
-                      checked={Boolean(mailboxParams[f.key])}
-                      onCheckedChange={(v) => setMailboxParams((prev) => ({ ...prev, [f.key]: v }))}
-                    />
-                  </div>
-                ) : (
-                  <>
-                    <Label className="text-xs">{f.label}</Label>
-                    <Input
-                      className="text-xs h-7"
-                      value={String(mailboxParams[f.key] ?? "")}
-                      placeholder={f.placeholder}
-                      onChange={(e) => setMailboxParams((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                    />
-                  </>
-                )}
-                {f.help && <p className="text-[10px] text-muted-foreground">{f.help}</p>}
-              </div>
-            ))}
-            <p className="text-[10px] text-muted-foreground">
-              Text fields accept {"{{ }}"} expressions. Anything not listed here can still be set
-              in Extra Config below.
-            </p>
           </div>
         </>
       )}

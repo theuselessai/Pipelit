@@ -8,7 +8,7 @@ import {
   faFileExport, faRepeat, faClock, faCodeMerge, faFilter,
   faCalendarDays, faHandPointer, faHourglass, faHeartPulse,
   faPlay, faBug, faComments, faCircleNotch, faCircleCheck, faCircleXmark, faMinus,
-  faTerminal, faUserPlus, faPlug, faFingerprint,
+  faTerminal, faUserPlus, faPlug, faFingerprint, faCubes,
   faDatabase, faFloppyDisk, faIdCard,
   faEnvelope, faEnvelopeOpenText,
   faRocket, faPenRuler, faCompass, faBrain, faGraduationCap,
@@ -42,12 +42,14 @@ import {
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import type { WorkflowDetail, ComponentType, EdgeLabel, SwitchRule } from "@/types/models"
+import { emittedPortNames, narrowOutput, operationSchemaForNode } from "@/lib/operationSchema"
 import type { NodeStatus } from "@/types/nodeIO"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useCreateEdge, useDeleteEdge } from "@/api/edges"
 import { useUpdateNode, useDeleteNode } from "@/api/nodes"
 import { useCredentials } from "@/api/credentials"
 import { useNodeTypes } from "@/api/workflows"
+import { useBinaryCatalogs } from "@/api/plugins"
 import { wsManager } from "@/lib/wsManager"
 
 const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
@@ -62,6 +64,8 @@ const NODE_STATUS_COLORS: Record<NodeStatus, string> = {
 const COMPONENT_COLORS: Record<string, string> = {
   mailbox_action: "#0ea5e9",
   mailbox_parse: "#38bdf8",
+  binary_op: "#0d9488",
+  binary_auth: "#0d9488",
   ai_model: "#3b82f6",
   agent: "#8b5cf6",
   deep_agent: "#7c3aed",
@@ -105,6 +109,8 @@ const COMPONENT_COLORS: Record<string, string> = {
 const COMPONENT_ICONS: Record<string, IconDefinition> = {
   mailbox_action: faEnvelope,
   mailbox_parse: faEnvelopeOpenText,
+  binary_op: faCubes,
+  binary_auth: faIdCard,
   ai_model: faMicrochip, agent: faRobot, deep_agent: faBrain,
   categorizer: faTags, router: faCodeBranch, switch: faCodeBranch, extractor: faMagnifyingGlassChart,
   run_command: faTerminal,
@@ -129,7 +135,7 @@ function getColor(type: string) {
   return COMPONENT_COLORS[type] || COMPONENT_COLORS.default
 }
 
-function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean; nodeOutput?: Record<string, unknown>; operation?: string }; selected?: boolean }) {
+function WorkflowNodeComponent({ data, selected }: { data: { label: string; componentType: ComponentType; isEntryPoint: boolean; modelName?: string; providerType?: string; executionStatus?: NodeStatus; executable?: boolean; rules?: SwitchRule[]; enableFallback?: boolean; nodeOutput?: Record<string, unknown>; operation?: string; unconfigured?: boolean }; selected?: boolean }) {
   const iconColor = getColor(data.componentType)
   const isRunning = data.executionStatus === "running"
   const isWaiting = data.executionStatus === "waiting"
@@ -166,7 +172,7 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
           <div
             className="rounded-sm border flex items-center justify-center"
             style={{
-              borderColor: isRunning ? NODE_STATUS_COLORS.running : isWaiting ? NODE_STATUS_COLORS.waiting : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : "#94a3b8",
+              borderColor: isRunning ? NODE_STATUS_COLORS.running : isWaiting ? NODE_STATUS_COLORS.waiting : isSuccess ? NODE_STATUS_COLORS.success : isFailed ? NODE_STATUS_COLORS.failed : data.unconfigured ? NODE_STATUS_COLORS.skipped : "#94a3b8",
               width: isTool ? 14 : 20,
               height: isTool ? 14 : 20,
             }}
@@ -179,6 +185,11 @@ function WorkflowNodeComponent({ data, selected }: { data: { label: string; comp
               ? <FontAwesomeIcon icon={faCircleCheck} style={{ color: NODE_STATUS_COLORS.success, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
               : isFailed
               ? <FontAwesomeIcon icon={faCircleXmark} style={{ color: NODE_STATUS_COLORS.failed, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
+              : data.unconfigured
+              /* A binary node without its operation (or binary) set. Edges to
+                 it are deliberately ALLOWED at creation — validate reports it —
+                 so this state must never be invisible on the canvas. */
+              ? <FontAwesomeIcon icon={faTriangleExclamation} title="Not configured: choose an operation in the node's details panel" style={{ color: NODE_STATUS_COLORS.skipped, width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
               : <FontAwesomeIcon icon={faMinus} className="opacity-40" style={{ color: "#94a3b8", width: isTool ? 8 : 10, height: isTool ? 8 : 10 }} />
             }
           </div>
@@ -408,6 +419,7 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
   const deleteEdge = useDeleteEdge(slug)
   const { data: credentials } = useCredentials()
   const { data: nodeTypeRegistry } = useNodeTypes()
+  const { data: binaryCatalogs } = useBinaryCatalogs()
 
   // Track node execution status and outputs from WebSocket events
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({})
@@ -453,10 +465,10 @@ export default function WorkflowCanvas({ slug, workflow, selectedNodeId, onSelec
       id: n.node_id,
       type: "workflowNode",
       position: { x: n.position_x, y: n.position_y },
-      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: nodeOutputs[n.node_id], operation: n.component_type === "mailbox_action" ? ((n.config?.extra_config?.operation as string) || "create_mailbox") : undefined },
+      data: { label: n.label || n.node_id, componentType: n.component_type, isEntryPoint: n.is_entry_point, modelName: n.config?.model_name || undefined, providerType, executionStatus: nodeStatuses[n.node_id], executable: nodeTypeRegistry?.[n.component_type]?.executable, rules: n.component_type === "switch" ? ((n.config?.extra_config?.rules as SwitchRule[]) ?? []) : undefined, enableFallback: n.component_type === "switch" ? Boolean(n.config?.extra_config?.enable_fallback) : false, nodeOutput: narrowOutput(nodeOutputs[n.node_id], emittedPortNames(operationSchemaForNode(n.component_type, n.config?.extra_config, nodeTypeRegistry?.[n.component_type], binaryCatalogs?.items), n.config?.extra_config)), operation: (n.config?.extra_config?.operation as string) || (n.component_type === "mailbox_action" ? "create_mailbox" : undefined), unconfigured: (n.component_type === "binary_op" || n.component_type === "binary_auth") && (!n.config?.extra_config?.binary || !n.config?.extra_config?.operation) },
       selected: n.node_id === selectedNodeId,
     }
-  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry])
+  }), [workflow.nodes, selectedNodeId, credentialMap, nodeStatuses, nodeOutputs, nodeTypeRegistry, binaryCatalogs])
 
   const initialEdges: Edge[] = useMemo(() => workflow.edges.map((e) => {
     const LABEL_TO_HANDLE: Record<string, string> = { llm: "model", tool: "tools", output_parser: "output_parser", skill: "skills" }

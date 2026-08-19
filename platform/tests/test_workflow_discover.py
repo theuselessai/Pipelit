@@ -66,10 +66,12 @@ class TestRegistration:
         assert "workflow_discover" in SUB_COMPONENT_TYPES
 
     def test_in_component_type_str(self):
-        import typing
-        from schemas.node import ComponentTypeStr
-        args = typing.get_args(ComponentTypeStr)
-        assert "workflow_discover" in args
+        # ComponentTypeStr stopped being a Literal when node types became
+        # derivable from binary catalogs at import — a Literal cannot name a type
+        # that comes from an operator-supplied file. The built-in list it used to
+        # hold is STATIC_COMPONENT_TYPES, and that is what this check is about.
+        from schemas.node import STATIC_COMPONENT_TYPES
+        assert "workflow_discover" in STATIC_COMPONENT_TYPES
 
 
 # ── End-to-end tool invocation ───────────────────────────────────────────────

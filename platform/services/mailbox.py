@@ -1,9 +1,9 @@
 """Temp-mail driver — a self-hosted `cloudflare_temp_email` instance.
 
-Ported from test-hub's TypeScript `src/drivers/mail`, which was itself ported
-from portal-client's `src/test/adapters/mailbox.ts`. The comments that explain
-*why* something is done a particular way are carried across deliberately: they
-document bugs that were paid for once already.
+Ported from an internal TypeScript driver, which was itself ported from an
+earlier test-suite adapter. The comments that explain *why* something is done a
+particular way are carried across deliberately: they document bugs that were
+paid for once already.
 
 ─────────────────────────────────────────────────────────────────────────────
 USE THIS FOR TRANSITIONS, NEVER FOR ASSERTIONS.
@@ -347,15 +347,15 @@ def decode_quoted_printable(text: str) -> str:
     """Decode quoted-printable.
 
     **Soft line breaks must be removed BEFORE `=XX` decoding**, and this is not a
-    detail. A real confirmation email captured 2026-08-08 splits its own link,
+    detail. A confirmation email captured from the live service splits its link,
     and because quoted-printable wraps purely on line length, the two MIME parts
     break in *different* places:
 
-        text/plain   …Confirm Email https://fe1-stv.uat.icecap.=
-                     me/verify-email/JKQG7CQWI66J5KKV5UYP3MECTA7FMQQ2
+        text/plain   …Confirm Email https://fe1-stv.uat.example.=
+                     invalid/verify-email/A7HK2QMXR4TB9WVZ6NDJ3PLC5FGS8YE1
 
-        text/html    …href="https://fe1-stv.uat.icecap.me/verify-email/JKQG7CQWI66J5KKV5UYP3MEC=
-                     TA7FMQQ2" target="_blank"…
+        text/html    …href="https://fe1-stv.uat.example.invalid/verify-email/A7HK2QMXR4TB9WVZ6NDJ3PLC=
+                     5FGS8YE1" target="_blank"…
 
     So an undecoded `https?://…` regex gets an unusable host from the plain part
     and a **24-character prefix of a 32-character token** from the html part —
@@ -371,8 +371,8 @@ def decode_quoted_printable(text: str) -> str:
 
 _URL_RE = re.compile(r"https?://[^\s\"'<>]{10,1200}")
 """The upper bound is load-bearing. It was 300 in an earlier version of this
-parser and silently TRUNCATED real tokens (found 2026-08-09 by portal-client's
-`features/live-passkey-reset.feature`). A capped greedy quantifier does not fail
+parser and silently TRUNCATED real tokens (found 2026-08-09 by the upstream
+suite's live passkey-reset scenario). A capped greedy quantifier does not fail
 on an over-long URL — it returns a prefix, so the caller gets a token that looks
 entirely plausible and is rejected downstream, pointing the blame at the endpoint
 rather than at here. The bound is kept, because an unbounded match in a mail body
