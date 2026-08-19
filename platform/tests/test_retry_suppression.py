@@ -128,7 +128,11 @@ def _run_binary_node(envelope=None, extra_config=None, retry_count=0, spawn=None
 
     ops = _OPERATIONS if operations is _DEFAULT_OPS else operations
 
-    config = {"binary": "fake-bin", "operation": "op.write"}
+    # `op.write` needs no identity, and an operation with neither a session nor
+    # an environment is refused BEFORE the spawn — it leaves the binary nothing
+    # to resolve a host from. These tests are about what happens to the
+    # ENVELOPE, so the node has to be configured well enough to produce one.
+    config = {"binary": "fake-bin", "operation": "op.write", "env": "e1"}
     config.update(extra_config or {})
     mock_db, mock_execution = _make_mock_db(extra_config=config)
     mock_q = MagicMock()

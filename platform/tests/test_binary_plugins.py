@@ -209,6 +209,42 @@ class TestInvocation:
         argv = json.loads((io_dir(plugin) / "last_argv.json").read_text())
         assert argv == ["--session", "s1", "call", "things.doThing"]
 
+    def test_a_session_free_operation_is_called_with_env_and_no_session(self, plugin, tmp_path):
+        """The other half of the rule above, and until now untested.
+
+        An operation declaring `session.required: false` has no identity to
+        carry an environment binding, so `--env` is the only way `call` learns
+        which host to dial. Every operation on both installed binaries requires
+        a session, so this branch has never executed — a third binary arrives
+        with 21 public operations (registration, password reset, health) and
+        will be the first to run it.
+        """
+        catalog = _catalog()
+        catalog["operations"][0]["session"] = {"required": False}
+        (tmp_path / "catalogs" / "fake-bin.json").write_text(json.dumps(catalog))
+        respond(plugin, ok({"thing_id": "t"}))
+        run(plugin, env="uat1")
+        argv = json.loads((io_dir(plugin) / "last_argv.json").read_text())
+        assert argv == ["--env", "uat1", "call", "things.doThing"]
+
+    def test_a_session_free_operation_still_needs_an_environment(self, plugin, tmp_path):
+        """Needing no IDENTITY is not the same as needing no HOST.
+
+        A session carries its environment binding, so an operation that needs
+        neither leaves the binary nothing to dial. Refused here rather than
+        spawned: the binary's own refusal would be correct but arrives after a
+        process start and reads as a fault in the binary rather than a node
+        nobody finished configuring.
+        """
+        catalog = _catalog()
+        catalog["operations"][0]["session"] = {"required": False}
+        (tmp_path / "catalogs" / "fake-bin.json").write_text(json.dumps(catalog))
+        respond(plugin, ok({"thing_id": "t"}))
+        with pytest.raises(Exception) as exc:
+            run(plugin)
+        assert type(exc.value).__name__ == "MISSING_ENV"
+        assert not (io_dir(plugin) / "last_argv.json").exists(), "the binary must not have been spawned"
+
     def test_only_declared_params_are_sent(self, plugin):
         respond(plugin, ok({"thing_id": "t"}))
         run(plugin, session="s1", n="value", not_a_param="ignored")

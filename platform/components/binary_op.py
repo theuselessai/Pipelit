@@ -107,6 +107,21 @@ def binary_op_factory(node):
                 f"Identities are held by the binary — establish one with `auth login`.",
             )
 
+        env_name = str(extra.get("env") or "")
+        if not session and not env_name:
+            # A session carries its environment binding, so an operation that
+            # needs no identity still needs an environment: without either, the
+            # binary has nothing to resolve a host from. Refuse here rather than
+            # spawning a call that cannot succeed — the binary's own error would
+            # be correct but arrives after a process start and reads as a fault
+            # in the binary rather than a node that was never configured.
+            raise _error(
+                "MISSING_ENV",
+                f"{operation} needs no identity, so it names an environment "
+                f"directly — and none is set on this node. Register one with "
+                f"`env add` and select it here.",
+            )
+
         argv = list(plugin.argv)
         if session:
             argv += ["--session", session]
@@ -115,9 +130,7 @@ def binary_op_factory(node):
             # meaningful only where there is no identity to carry the binding.
             # Passing it alongside a session is how "this identity, that
             # environment" becomes expressible, and binaries refuse it.
-            env_name = str(extra.get("env") or "")
-            if env_name:
-                argv += ["--env", env_name]
+            argv += ["--env", env_name]
         argv += ["call", operation]
 
         # extra_config has already had its {{ }} expressions resolved upstream.
