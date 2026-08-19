@@ -135,8 +135,38 @@ def list_sessions(binary: str, profile: UserProfile = Depends(get_current_user))
     return {"items": data.get("sessions", []), "unreadable": data.get("unreadable", [])}
 
 
+def _as_named_list(value: object) -> list:
+    """Normalise an environment listing to a list of records carrying `name`.
+
+    The contract does NOT pin the output shape of `env list`, and two binaries
+    answered differently without either being wrong: one returns a list whose
+    records each carry `name`, the other a MAP KEYED BY NAME whose values carry
+    everything else. Both describe the same records.
+
+    Converting the map is not guesswork: its values have no `name` of their own,
+    so the key is the only thing that can be one, and the result is
+    record-for-record identical to the list form. A value that already carries a
+    `name` keeps it — a binary that keys a map by something other than the name
+    is then not silently relabelled.
+
+    Normalising HERE rather than in the caller is deliberate: this endpoint is
+    the single place both the config form and the variable picker read
+    environments through, so a shape nobody anticipated is absorbed once instead
+    of at each site that consumes it — including the site nobody has written yet.
+    """
+    if isinstance(value, dict):
+        out = []
+        for key, item in value.items():
+            if isinstance(item, dict):
+                out.append({"name": item.get("name", key), **item})
+            else:
+                out.append({"name": key, "value": item})
+        return out
+    return value if isinstance(value, list) else []
+
+
 @router.get("/{binary}/environments/")
 def list_environments(binary: str, profile: UserProfile = Depends(get_current_user)):
     """Environments this binary may be pointed at."""
     data = _run_verb(binary, ["env", "list"])
-    return {"items": data.get("envs", data.get("environments", []))}
+    return {"items": _as_named_list(data.get("envs", data.get("environments", [])))}
