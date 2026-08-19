@@ -5,9 +5,9 @@
 
 ## Why this exists
 
-`test-hub/src/catalogue/` holds 113 L1 primitives and **106 curated L2 actions**
+`the legacy harness's catalogue` holds 113 L1 primitives and **106 curated L2 actions**
 across 10 domains, with 46 of 48 known gaps closed and hazards measured against
-live UAT. test-hub is being abandoned.
+live UAT. the legacy harness is being abandoned.
 
 The mailbox nodes were the first extraction from it — 5 of those 106 actions,
 and they cost a services module, a 307-line component, a migration, seven
@@ -62,14 +62,14 @@ expressible eventually gets expressed.
 default, so declaring an environment production is a deliberate act — but the
 kind is *also* cross-checked against the host, and a mismatch is refused at add
 time rather than on the hot path. Integral's driver refuses any host without
-`uat` in it (`test-hub/src/drivers/integral/config.ts`); that check belongs here,
+`uat` in it (`the legacy harness's integral driver config`); that check belongs here,
 once, rather than on every call.
 
 **`env remove` refuses while slots reference it.** Remove the sessions first —
 two explicit steps, the same shape as re-pointing a session id, and no flag.
 
 **The env schema is per-binary and declared in the catalog.** One base URL is not
-always enough: `zc-integral` needs both `/v2/` and the custody root, which live on
+always enough: `acme-integral` needs both `/v2/` and the custody root, which live on
 different hosts.
 
 **`catalog` is environment-independent.** The operation surface is a property of
@@ -83,15 +83,15 @@ diverge.
 
 | binary | repo | authority |
 |---|---|---|
-| `zc-integral` | `gen_2/integral_api_client` | trading account |
-| `zc-portal` | `gen_2/portal-client` | **customer** |
-| `zc-portal-admin` | `gen_2/admin-portal-client` | **admin — 12 irreversible writes, incl. fund release** |
+| `acme-integral` | the trading client's repo | trading account |
+| `acme-portal` | the customer client's repo | **customer** |
+| `acme-portal-admin` | the admin client's repo | **admin — 12 irreversible writes, incl. fund release** |
 
-The `zc-` prefix keeps these the org's binaries rather than Pipelit's — the whole
+The `acme-` prefix keeps these the org's binaries rather than Pipelit's — the whole
 design rests on the binary not knowing Pipelit exists, so a `plit-` prefix would
 encode the dependency backwards.
 
-🔴 **`zc-portal` and `zc-portal-admin` differ by a suffix, and differ by
+🔴 **`acme-portal` and `acme-portal-admin` differ by a suffix, and differ by
 authority.** Tab-completion, a truncated dropdown, and a hurried glance at a node
 config all resolve that difference badly, and the failure is acting with admin
 authority where customer authority was meant. A maximally distinct name was
@@ -104,13 +104,13 @@ allowed to be the only thing carrying the meaning.
 Downstream naming follows:
 
 ```
-binary_id (version-pinned)   zc-portal@1.4.0
-catalog file                 platform/catalogs/zc-portal.json
+binary_id (version-pinned)   acme-portal@1.4.0
+catalog file                 platform/catalogs/acme-portal.json
 node component_type          portal_funding, portal_identity,
                              portal_admin_verification, integral_orders, …
 ```
 
-Component types drop `zc-`: inside Pipelit they share a namespace with
+Component types drop `acme-`: inside Pipelit they share a namespace with
 `mailbox_action` and `switch`, where an org prefix buys nothing and costs canvas
 width.
 
@@ -122,12 +122,12 @@ width.
    mutate every saved workflow's ports, and `resolve_expressions` turns a port
    that vanished into the literal string `{{ node.port }}` travelling onward *as
    if it were a value*. That is what `_blank_ports()` in `components/mailbox.py`
-   exists to prevent. portal-client already enforces this rule on itself:
+   exists to prevent. the customer client already enforces this rule on itself:
    everything in `src/generated/` is committed so the drift check has something
    to compare against.
 
 2. **The catalog records `generated_from`** — source tree *and* commit. There are
-   two copies of the integral client (`gen_2/integral_api_client`, 2026-08-10, is
+   two copies of the integral client (the trading client's repo, 2026-08-10, is
    authoritative; the standalone repo is a month behind). A catalog generated
    from the stale tree hashes cleanly and describes a surface nobody runs.
 
@@ -218,7 +218,7 @@ width.
 
 ## The catalogue format: adopt L1/L2, do not reinvent
 
-test-hub's `ActionDef` already carries what this needs. Two fields in particular
+the legacy harness's `ActionDef` already carries what this needs. Two fields in particular
 were not on our list and would have been missed:
 
 - **`proof`** — how a write is known to have worked: `readBack` (an operation
@@ -279,9 +279,9 @@ operations. Ten node types, not 106 and not 3.
 
 ---
 
-# Binary 1 — `zc-integral`
+# Binary 1 — `acme-integral`
 
-Source of truth: **`gen_2/integral_api_client`** (2026-08-10). 66 public methods:
+Source of truth: **the trading client's repo** (2026-08-10). 66 public methods:
 45 one-shot REST, 4 polling, 17 streaming.
 
 **Scoped to 7 business requirements → 17 operations.**
@@ -300,7 +300,7 @@ Source of truth: **`gen_2/integral_api_client`** (2026-08-10). 66 public methods
 
 ## 🔴 The vendor SDK defaults to PRODUCTION
 
-`test-hub/src/drivers/integral/config.ts`, first line of its documentation:
+`the legacy harness's integral driver config`, first line of its documentation:
 
 > *"The vendor SDK defaults `INTEGRAL_BASE_URL` to PRODUCTION, and its accept
 > endpoint executes a real trade. This driver therefore takes the base URL by
@@ -366,8 +366,8 @@ which is why request-and-quote is one node rather than three.
   *nothing* about whether you traded. `proof: readBack` is mandatory here —
   without it a workflow can accept quotes for a week and never notice it never
   traded. The same applies to `orders.cancel` and `rfs.cancel`.
-- **`INTEGRAL_ORG` is `ZC_` + the *last* 8 hex of the entity UUID**, while scratch
-  credential filenames use the *first* 8 — `…-77cf4035` carries org `ZC_d7a9f5b0`.
+- **`INTEGRAL_ORG` is `ORG_` + the *last* 8 hex of the entity UUID**, while scratch
+  credential filenames use the *first* 8 — `…-aaaaaaaa` carries org `ORG_bbbbbbbb`.
   Recorded as having confused two sessions already.
 - **`expiry` is seconds, not milliseconds**, and is not auto-converted.
 - **`priceType` must be PascalCase `"Spot"`** for spot RFQ; `"OUTRIGHT"` is
@@ -380,17 +380,17 @@ which is why request-and-quote is one node rather than three.
 `POST /sso/login` with username + password + org; `GET /sso/token/renew`. These
 become the `auth` verbs, not catalog operations. `username` and `org` live in
 `ToolCredential.config`; `password` in `secret`. Note the auth analysis was done
-against the *stale* standalone copy and should be re-confirmed against gen_2.
+against the *stale* standalone copy and should be re-confirmed against the authoritative copy.
 
 Balances sit on `/custody/v2/*` with absolute URLs, a different base from `/v2/*`
 — confirm one SSO token authorises both.
 
 ---
 
-# Binary 2 — `zc-portal`
+# Binary 2 — `acme-portal`
 
 129 spec operations across 24 tags in `src/generated/operations.ts`, generated
-from `openapi.json` with a committed drift check. test-hub emits 113 as L1 (16
+from `openapi.json` with a committed drift check. the legacy harness emits 113 as L1 (16
 scope-excluded) and curates **106 L2 actions**, 63 of them mutating, 15 proven by
 read-back.
 
@@ -497,8 +497,8 @@ Two ways in, and no extra verb for either:
 - **`auth login`** — supply username and password for a slot that has none, and
   the credential is saved as a side effect of the first successful login. This
   covers accounts that already exist and cannot be registered, including the
-  permanent UAT fixtures in `portal-client/docs/funded-entity-handover.md`.
-- **`identity.register`** — an *operation*, not an auth verb. test-hub's action
+  permanent UAT fixtures in `the customer client's permanent-fixture inventory`.
+- **`identity.register`** — an *operation*, not an auth verb. the legacy harness's action
   already takes `saveAs: "j1-ubo"` and outputs a `CredentialRef`, so an e2e
   workflow registers an account and the binary saves the identity locally. This
   is how ephemeral personas are born.
@@ -551,26 +551,26 @@ session. This belongs in the docs, loudly.
 
 Names are split word-by-word into a `varchar(32)` username column; an overflow is
 an **unhandled 500, not a 422**, and invitee emails already run 31 of 32
-characters (`identity.register`). Vendor balances are on Zerocap's books — a
-negative `net_bal` means Zerocap *owes* the client, and the displayed balance is
-`-1 * (net_bal - payments_bal)`; use portal-client's
+characters (`identity.register`). Vendor balances are on Acme Corp's books — a
+negative `net_bal` means Acme Corp *owes* the client, and the displayed balance is
+`-1 * (net_bal - payments_bal)`; use the customer client's
 `computeAvailableBalance(mergeBalancesByProduct(rows))` rather than re-deriving
 it (`funding.readBalances`).
 
 ## One repo-shape decision up front
 
-portal-client's core is deliberately framework-free, with a measured boundary
+the customer client's core is deliberately framework-free, with a measured boundary
 graph (`scripts/boundary-graph.mjs`, `src/lib/platform-boundary.test.ts`). A CLI
 entrypoint is a third export condition and will appear in that graph. Decide the
 split before writing it, so the binary does not drag React into the core.
 
 ---
 
-# Binary 3 — `zc-portal-admin`
+# Binary 3 — `acme-portal-admin`
 
 TypeScript library, v0.1.0, headless client for the Django admin back office. No
 OpenAPI spec, no generated registry — hand-coded, so the catalog is
-hand-declared with a drift test (test-hub's pattern for the same driver).
+hand-declared with a drift test (the legacy harness's pattern for the same driver).
 
 **14 operations: 2 read, 12 write. Every write alters real customer state, and
 there is no undo path for most of them.**
@@ -615,8 +615,8 @@ production is a separate decision this plan does not make.
 ## The fixture problem the host assertion does not solve
 
 `deleteOrArchiveEntity` (portal) and the admin review paths reach the permanent
-UAT fixtures in `portal-client/docs/funded-entity-handover.md` —
-`tmpe2e178623933674lfew@mcp.kiwi` belongs to the only funded, vendor-ready entity
+UAT fixtures in `the customer client's permanent-fixture inventory` —
+`tmpkeepme0000@mail.example` belongs to the only funded, vendor-ready entity
 and is described there as irreplaceable. Unrecoverable on UAT is still
 unrecoverable. This is the `prune_mailboxes` lesson: a protect list, not an age
 floor and not a host check.
